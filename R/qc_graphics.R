@@ -437,7 +437,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     threshold <- 0.2 * mean(pca.rest$distance, na.rm = TRUE)
     pca.rest$outlier <- pca.rest$distance > threshold
     
-    if (length(pca.rest$names) > 20) {
       pcafig <- ggplot(pca.rest, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
         geom_point(size = 3, alpha = 0.5) + 
         xlim(xlim) + 
@@ -455,25 +454,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
           legend.text = element_text(size = 14),
           legend.title = element_text(size = 16)
         )
-    } else {
-      pcafig <- ggplot(pca.rest, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
-        geom_point(size = 4) + 
-        xlim(xlim) + 
-        ylim(ylim) + 
-        xlab(xlabel) + 
-        ylab(ylabel) + 
-        geom_text_repel(force = 1.5) + 
-        facet_grid(. ~ variable) + theme_bw() +
-        scale_color_okabeito() +
-        scale_fill_okabeito() +
-        theme(
-          axis.text = element_text(size = 14),
-          axis.title = element_text(size = 16),
-          plot.title = element_text(size = 18, face = "bold"),
-          legend.text = element_text(size = 14),
-          legend.title = element_text(size = 16)
-        )
-    }
+   
     width <- 12
     height <- 6
   } else {
@@ -491,7 +472,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     threshold <- 0.2 * mean(pca.res$distance, na.rm = TRUE)
     pca.res$outlier <- pca.res$distance > threshold
     
-    if (length(rownames(pca.res)) > 20) {
       pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions)) +
         geom_point(size = 3, alpha = 0.5) + 
         xlim(xlim) + 
@@ -506,23 +486,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
           legend.text = element_text(size = 14),
           legend.title = element_text(size = 16)
         )
-    } else {
-      pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
-        geom_point(size = 4) + 
-        xlim(xlim) + 
-        ylim(ylim) + 
-        xlab(xlabel) + 
-        ylab(ylabel) +
-        geom_text_repel(force = 1.5) +
-        theme_bw() +
-        theme(
-          axis.text = element_text(size = 14),
-          axis.title = element_text(size = 16),
-          plot.title = element_text(size = 18, face = "bold"),
-          legend.text = element_text(size = 14),
-          legend.title = element_text(size = 16)
-        )
-    }
+    
     width <- 8
     height <- 6
     if(grepl("norm", imgNm)){
@@ -565,7 +529,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
 
     return(ggp_build)
   } else {
-    # … your existing non‐interactive saving logic …
   if(dpi == 72){
   dpi <- dpi *1.34
   }
