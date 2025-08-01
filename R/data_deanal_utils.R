@@ -554,6 +554,7 @@ SetupDesignMatrix<-function(dataName="", deMethod){
 #'@export
 #'
 PerformLimmaDE<-function(dataName="", grps, p.lvl, fc.lvl=NULL){
+  save.image("limma.RDAta");
   dataSet <- readDataset(dataName);
   dataSet$pval <- p.lvl;
     dataSet$fc.lvl <- 0;
