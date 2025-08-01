@@ -1071,7 +1071,7 @@ qc.gini.plot <- function(gini_df,
   }
 }
 SummarizeQC <- function(fileName, imgNameBase, threshold = 0.1) {
-  save.image("summarize.RData");
+  #save.image("summarize.RData");
   dataSet <- readDataset(fileName)
 
   summary_df <- data.frame(Sample = character(), 

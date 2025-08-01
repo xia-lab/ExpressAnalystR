@@ -906,7 +906,7 @@ setIncludeMeta <- function(metaBool){
 }
 
 DoMetaSigUpdate <- function(BHth=0.05,fc.val=0){
-    save.image("metasig.RData");
+    #save.image("metasig.RData");
     paramSet <- readSet(paramSet, "paramSet");
     analSet <- readSet(analSet, "analSet");
     paramSet$BHth <- BHth;
