@@ -54,7 +54,6 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     hit.inx <- which(colnames(resTable) == "AveExpr");
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
     resTable <- dataSet$comp.res;
-
   } else {
     hit.inx <- which(colnames(resTable) == "logCPM");
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];

@@ -845,6 +845,7 @@ MultiCovariateRegression <- function(fileName,
   dataSet$design <- design;
   dataSet$contrast.type <- analysis.type;
   dataSet$comp.res <- rest;
+  dataSet$comp.res.list <- make_comp_res_list(rest)
   dataSet$de.method <- "limma"
   dataSet$comp.type <- "default"
   dataSet$fit.obj <- fit;
@@ -862,6 +863,45 @@ MultiCovariateRegression <- function(fileName,
 
   RegisterData(dataSet);
   return(dataSet);
+}
+make_comp_res_list <- function(resTab,
+                               stat.cols = c("AveExpr", "F", "t",
+                                             "P.Value", "adj.P.Val",
+                                             "B", "FDR"))
+{
+  ## detect logFC columns automatically -------------------------------
+  lfc.cand <- setdiff(colnames(resTab), stat.cols)
+
+  ## strip common suffix/prefix for the test
+  strip_logfc <- function(x)
+      sub("\\.logFC$","",
+      sub("^logFC\\.","", x, ignore.case = TRUE), ignore.case = TRUE)
+
+  uniq.core <- unique(strip_logfc(lfc.cand))
+
+  if (length(uniq.core) == 0L)
+      stop("Could not detect any log-fold-change columns automatically. ",
+           "Pass lfc.cols explicitly.")
+
+  ## build list --------------------------------------------------------
+  out <- lapply(uniq.core, function(core) {
+
+            ## match any of the naming patterns for this contrast
+            pat <- paste0("^(", core,
+                          "|logFC\\.", core,
+                          "|", core, "\\.logFC)$")
+            this.lfc <- grep(pat, colnames(resTab), value = TRUE)
+
+            if (length(this.lfc) == 0L)
+                stop("Unexpected: no column matched for contrast ", core)
+
+            df <- resTab[ , c(this.lfc[1], stat.cols[stat.cols %in% colnames(resTab)]),
+                          drop = FALSE]
+            colnames(df)[1] <- "logFC"
+            df
+         })
+  names(out) <- uniq.core
+  out
 }
 
 parse_contrast_groups <- function(contrast_str) {
