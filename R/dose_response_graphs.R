@@ -295,25 +295,40 @@ if (scale == "log2") {
   imgSet$PlotGeneDRCurve <- imgName;
   saveSet(imgSet);
 }
-
 PlotDRModelBars <- function(imgNm, dpi, format){
-  paramSet <- readSet(paramSet, "paramSet");
-  dataSet <- readDataset(paramSet$dataName);
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet  <- readDataset(paramSet$dataName)
 
   require(ggplot2)
-  p <- ggplot(dataSet$bmdcalc.obj$bmdcalc.res, aes(x = mod.name, fill = as.character(all.pass))) + geom_bar(position = "stack") + 
-        scale_fill_manual(values = c("#282726","#6A8A82"), labels = c("No","Yes"), name = "BMD convergence?") + theme_bw()
-  p <- p + xlab("Best fit model") + ylab("Count") + theme(axis.text.x = element_text(face="bold"), legend.position = "bottom")
-  
-  imgNm = paste(imgNm, "dpi", dpi, ".", format, sep="");
-  Cairo (file=imgNm, width=8, height=6, unit="in",dpi=300, type=format, bg="white");
-  print(p)
-  dev.off();
 
-  imgSet <- readSet(imgSet, "imgSet");
-  imgSet$PlotDRModelBars <- imgNm;
-  saveSet(imgSet);
+  df <- dataSet$bmdcalc.obj$bmdcalc.res
+  df$all.pass <- as.logical(df$all.pass)          # ensure TRUE / FALSE
+
+  # dynamic palette: only keep colours for levels that are present
+  lvls      <- sort(unique(df$all.pass))          # e.g. c(TRUE) or c(FALSE, TRUE)
+  colours   <- c("FALSE" = "#282726", "TRUE" = "#6A8A82")[as.character(lvls)]
+  lbls      <- c("FALSE" = "No",     "TRUE" = "Yes")[as.character(lvls)]
+
+  p <- ggplot(df, aes(x = mod.name, fill = all.pass)) +
+       geom_bar(position = "stack") +
+       scale_fill_manual(values = colours, labels = lbls, name = "BMD convergence?") +
+       theme_bw() +
+       xlab("Best fit model") +
+       ylab("Count") +
+       theme(axis.text.x = element_text(face = "bold"),
+             legend.position = "bottom")
+
+  imgNm <- sprintf("%sdpi%s.%s", imgNm, dpi, format)
+  Cairo(file = imgNm, width = 8, height = 6, unit = "in", dpi = dpi,
+        type = format, bg = "white")
+  print(p)
+  dev.off()
+
+  imgSet <- readSet(imgSet, "imgSet")
+  imgSet$PlotDRModelBars <- imgNm
+  saveSet(imgSet)
 }
+
 PlotDRFilterSummary <- function(imgNm, dpi = 72, format = "png") {
 
   ## 1 ── Load data -----------------------------------------------------------
