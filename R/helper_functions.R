@@ -120,6 +120,7 @@ GetInitLib <- function(){
 GetMetaDatasets<- function(){
   paramSet <- readSet(paramSet, "paramSet");
   mdata.all <- paramSet$mdata.all;
+  print(paramSet);
   sel.nms <- names(mdata.all)[mdata.all==1];
   return(sel.nms);
 }
