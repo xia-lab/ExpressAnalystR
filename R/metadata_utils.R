@@ -8,7 +8,7 @@
 
 #####'Sanity check metadata after metadata edited 
 SanityCheckMeta <- function(fileName, init){
-  save.image("sanity.RData")          # debug snapshot
+  #save.image("sanity.RData")          # debug snapshot
   msgSet   <- readSet(msgSet,   "msgSet")
   paramSet <- readSet(paramSet, "paramSet")
 
