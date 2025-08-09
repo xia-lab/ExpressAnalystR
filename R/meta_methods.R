@@ -146,6 +146,9 @@ CheckMetaDataIntegrity <- function(){
     nms.vec <- unique(nms.vec)
 
   }
+
+SanityAttachMeta();
+
   paramSet$nms.vec <- nms.vec;
   paramSet$smps.vec <- smps.vec;
 
