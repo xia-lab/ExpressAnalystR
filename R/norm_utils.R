@@ -41,10 +41,10 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
   paramSet$var.perc   <- var.thresh
   paramSet$abun.perc  <- count.thresh
 
-  if (identical(norm.opt, "RLElog")) {
+  if (identical(norm.opt, "MORlog")) {
     # ---- NEW BRANCH: DESeq2 RLE + log2(x+1) ----
     if (!requireNamespace("DESeq2", quietly = TRUE)) {
-      AddErrMsg("RLElog normalization requires the 'DESeq2' package. Please install it.")
+      AddErrMsg("MORlog normalization requires the 'DESeq2' package. Please install it.")
       return(0)
     }
 
@@ -52,7 +52,7 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
 
     # basic checks for counts
     if (any(m < 0, na.rm = TRUE)) {
-      AddErrMsg("RLElog expects non-negative count data.")
+      AddErrMsg("MORlog expects non-negative count data.")
       return(0)
     }
     # ensure integer-like counts for DESeq2
@@ -69,7 +69,7 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     norm_counts <- DESeq2::counts(dds, normalized = TRUE)
     data <- log2(norm_counts + 1)
 
-    msg <- paste("[RLElog] Applied DESeq2 median-of-ratios size-factor normalization and log2(x+1).", msg)
+    msg <- paste("[MORlog] Applied DESeq2 median-of-ratios size-factor normalization and log2(x+1).", msg)
   } else {
     # ---- existing generic normalization ----
     data <- NormalizeData(data, norm.opt, "NA", "NA")
