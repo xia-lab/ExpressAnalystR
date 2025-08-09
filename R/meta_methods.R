@@ -31,7 +31,7 @@ SetGroupContrast <- function(dataName, grps){
 #'@export
 
 CheckMetaDataIntegrity <- function(){
-  save.image("integ.RData");
+  #save.image("integ.RData");
   paramSet <- readSet(paramSet, "paramSet");
   mdata.all <- paramSet$mdata.all;
   paramSet$performedDE <- FALSE;
