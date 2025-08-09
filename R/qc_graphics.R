@@ -510,7 +510,15 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     paramSet$pca.outliers <- c("NA");
   }
 
-  permanova_results <- ComputePERMANOVA(pca.res$PC1, pca.res$PC2, dataSet$meta.info[, 1], 999);
+  permanova_results ="";
+
+trash <- capture.output(
+          permanova_results <- ComputePERMANOVA(pca.res$PC1,
+                                                pca.res$PC2,
+                                                dataSet$meta.info[,1],
+                                                999),
+          file = NULL)            # discard
+
   analSet <- readSet(analSet, "analSet");
 
   # only save those required for json
@@ -1063,7 +1071,7 @@ qc.gini.plot <- function(gini_df,
   }
 }
 SummarizeQC <- function(fileName, imgNameBase, threshold = 0.1) {
-  save.image("summarize.RData");
+  #save.image("summarize.RData");
   dataSet <- readDataset(fileName)
 
   summary_df <- data.frame(Sample = character(), 

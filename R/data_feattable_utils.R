@@ -46,18 +46,20 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   # for two-class, only one column, multiple columns can be involved
   # for > comparisons - in this case, use the largest logFC among all comparisons
   # further filter by logFC
-    if (dataSet$de.method == "deseq2") {
-      ## use a local copy so the master table’s row order stays unchanged
-      resTable <- dataSet$comp.res.list[[inx]]
-      hit.inx  <- which(colnames(resTable) == "baseMean")
-    } else if (dataSet$de.method == "limma") {
-      hit.inx <- which(colnames(resTable) == "AveExpr")
-    } else if (dataSet$de.method == "wtt") {
-      hit.inx <- which(colnames(resTable) == "t")
-    } else {
-      hit.inx <- which(colnames(resTable) == "logCPM")
-    }
-
+  if (dataSet$de.method=="deseq2"){
+    hit.inx <- which(colnames(resTable) == "baseMean"); 
+    dataSet$comp.res <- dataSet$comp.res.list[[inx]];
+    resTable <- dataSet$comp.res;
+  } else if (dataSet$de.method=="limma"){
+    hit.inx <- which(colnames(resTable) == "AveExpr");
+    dataSet$comp.res <- dataSet$comp.res.list[[inx]];
+    resTable <- dataSet$comp.res;
+  } else {
+    hit.inx <- which(colnames(resTable) == "logCPM");
+    dataSet$comp.res <- dataSet$comp.res.list[[inx]];
+    resTable <- dataSet$comp.res;
+    print(head(resTable));
+  }
   
   resTable <- resTable[!is.na(resTable[,1]),]
   orig.resTable <- resTable;
@@ -77,7 +79,7 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     fc.vec <- apply(pos.mat, 1, max);   # for > comparisons - in this case, use the largest logFC among all comparisons
     hit.inx.fc <- fc.vec >= fc.lvl;
     resTable <- resTable[hit.inx.fc,];
-  } else if (dataSet$de.method=="deseq2"){
+  } else if (dataSet$de.method=="deseq2" || dataSet$de.method=="edger" || dataSet$de.method=="limma"){
     pos.mat <- abs(logfc.mat);
     fc.vec <- pos.mat[,1];
     hit.inx.fc <- fc.vec >= fc.lvl;
@@ -163,11 +165,7 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
   cat(json.obj);
   sink();
 
-  ##---------------------------------------------------------------------------
-## Collect/significant-gene tables for DESeq2 comparisons
-##---------------------------------------------------------------------------
-
-if (dataSet$de.method == "deseq2") {
+  if (dataSet$de.method %in% c("deseq2", "edger", "limma")) {
 
   significant_gene_table <- list()    # holds one data-frame per comparison
 

@@ -34,6 +34,7 @@ GetMetaCol<- function(dataName=""){
     colNms <- colnames(dataSet$comp.res);
     if (dataSet$de.method=="limma"){
       inx <- match("AveExpr", colNms)
+      return(names(dataSet$comp.res.list));
     } else if(dataSet$de.method=="wtt"){
       inx <- match("t", colNms)
   } else if (dataSet$de.method=="deseq2"){
@@ -41,6 +42,7 @@ GetMetaCol<- function(dataName=""){
       return(names(dataSet$comp.res.list));
     } else {
       inx <- match("logCPM", colNms)
+      return(names(dataSet$comp.res.list));
     }
     resT <- dataSet$comp.res;
     if(inx > 2){
@@ -81,22 +83,32 @@ GetSummaryData <- function(){
   return(msgSet$summaryVec);
 }
 
-GetMetaColLength<- function(dataName=""){
-  dataSet <- readDataset(dataName);
-  paramSet <- readSet(paramSet, "paramSet");
+GetMetaColLength <- function(dataName = "") {
 
-  if (dataSet$de.method=="limma"){
-    inx <- match("AveExpr", colnames(dataSet$comp.res))
-  }  else if(dataSet$de.method=="wtt"){
-    inx <- match("t", colnames(dataSet$comp.res))
-  } else if (dataSet$de.method=="deseq2"){
-    return(length(dataSet$comp.res.list));
-  } else {
-    inx <- match("logCPM", colnames(dataSet$comp.res))
+  dataSet <- readDataset(dataName)
+
+  # bail out early if no comparison results
+  if (is.null(dataSet$comp.res) && is.null(dataSet$comp.res.list)) {
+    return(0L)
   }
-  resT <- dataSet$comp.res;
-  resT <- resT[,1:inx-1]
-  return(length(colnames(resT)));
+
+  method <- tolower(dataSet$de.method)
+
+  if (method == "limma") {
+    return(length(dataSet$comp.res.list))
+  } else if (method == "deseq2") {
+    return(length(dataSet$comp.res.list))
+  } else {           
+    return(length(dataSet$comp.res.list))
+  }
+
+  # if the marker column isn't present → length 0
+  #if (is.na(inx) || inx <= 1) {
+  #  return(0L)
+  #}
+
+  #resT <- dataSet$comp.res[, seq_len(inx - 1), drop = FALSE]
+  #length(colnames(resT))
 }
 
 GetInitLib <- function(){
@@ -108,6 +120,7 @@ GetInitLib <- function(){
 GetMetaDatasets<- function(){
   paramSet <- readSet(paramSet, "paramSet");
   mdata.all <- paramSet$mdata.all;
+  print(paramSet);
   sel.nms <- names(mdata.all)[mdata.all==1];
   return(sel.nms);
 }
@@ -249,17 +262,17 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     if (dataSet$de.method == "deseq2") {
 
         inx <- match("baseMean", colnames(dataSet$comp.res))
-        res <- dataSet$comp.res.list[[inxt]]
-        dataSet$comp.res <- res;
-    } else {
-
-        if (dataSet$de.method == "limma") {
-            inx <- match("AveExpr", colnames(dataSet$comp.res))
-        } else if (dataSet$de.method == "wtt") {
+        res <- dataSet$comp.res.list[[inxt]];
+    }else if (dataSet$de.method=="edger"){
+        inx <- match("logCPM", colnames(dataSet$comp.res))
+        res <- dataSet$comp.res.list[[inxt]];
+    }else if (dataSet$de.method=="limma"){
+        inx <- match("AveExpr", colnames(dataSet$comp.res))
+        res <- dataSet$comp.res.list[[inxt]];
+    } else{
+         if (dataSet$de.method == "wtt") {
             inx <- match("t", colnames(dataSet$comp.res))
-        } else {
-            inx <- match("logCPM", colnames(dataSet$comp.res))
-        }
+        } 
 
         res <- dataSet$comp.res
         res <- res[, -(1:(inx - 1)), drop = FALSE]                    # ← fixed slice
@@ -275,7 +288,7 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     dataSet$comp.res <- dataSet$comp.res[complete.cases(dataSet$comp.res), ]
 
     ## --- now extract the column(s) for the return value -------
-    if (dataSet$de.method == "deseq2") {
+    if (dataSet$de.method %in% c("limma", "edger", "deseq2")) {
       res <- dataSet$comp.res.list[[inxt]]
     } else {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
@@ -356,9 +369,15 @@ SelectDataSet <- function(){
 }
 
 
-GetFeatureNum <-function(dataName){
-  dataSet <- readDataset(dataName);
-  return(nrow(dataSet$data.norm));
+GetFeatureNum <- function(dataName) {
+
+  dataSet <- readDataset(dataName, quiet = TRUE)
+
+  if (is.null(dataSet) || is.null(dataSet$data.norm)) {
+    return(0L)                               # nothing loaded → report zero
+  }
+
+  nrow(dataSet$data.norm)
 }
 
 # get qualified inx with at least number of replicates

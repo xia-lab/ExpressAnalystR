@@ -31,6 +31,7 @@ SetGroupContrast <- function(dataName, grps){
 #'@export
 
 CheckMetaDataIntegrity <- function(){
+  save.image("integ.RData");
   paramSet <- readSet(paramSet, "paramSet");
   mdata.all <- paramSet$mdata.all;
   paramSet$performedDE <- FALSE;
@@ -199,8 +200,7 @@ SanityAttachMeta();
                         "Common ID #:", nrow(inmex.meta$data), 
                         "Condition:", paste(levels(inmex.meta$cls.lbl), collapse=" vs. "));
 
-  saveSet(msgSet, "msgSet");
-  saveSet(paramSet, "paramSet");
+  SanityAttachMeta(sel.nms, paramSet, msgSet); #param and msgSet saving done here
 
   return(1);
 }
@@ -909,6 +909,7 @@ setIncludeMeta <- function(metaBool){
 }
 
 DoMetaSigUpdate <- function(BHth=0.05,fc.val=0){
+    #save.image("metasig.RData");
     paramSet <- readSet(paramSet, "paramSet");
     analSet <- readSet(analSet, "analSet");
     paramSet$BHth <- BHth;
@@ -1021,4 +1022,90 @@ GetMetaParams <- function(type="metap"){
 print("getmetaparams");
 print(c(pval, fc, total));
     return(c(pval, fc, total));
+}
+
+SanityAttachMeta <- function(sel.nms, paramSet, msgSet) {
+
+  ## -------------------------------------------------
+  ## 1) Early-exit if consolidated meta already exists
+  ## -------------------------------------------------
+  if (!is.null(paramSet$dataSet$cont.inx)) {
+    message("SanityAttachMeta(): consolidated metadata present — skipping.")
+    saveSet(paramSet, "paramSet")
+    saveSet(msgSet,   "msgSet")
+    return(invisible(TRUE))
+  }
+
+  ## -------------------------------------------------
+  ## 2) Helper to create dummy metadata
+  ## -------------------------------------------------
+  .makeDummyMeta <- function(ds) {
+    info <- data.frame(
+      CLASS = factor(ds$cls),
+      row.names = colnames(ds$data.norm),     #  ❱❱  row names = sample names
+      stringsAsFactors = FALSE
+    )
+
+    list(
+      meta.info = info,
+      disc.inx  = setNames(TRUE,  "CLASS"),   # named logical, length 1
+      cont.inx  = setNames(FALSE, "CLASS")
+    )
+  }
+
+  ## -------------------------------------------------
+  ## 3) Ensure every data-set has meta.info
+  ## -------------------------------------------------
+  for (nm in sel.nms) {
+    ds <- readDataset(nm)
+
+    if (is.null(ds$meta.info) || is.null(ds$disc.inx) || is.null(ds$cont.inx)) {
+      dummy            <- .makeDummyMeta(ds)
+      ds$meta.info     <- dummy$meta.info
+      ds$disc.inx      <- dummy$disc.inx
+      ds$cont.inx      <- dummy$cont.inx
+      RegisterData(ds)
+    }
+  }
+
+  ## -------------------------------------------------
+  ## 4) Build master meta.info (add “dataset” column)
+  ## -------------------------------------------------
+  meta.list <- lapply(sel.nms, function(nm) {
+    mi            <- readDataset(nm)$meta.info
+    mi$Dataset    <- nm            # a new discrete column
+    mi
+  })
+  master.meta <- do.call(rbind, meta.list)
+
+  ## -------------------------------------------------
+  ## 5) Consolidated index vectors
+  ## -------------------------------------------------
+  firstDS  <- readDataset(sel.nms[1])            # all now have inx
+  disc.inx <- c(firstDS$disc.inx,  setNames(TRUE,  "Dataset"))
+  cont.inx <- c(firstDS$cont.inx,  setNames(FALSE, "Dataset"))
+
+  ## -------------------------------------------------
+  ## 6) meta.types & meta.status
+  ## -------------------------------------------------
+  meta.types              <- rep("disc", ncol(master.meta))
+  meta.types[names(cont.inx)[cont.inx]] <- "cont"
+  names(meta.types)       <- colnames(master.meta)
+
+  meta.status             <- setNames(rep("OK", ncol(master.meta)),
+                                      colnames(master.meta))
+
+  ## -------------------------------------------------
+  ## 7) Store in paramSet$dataSet
+  ## -------------------------------------------------
+  paramSet$mdata.all            <- setNames(rep(1L, length(sel.nms)), sel.nms)
+  paramSet$dataSet$meta.info    <- master.meta
+  paramSet$dataSet$disc.inx     <- disc.inx
+  paramSet$dataSet$cont.inx     <- cont.inx
+  paramSet$dataSet$meta.types   <- meta.types
+  paramSet$dataSet$meta.status  <- meta.status
+
+  saveSet(paramSet, "paramSet")
+  saveSet(msgSet,   "msgSet")
+  invisible(TRUE)
 }

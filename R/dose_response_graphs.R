@@ -414,21 +414,17 @@ PlotDRHistogram <- function(imgNm,
                             scale,
                             width = NA) {
 
-  ## ── 1 · Load data ───────────────────────────────────────────────────────
   paramSet <- readSet(paramSet, "paramSet")
   dataSet  <- readDataset(paramSet$dataName)
 
   require(ggplot2)
   require(Cairo)
 
-  ## ── 2 · Compute tPOD / mPOD values ──────────────────────────────────────
   s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
 
-  ## ── 3 · Filter features that passed all BMD criteria ────────────────────
   bmd.hist <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
   bmd.vals <- bmd.hist$bmd
 
-  ## ── 4 · Optional log-transformation of BMDs and PODs ────────────────────
   if (scale == "log10") {
     bmd.vals <- log10(bmd.vals)
     s.pods   <- log10(s.pods)
@@ -456,7 +452,6 @@ PlotDRHistogram <- function(imgNm,
     paste0("10th percentile: ", ifelse(is.finite(s.pods["feat.10th"]),  signif(s.pods["feat.10th"],2), "NA"))
   )
 
-  ## ── 6 · Build the histogram (styling cloned) ────────────────────────────
   p <- ggplot(bmd.df, aes(x = bmd)) +
     geom_histogram(aes(y = after_stat(count)),
                    bins   = 30,
@@ -499,7 +494,6 @@ PlotDRHistogram <- function(imgNm,
 
   imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
 
-  ## ── 8 · Render & save ───────────────────────────────────────────────────
   Cairo(file   = imgFile,
         width  = w,
         height = h,
@@ -510,9 +504,8 @@ PlotDRHistogram <- function(imgNm,
   print(p)
   dev.off()
 
-  ## ── 9 · Register in imgSet & return mSetObj (unchanged) ────────────────
   imgSet <- readSet(imgSet, "imgSet")
-  imgSet$PlotDRHistogram <- imgNm
+  imgSet$PlotDRHistogram <- imgFile
   saveSet(imgSet)
 }
 

@@ -98,7 +98,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   fgseaRes <- fgseaRes[!duplicated(fgseaRes$pathway),]
   
   rownames(fgseaRes) <- make.names(fgseaRes$pathway, unique=TRUE)
-  fgseaRes <- fgseaRes[,c("size","ES", "pval", "pathway", "padj")]
+  fgseaRes <- fgseaRes[,c("size","NES", "pval", "pathway", "padj")]
   
   if(nrow(fgseaRes)<1){
     analSet <- SetListNms(dataSet);

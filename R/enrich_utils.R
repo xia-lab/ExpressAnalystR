@@ -370,7 +370,7 @@ PlotGSViewNew <-function(cmpdNm, format="png", dpi=72, imgName){
 PerformDefaultEnrichment <- function(dataName="", file.nm, fun.type){
   paramSet <- readSet(paramSet, "paramSet");
   analSet <- readSet(analSet, "analSet");
-
+  save.image("defaultenr.RData");
   anal.type <- paramSet$anal.type;
     if(anal.type=="onedata"){
       dataSet <- readDataset(dataName); #instead of function parameter

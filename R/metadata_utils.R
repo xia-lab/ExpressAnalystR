@@ -7,50 +7,66 @@
 ###################################################
 
 #####'Sanity check metadata after metadata edited 
-SanityCheckMeta <- function(fileName,init){
-  msgSet <- readSet(msgSet, "msgSet");
-  paramSet <- readSet(paramSet, "paramSet");
-  
-  if(fileName == "NA"){
-    sel.nms <- names(paramSet$mdata.all);
-  }else{
-    sel.nms <- c(fileName);
-  }
-  for(i in 1:length(sel.nms)){
-    dataSet <- readDataset(sel.nms[i]);
-    meta <- dataSet$meta.info
-    if(init==1){
-      #rmidx=apply(meta, 2, function(x) any(is.na(x))|any(x=="NA")|any(x==""))
-      #meta = meta[,!rmidx,drop=F]
-      
-    }else{
-      if(any(is.na(meta))|any(meta=="")|any(meta=="NA")){
-        return(2)
-      }
+SanityCheckMeta <- function(fileName, init){
+  save.image("sanity.RData")          # debug snapshot
+  msgSet   <- readSet(msgSet,   "msgSet")
+  paramSet <- readSet(paramSet, "paramSet")
+
+  sel.nms <- if (fileName == "NA") names(paramSet$mdata.all) else fileName
+
+  for (nm in sel.nms) {
+    dataSet <- readDataset(nm)
+    meta    <- dataSet$meta.info            # may be NULL or 0-col
+
+    ## ------------------------------------------------------------------
+    ## 1. Guarantee at least one metadata column (“CLASS”) exists
+    ## ------------------------------------------------------------------
+    if (is.null(meta) || ncol(meta) == 0) {
+      meta <- data.frame(
+        CLASS   = factor(dataSet$cls),
+        row.names = colnames(dataSet$data.norm),
+        stringsAsFactors = FALSE
+      )
+      dataSet$meta.info <- meta
+      # also update index vectors so downstream code stays happy
+      dataSet$disc.inx  <- setNames(TRUE,  "CLASS")
+      dataSet$cont.inx  <- setNames(FALSE, "CLASS")
     }
-    # use first column by default
-    cls <- meta[meta[,1]!="NA",1]
-    
-    # check class info
-    cls.lbl <- as.factor(as.character(cls));
-    min.grp.size <- min(table(cls.lbl));
-    cls.num <- length(levels(cls.lbl));
-    if(min.grp.size<2){
-      msg <- paste0( "No replicates were detected for group  ",names(which(table(cls.lbl) < 2))," in  ",colnames(meta)[1])
-      msgSet$current.msg <- msg;
-      saveSet(msgSet, "msgSet");
+
+    ## ------------------------------------------------------------------
+    ## 2. Optional QC on missing values (your original logic)
+    ## ------------------------------------------------------------------
+    if (init != 1 && (any(is.na(meta)) | any(meta == "") | any(meta == "NA"))) {
+      return(2)
+    }
+
+    ## ------------------------------------------------------------------
+    ## 3. Use the first metadata column as the class label
+    ## ------------------------------------------------------------------
+    cls      <- meta[meta[, 1] != "NA", 1]
+    cls.lbl  <- factor(as.character(cls))
+
+    # replicate check
+    if (min(table(cls.lbl)) < 2) {
+      msgSet$current.msg <- paste0(
+        "No replicates detected for group ",
+        names(which(table(cls.lbl) < 2)), " in ", colnames(meta)[1]
+      )
+      saveSet(msgSet, "msgSet")
       return(0)
     }
-    for(i in 1:ncol(meta)){
-      meta[,i]=as.factor( meta[,i])
-    }
-    dataSet$cls <- cls.lbl
-    dataSet$rmidx <- which(meta[,1]=="NA")
+
+    ## 4. ensure all metadata columns are factors
+    meta[] <- lapply(meta, as.factor)
+
+    ## 5. stash back and persist
+    dataSet$cls    <- cls.lbl
+    dataSet$rmidx  <- which(meta[, 1] == "NA")
     dataSet$meta.info <- meta
-    saveSet(msgSet, "msgSet");
-    RegisterData(dataSet);
+    RegisterData(dataSet)
   }
-  return(1);
+
+  return(1)
 }
 
 
@@ -427,17 +443,53 @@ UpdateMetaName <-  function(dataName="",oldvec,newvec){
   return(1);
 }
 
-GetMetaSummary <- function(dataName=""){
-  dataSet <- readDataset(dataName);
-  meta <- dataSet$meta.info
-  disc.vec <- paste(names(dataSet$disc.inx)[which(dataSet$disc.inx)],collapse=", ")  
-  cont.vec <- paste(names(dataSet$cont.inx)[which(dataSet$cont.inx)],collapse=", ")  
+GetMetaSummary <- function(dataName = "") {
+    paramSet <- readSet(paramSet, "paramSet");
+
+  dataSet <- readDataset(dataName)
+  meta    <- dataSet$meta.info
+
+  ## -- discrete -----------------------------------------------------------
+  disc.len <- if (!is.null(dataSet$disc.inx))
+                length(which(dataSet$disc.inx))
+              else 0L
+  
+  disc.vec <- if (disc.len > 0)
+                paste(names(dataSet$disc.inx)[which(dataSet$disc.inx)],
+                      collapse = ", ")
+              else ""
+  
+  ## -- continuous  (NEW: gracefully handle NULL) --------------------------
+  cont.len <- if (!is.null(dataSet$cont.inx))
+                length(which(dataSet$cont.inx))
+              else 0L
+  
+  cont.vec <- if (cont.len > 0)
+                paste(names(dataSet$cont.inx)[which(dataSet$cont.inx)],
+                      collapse = ", ")
+              else ""
+  
+  ## -- NA check -----------------------------------------------------------
   na.vec <- na.check(meta)
-  res <- c(ncol(meta),length(which(dataSet$disc.inx)),disc.vec,
-           length(which(dataSet$cont.inx)),cont.vec,names(meta)[1],length(unique(meta[,1])),paste(unique(meta[,1]),collapse=", "),na.vec )
-  paramSet$metadata.summary <- res;
-  saveSet(paramSet);
-  return(res);
+  
+  ## -- build result vector -------------------------------------------------
+  res <- c(
+    ncol(meta),            # total metadata columns
+    disc.len,              # # discrete cols
+    disc.vec,              # names of discrete cols
+    cont.len,              # # continuous cols   (== 0 if cont.inx NULL)
+    cont.vec,              # names of continuous cols
+    names(meta)[1],        # first column name
+    length(unique(meta[, 1])),
+    paste(unique(meta[, 1]), collapse = ", "),
+    na.vec
+  )
+  
+  ## -- save & return -------------------------------------------------------
+  paramSet$metadata.summary <- res
+  saveSet(paramSet)
+
+  return(res)
 }
 
 na.check <- function(mydata){

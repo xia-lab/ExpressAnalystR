@@ -721,7 +721,7 @@ SanityCheckMetaData <- function(){
      dataSet <- readDataset(sel.nms[i]);
      data <- readDataQs("data.raw.qs", paramSet$anal.type, sel.nms[i]);
      sampleNms <- rownames(data);
-     #check if sample names match
+
      if(!all(sampleNms %in% rownames(meta))){
         msgSet$current.msg <- paste(msgSet$current.msg, "Some samples are not annotated in metadata file!");
         saveSet(msgSet, "msgSet");
