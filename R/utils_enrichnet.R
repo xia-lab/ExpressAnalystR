@@ -222,7 +222,7 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
                   genelist=initsbls, 
                   analType=anal.type, 
                   org=paramSet$data.org, 
-                  backgroundColor=list("#f5f5f5", "#0066CC"),
+                  backgroundColor=list("#514F6A", "#222222"),
                   dat.opt = paramSet$selDataNm,
                   naviString = "Enrichment Network");
   
