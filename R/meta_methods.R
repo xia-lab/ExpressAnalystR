@@ -31,7 +31,7 @@ SetGroupContrast <- function(dataName, grps){
 #'@export
 
 CheckMetaDataIntegrity <- function(){
-  save.image("integ.RData");
+  #save.image("integ.RData");
   paramSet <- readSet(paramSet, "paramSet");
   mdata.all <- paramSet$mdata.all;
   paramSet$performedDE <- FALSE;
@@ -147,6 +147,9 @@ CheckMetaDataIntegrity <- function(){
     nms.vec <- unique(nms.vec)
 
   }
+
+SanityAttachMeta();
+
   paramSet$nms.vec <- nms.vec;
   paramSet$smps.vec <- smps.vec;
 

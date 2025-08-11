@@ -19,53 +19,78 @@
 #'License: MIT
 #'@export
 #'
-
-PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, filterUnmapped, islog="false", countOpt="sum"){
+PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, filterUnmapped,
+                                 islog = "false", countOpt = "sum") {
   paramSet <- readSet(paramSet, "paramSet");
-  msgSet <- readSet(msgSet, "msgSet");
-  dataSet <- readDataset(dataName);
-  msg <- ""; 
-  #Filter data
-  data <- PerformFiltering(dataSet, var.thresh, count.thresh, filterUnmapped, countOpt);
-  #dataSet$data.anot <- data;
-  .save.annotated.data(data);
+  msgSet   <- readSet(msgSet, "msgSet");
+  dataSet  <- readDataset(dataName);
+  msg <- ""
 
-  msg <- paste(filt.msg, msg);
-  
-  if(dataSet$type=="prot"){
-    if(islog=="true"|norm.opt=="Rlr" | norm.opt=="Loess"){
-      data <- NormalizeData(data, "log", "NA", "NA");
-      msg <- paste(norm.msg, msg);
-   }
+  data <- PerformFiltering(dataSet, var.thresh, count.thresh, filterUnmapped, countOpt)
+  .save.annotated.data(data)
+  msg <- paste(filt.msg, msg)
+
+  if (dataSet$type == "prot") {
+    if (islog == "true" || norm.opt == "Rlr" || norm.opt == "Loess") {
+      data <- NormalizeData(data, "log", "NA", "NA")
+      msg  <- paste(norm.msg, msg)
+    }
   }
-  
-  # save parameters for report
-  paramSet$norm.opt <- norm.opt;
-  paramSet$var.perc <- var.thresh;
-  paramSet$abun.perc <- count.thresh;
 
-  #Normalize data
-  data <- NormalizeData(data, norm.opt, "NA", "NA");
+  paramSet$norm.opt   <- norm.opt
+  paramSet$var.perc   <- var.thresh
+  paramSet$abun.perc  <- count.thresh
 
-  # Curve-fitting can't handle negative values
-  if(paramSet$oneDataAnalType == "dose" & min(data) < 0){
-    add.val <- abs(min(data)) + 0.05*abs(min(data))
+  if (identical(norm.opt, "MORlog")) {
+    # ---- NEW BRANCH: DESeq2 RLE + log2(x+1) ----
+    if (!requireNamespace("DESeq2", quietly = TRUE)) {
+      AddErrMsg("MORlog normalization requires the 'DESeq2' package. Please install it.")
+      return(0)
+    }
+
+    m <- as.matrix(data)
+
+    # basic checks for counts
+    if (any(m < 0, na.rm = TRUE)) {
+      AddErrMsg("MORlog expects non-negative count data.")
+      return(0)
+    }
+    # ensure integer-like counts for DESeq2
+    if (!is.integer(m)) {
+      m <- round(m)
+    }
+
+    # minimal colData (no outcome needed for size factors)
+    # rownames must match sample names (columns of count matrix)
+    cd <- S4Vectors::DataFrame(row.names = colnames(m))
+
+    dds <- DESeq2::DESeqDataSetFromMatrix(countData = m, colData = cd, design = ~ 1)
+    dds <- DESeq2::estimateSizeFactors(dds)
+    norm_counts <- DESeq2::counts(dds, normalized = TRUE)
+    data <- log2(norm_counts + 1)
+
+    msg <- paste("[MORlog] Applied DESeq2 median-of-ratios size-factor normalization and log2(x+1).", msg)
+  } else {
+    # ---- existing generic normalization ----
+    data <- NormalizeData(data, norm.opt, "NA", "NA")
+    msg  <- paste(norm.msg, msg)
+  }
+
+  if (paramSet$oneDataAnalType == "dose" && min(data) < 0) {
+    add.val <- abs(min(data)) + 0.05 * abs(min(data))
     data <- data + add.val
   }
-  
-  msg <- paste(norm.msg, msg);
+
   dataSet$data.norm <- data
+  fast.write(dataSet$data.norm, file = "data_normalized.csv")
+  qs::qsave(data, file = "data.stat.qs")
 
-  # save normalized data for download user option
-  fast.write(dataSet$data.norm, file="data_normalized.csv");
-  qs::qsave(data, file="data.stat.qs");
-  
-  msgSet$current.msg <- msg; 
-
-  saveSet(msgSet, "msgSet");
-  saveSet(paramSet, "paramSet");
-  return(RegisterData(dataSet));
+  msgSet$current.msg <- msg
+  saveSet(msgSet,   "msgSet")
+  saveSet(paramSet, "paramSet")
+  return(RegisterData(dataSet))
 }
+
 
 PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, countOpt){
   msg <- "";
