@@ -406,7 +406,6 @@ PlotDRFilterSummary <- function(imgNm, dpi = 72, format = "png") {
   saveSet(imgSet)
 }
 
-
 PlotDRHistogram <- function(imgNm,
                             dpi,
                             format,
@@ -420,18 +419,41 @@ PlotDRHistogram <- function(imgNm,
   require(ggplot2)
   require(Cairo)
 
+  ## existing PODs
   s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
 
+  ## BMD values (raw) for LCRD & histogram source
   bmd.hist <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
   bmd.vals <- bmd.hist$bmd
 
+  ## ---- LCRD on RAW scale, then convert to plot scale -----------------------
+  lcrd_val <- NA_real_
+  # pick an ID column to pair with BMDs (fallbacks are fine)
+  probe <- if ("gene.id" %in% names(bmd.hist)) as.character(bmd.hist$gene.id) else
+           if ("probe"   %in% names(bmd.hist)) as.character(bmd.hist$probe)   else
+           if ("item"    %in% names(bmd.hist)) as.character(bmd.hist$item)    else
+           seq_len(nrow(bmd.hist))
+
+  ok <- is.finite(bmd.vals) & bmd.vals > 0 & !is.na(probe)
+  if (sum(ok) >= 1) {
+    lcrd_raw <- LCRD(bmc = bmd.vals[ok], probe = probe[ok])$LCRD_Result$BMC
+    lcrd_val <- switch(
+      scale,
+      log10 = log10(lcrd_raw),
+      log2  = log2(lcrd_raw),
+      lcrd_raw
+    )
+  }
+
+  ## ---- apply plot scale to BMDs and (if needed) to s.pods ------------------
   if (scale == "log10") {
     bmd.vals <- log10(bmd.vals)
-    s.pods   <- log10(s.pods)
+    # uncomment the next line ONLY if sensPOD() returns RAW values
+    # s.pods   <- log10(s.pods)
     xTitle   <- "log10(Feature-level BMD)"
   } else if (scale == "log2") {
     bmd.vals <- log2(bmd.vals)
-    s.pods   <- log2(s.pods)
+    # s.pods   <- log2(s.pods)
     xTitle   <- "log2(Feature-level BMD)"
   } else {
     xTitle <- "Feature-level BMD"
@@ -439,33 +461,40 @@ PlotDRHistogram <- function(imgNm,
 
   bmd.df <- data.frame(bmd = bmd.vals)
 
-  ## ── 5 · Colour palette & legend labels (copied from liked style) ────────
+  ## ---- Colours, legend text, ordering --------------------------------------
   pod.cols <- c(
-    gene20         = "#D62728",
-    percentile10th = "#2CA02C",
-    mode           = "#FF7F0E"
+    gene20         = "#D62728",  # 20th feature
+    mode           = "#FF7F0E",  # max 1st peak
+    percentile10th = "#2CA02C",  # 10th percentile
+    lcrd           = "#1F77B4"   # LCRD
   )
+  breaks <- c("gene20", "mode", "percentile10th", "lcrd")
 
   legend.labels <- c(
-    paste0("20th feature: ",    ifelse(is.finite(s.pods["feat.20"]),    signif(s.pods["feat.20"], 2), "NA")),
-    paste0("Max 1st peak: ",    ifelse(is.finite(s.pods["mode"]),       signif(s.pods["mode"],     2), "NA")),
-    paste0("10th percentile: ", ifelse(is.finite(s.pods["feat.10th"]),  signif(s.pods["feat.10th"],2), "NA"))
+    paste0("20th feature: ",    ifelse(is.finite(s.pods["feat.20"]),   signif(s.pods["feat.20"], 2), "NA")),
+    paste0("Max 1st peak: ",    ifelse(is.finite(s.pods["mode"]),      signif(s.pods["mode"],     2), "NA")),
+    paste0("10th percentile: ", ifelse(is.finite(s.pods["feat.10th"]), signif(s.pods["feat.10th"],2), "NA")),
+    paste0("LCRD: ",            ifelse(is.finite(lcrd_val),            signif(lcrd_val,           2), "NA"))
   )
 
+  ## ---- Plot -----------------------------------------------------------------
   p <- ggplot(bmd.df, aes(x = bmd)) +
     geom_histogram(aes(y = after_stat(count)),
                    bins   = 30,
                    fill   = "lightblue",
                    colour = "black",
                    alpha  = 0.85) +
-    {if (is.finite(s.pods["feat.20"]))
-        geom_vline(aes(xintercept = s.pods["feat.20"], colour = "gene20"), size = 1)} +
-    {if (is.finite(s.pods["mode"]))
-        geom_vline(aes(xintercept = s.pods["mode"], colour = "mode"), size = 1)} +
-    {if (is.finite(s.pods["feat.10th"]))
-        geom_vline(aes(xintercept = s.pods["feat.10th"], colour = "percentile10th"), size = 1)} +
+    { if (is.finite(s.pods["feat.20"]))
+        geom_vline(aes(xintercept = s.pods["feat.20"], colour = "gene20"), size = 1) } +
+    { if (is.finite(s.pods["mode"]))
+        geom_vline(aes(xintercept = s.pods["mode"], colour = "mode"), size = 1) } +
+    { if (is.finite(s.pods["feat.10th"]))
+        geom_vline(aes(xintercept = s.pods["feat.10th"], colour = "percentile10th"), size = 1) } +
+    { if (is.finite(lcrd_val))
+        geom_vline(aes(xintercept = lcrd_val, colour = "lcrd"), size = 1) } +
     scale_color_manual(
       name   = "tPOD",
+      breaks = breaks,
       values = pod.cols,
       labels = legend.labels
     ) +
@@ -483,15 +512,12 @@ PlotDRHistogram <- function(imgNm,
       legend.text       = element_text(size = rel(0.9))
     )
 
-  ## ── 7 · Figure size (same logic) ────────────────────────────────────────
+  ## ---- Output ----------------------------------------------------------------
   if (is.na(width) || width <= 0) {
-    w <- 10;               # default width (inches)
-    h <- 7;            # 3:1.75 aspect from original
+    w <- 10; h <- 7
   } else {
-    w <- width
-    h <- width * 0.75
+    w <- width; h <- width * 0.75
   }
-
   imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
 
   Cairo(file   = imgFile,
@@ -500,7 +526,7 @@ PlotDRHistogram <- function(imgNm,
         unit   = "in",
         dpi    = dpi,
         type   = format,
-        bg     = "white")          # solid white background (matches style)
+        bg     = "white")
   print(p)
   dev.off()
 
@@ -508,7 +534,6 @@ PlotDRHistogram <- function(imgNm,
   imgSet$PlotDRHistogram <- imgFile
   saveSet(imgSet)
 }
-
 
 
 PlotPWHeatmap <- function(pathway, pwcount, units){

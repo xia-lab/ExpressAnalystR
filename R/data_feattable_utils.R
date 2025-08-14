@@ -50,7 +50,7 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     hit.inx <- which(colnames(resTable) == "baseMean"); 
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
     resTable <- dataSet$comp.res;
-  } else if (dataSet$de.method=="limma"){
+   } else if (dataSet$de.method=="limma" || dataSet$de.method=="wtt" ){
     hit.inx <- which(colnames(resTable) == "AveExpr");
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
     resTable <- dataSet$comp.res;
@@ -58,9 +58,12 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     hit.inx <- which(colnames(resTable) == "logCPM");
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
     resTable <- dataSet$comp.res;
-    print(head(resTable));
   }
-  
+
+  if(length(hit.inx) == 0){
+    hit.inx <- 1;
+  }
+
   resTable <- resTable[!is.na(resTable[,1]),]
   orig.resTable <- resTable;
   # select based on p-value
@@ -79,7 +82,7 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     fc.vec <- apply(pos.mat, 1, max);   # for > comparisons - in this case, use the largest logFC among all comparisons
     hit.inx.fc <- fc.vec >= fc.lvl;
     resTable <- resTable[hit.inx.fc,];
-  } else if (dataSet$de.method=="deseq2" || dataSet$de.method=="edger" || dataSet$de.method=="limma"){
+  } else if (dataSet$de.method=="deseq2" || dataSet$de.method=="edger" || dataSet$de.method=="limma" || dataSet$de.method=="wtt"){
     pos.mat <- abs(logfc.mat);
     fc.vec <- pos.mat[,1];
     hit.inx.fc <- fc.vec >= fc.lvl;
@@ -165,7 +168,7 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
   cat(json.obj);
   sink();
 
-  if (dataSet$de.method %in% c("deseq2", "edger", "limma")) {
+  if (dataSet$de.method %in% c("deseq2", "edger", "limma", "wtt")) {
 
   significant_gene_table <- list()    # holds one data-frame per comparison
 
@@ -173,14 +176,11 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
 
     resTable <- dataSet$comp.res.list[[inx]]
 
-    ## --- remove rows with NA logFC (or other NAs in first col) ------------
     resTable <- resTable[!is.na(resTable[, 1]), ]
 
-    ## --- p-value / FDR filter --------------------------------------------
     deg.pass <- if (FDR == "true")  resTable$adj.P.Val <= p.lvl
                 else                resTable$P.Value   <= p.lvl
 
-    ## --- logFC filter -----------------------------------------------------
     lfc.pass <- abs(resTable[ , "logFC"]) >= fc.lvl
 
     all_pass <- deg.pass & lfc.pass
@@ -193,7 +193,6 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
     sig$GeneID      <- rownames(sig)                # preserve raw ID
     sig$Comparison  <- names(dataSet$comp.res.list)[[inx]]
 
-    ## --- annotation (optional) -------------------------------------------
     res.anot <- doEntrezIDAnot(sig$GeneID,
                                paramSet$data.org,
                                paramSet$data.idType)
@@ -203,7 +202,6 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
     significant_gene_table[[inx]] <- sig
   }
 
-  ## ---------- combine & export -------------------------------------------
   final_table <- do.call(rbind, significant_gene_table)  # may have duplicates
 
   output_file <- paste0(dataName, "_logFC_",format(as.numeric(fc.lvl), digits = 2, nsmall = 0, trim = TRUE, scientific = FALSE),
@@ -231,7 +229,59 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
   }
   analSet$sig.gene.count.total <- de.Num.total
 }
+dataSet$comp.res.list <- lapply(dataSet$comp.res.list, function(tbl) {
+  if (is.null(tbl) || nrow(tbl) == 0) return(tbl)
 
+  # p column (prefer FDR)
+  pcol <- if (paramSet$use.fdr && "adj.P.Val" %in% names(tbl)) "adj.P.Val"
+          else if ("padj" %in% names(tbl)) "padj"
+          else "P.Value"
+  pvec <- suppressWarnings(as.numeric(tbl[[pcol]]))
+
+  # tie-break by |logFC|
+  if ("logFC" %in% names(tbl)) {
+    lfc <- abs(suppressWarnings(as.numeric(tbl$logFC)))
+  } else if ("log2FoldChange" %in% names(tbl)) {
+    lfc <- abs(suppressWarnings(as.numeric(tbl$log2FoldChange)))
+  } else {
+    lfc <- rep(0, nrow(tbl))
+  }
+
+  sig_idx <- (pvec <= p.lvl) & (lfc >= fc.lvl)
+
+  sig  <- tbl[sig_idx,  , drop = FALSE]
+  rest <- tbl[!sig_idx, , drop = FALSE]
+
+  if (nrow(sig)  > 0) sig  <- sig [order(pvec[sig_idx],  -lfc[sig_idx],  na.last = NA),  , drop = FALSE]
+  if (nrow(rest) > 0) rest <- rest[order(pvec[!sig_idx],            na.last = TRUE), , drop = FALSE]
+
+  rbind(sig, rest)
+})
+
+## Rebuild the combined table with “sig first” and sorted by p
+# p column for the combined table
+pcol <- if (paramSet$use.fdr && "adj.P.Val" %in% names(resTable)) "adj.P.Val"
+        else if ("padj" %in% names(resTable)) "padj"
+        else "P.Value"
+
+# ensure the sig block (resTable) itself is ordered
+resTable <- resTable[order(as.numeric(resTable[[pcol]]),
+                           -abs(suppressWarnings(as.numeric(resTable[[if ("logFC" %in% names(resTable)) "logFC" else 1]]))),
+                           na.last = NA),
+                     , drop = FALSE]
+
+# the remainder (“other”), ordered too
+other <- dataSet$comp.res[!(rownames(dataSet$comp.res) %in% rownames(resTable)), , drop = FALSE]
+if (nrow(other) > 0 && pcol %in% names(other)) {
+  # pick tie-break column for 'other'
+  tie_col <- if ("logFC" %in% names(other)) "logFC" else 1
+  other <- other[order(as.numeric(other[[pcol]]),
+                       -abs(suppressWarnings(as.numeric(other[[tie_col]]))),
+                       na.last = TRUE),
+                 , drop = FALSE]
+}
+
+dataSet$comp.res <- rbind(resTable, other)
 
   analSet$sig.gene.count <- de.Num;
   saveSet(analSet, "analSet");
