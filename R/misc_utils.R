@@ -1257,3 +1257,7 @@ BuildCEMiNet <- function(dataName,
     verbose    = verbose
   )
 }
+
+GetNetsNameString <- function(){
+  paste(rownames(net.stats), collapse="||");
+}

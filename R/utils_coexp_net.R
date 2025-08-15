@@ -88,84 +88,81 @@ V(g)$colorw <- V(g)$color                             # same for dark bg
   V(g)$posx <- xy[, 1]
   V(g)$posy <- xy[, 2]
   overall.graph <<- g;
+  analSet <- readSet(analSet,"analSet");
+  analSet$overall.graph <- g;
+  saveSet(analSet):
   return(1)
 }
-
-# ------------------------------------------------------------------
-# CorrIgraph2SigmaJS
-# ------------------------------------------------------------------
-# g       : igraph output from BuildCorrIgraph
-# netNm   : name for network
-# paramSet, analSet : your usual state containers
-# path    : where to write JSON file (defaults to working dir)
-# ------------------------------------------------------------------
 
 CorrIgraph2SigmaJS <- function(g,
                                netNm     = "coexp_net",
                                paramSet,
-                               analSet,
-                               path      = ".") {
+                               analSet) {
   
-
-    symVec <- doEntrez2SymbolMapping(V(g)$name,
-                                     paramSet$data.org,
-                                     paramSet$data.idType)
-
-    nodes <- lapply(seq_len(vcount(g)), function(i) {
-      v   <- V(g)[i]
-      lbl <- if (!is.na(symVec[i]) && nzchar(symVec[i])) symVec[i] else v$name
-
-      list(
-        id        = as.character(v$name),   # still Entrez as key
-        label     = lbl,                    # SYMBOL shown in SigmaJS
-        size      = unclass(v$size)[1],
-        true_size = unclass(v$size)[1],
-        molType   = "gene",
-        colorb    = as.character(v$color),
-        colorw    = as.character(v$colorw),
-        exp       = if (!is.null(v$expr)) unclass(v$expr)[1] else 0,
-        posx      = unclass(v$posx)[1],
-        posy      = unclass(v$posy)[1]
-      )
-    })
-
+  symVec <- doEntrez2SymbolMapping(V(g)$name,
+                                   paramSet$data.org,
+                                   paramSet$data.idType)
   
-    ## ── edges with rescaled size 0.5–2.5  ----------------------------
-    el <- igraph::as_data_frame(g, what = "edges")       # from, to, weight
-
-    wMin <- min(el$weight)
-    wMax <- max(el$weight)
-    rescale <- function(x, from = 0.5, to = 2.5) {
-      if (wMax == wMin) return((from + to) / 2)          # avoid 0/0
-      (x - wMin) / (wMax - wMin) * (to - from) + from
-    }
-
-    edges <- lapply(seq_len(nrow(el)), function(i) {
-      w <- as.numeric(el$weight[i])
-      list(
-        id     = paste0("e", i),
-        source = as.character(el$from[i]),
-        target = as.character(el$to[i]),
-        weight = w,                     # keeps the raw weight
-        size   = rescale(w)             # stroke width 0.5–2.5
-      )
-    })
-
+  nodes <- lapply(seq_len(vcount(g)), function(i) {
+    v   <- V(g)[i]
+    lbl <- if (!is.na(symVec[i]) && nzchar(symVec[i])) symVec[i] else v$name
+    
+    list(
+      id        = as.character(v$name),   # still Entrez as key
+      label     = lbl,                    # SYMBOL shown in SigmaJS
+      size      = unclass(v$size)[1],
+      true_size = unclass(v$size)[1],
+      molType   = "gene",
+      colorb    = as.character(v$color),
+      colorw    = as.character(v$colorw),
+      exp       = if (!is.null(v$expr)) unclass(v$expr)[1] else 0,
+      posx      = unclass(v$posx)[1],
+      posy      = unclass(v$posy)[1]
+    )
+  })
+  
+  
+  ## ── edges with rescaled size 0.5–2.5  ----------------------------
+  el <- igraph::as_data_frame(g, what = "edges")       # from, to, weight
+  
+  wMin <- min(el$weight)
+  wMax <- max(el$weight)
+  rescale <- function(x, from = 0.5, to = 2.5) {
+    if (wMax == wMin) return((from + to) / 2)          # avoid 0/0
+    (x - wMin) / (wMax - wMin) * (to - from) + from
+  }
+  
+  edges <- lapply(seq_len(nrow(el)), function(i) {
+    w <- as.numeric(el$weight[i])
+    list(
+      id     = paste0("e", i),
+      source = as.character(el$from[i]),
+      target = as.character(el$to[i]),
+      weight = w,                     # keeps the raw weight
+      size   = rescale(w)             # stroke width 0.5–2.5
+    )
+  })
+  
   
   dataSet <- readDataset(paramSet$dataName);
   nodeTable <- BuildNodeTable(g,paramSet,dataSet,analSet);
-  print(head(nodeTable));
-  print("head(nodeTable)");
+  
+  initsbls <- doEntrez2SymbolMapping( V(g)$name, paramSet$data.org, paramSet$data.idType)
+  names(initsbls) <- V(g)$name
+  ppi.net <- list();
 
+  ppi.net[["node.data"]] <- data.frame(Id=V(g)$name, Label=unname(initsbls));
+  ppi.net <<- ppi.net;
   ## ── 3 · assemble JSON payload -----------------------------------
   netData <- list(nodes            = nodes,
                   edges            = edges,
                   backgroundColor  = list("#f5f5f5", "#0066CC"),
                   naviString       = "Correlation Network",
                   org              = paramSet$data.org,
+                  genelist=initsbls, 
                   nodeTable = nodeTable);
   
-  fileNm <- file.path(path, paste0(netNm, ".json"))
+  fileNm <- paste0(netNm, ".json")
   jsonlite::write_json(netData, fileNm, auto_unbox = TRUE)
   
   ## track for later download
@@ -210,7 +207,7 @@ GenerateCEMModuleNetworks <- function(fileName  = "coexp_network",
   paramSet <- readSet(paramSet, "paramSet")
   analSet  <- readSet(analSet,  "analSet")
   
-  g.all   <- overall.graph
+  g.all   <- analSet$overall.graph
   g.byMod <- SplitIgraphByModule(g.all, keepXTalk = keepXTalk)
   
   comps <- g.byMod
@@ -221,7 +218,7 @@ GenerateCEMModuleNetworks <- function(fileName  = "coexp_network",
   ord.inx <- order(net.stats[,1], decreasing=TRUE);
   net.stats <- net.stats[ord.inx,];
   comps <- comps[ord.inx];
-  names(comps) <- rownames(net.stats) <- paste("subnetwork", 1:length(comps), sep="");
+  names(comps) <- rownames(net.stats) <- paste("module", 1:length(comps), sep="");
 
   # note, we report stats for all nets (at least 3 nodes);
   hit.inx <- net.stats$Node >= minNodeNum;
@@ -237,7 +234,7 @@ GenerateCEMModuleNetworks <- function(fileName  = "coexp_network",
   firstMod <- names(g.byMod)[1]              # e.g. "M1"
   netNm <- fileName;
   analSet$ppi.comps <- comps;
-    
+  ppi.comps <<- comps
   saveSet(analSet, "analSet")
   return(c(vcount(g.all), ecount(g.all), length(comps), sub.stats));
 }
@@ -336,7 +333,7 @@ ComputeSubnetStats <- function(comps){
   return(net.stats);
 }
 # ====================================================================
-# filterNetByThreshold  —  edge-weight filtering for an igraph object
+# filterNetByThresh  —  edge-weight filtering for an igraph object
 # --------------------------------------------------------------------
 # g          : igraph object that already has a numeric edge attribute
 #              called 'weight'
@@ -347,13 +344,13 @@ ComputeSubnetStats <- function(comps){
 # return     : list(graph = <filtered igraph>,
 #                   stats = c(nodes, edges, n.components))
 # ====================================================================
-filterNetByThreshold <- function(g,
-                                 thresh      = 0.05,
+FilterNetByThresh <- function(thresh      = 0.05,
                                  maxEdges    = 2000,
                                  rmIsolated  = TRUE) {
-
-  if (!inherits(g, "igraph"))
-    stop("`g` must be an igraph object")
+  save.image("filter.RDAta");
+  analSet  <- readSet(analSet,  "analSet")
+  
+  g <- overall.graph;
   if (!"weight" %in% edge_attr_names(g))
     stop("edge attribute 'weight' not found")
 
@@ -381,12 +378,13 @@ filterNetByThreshold <- function(g,
   g <- simplify(g, edge.attr.comb = list("first"))
 
   # ── 6 · book-keeping & return  ────────────────────────────────────
-  AddMsg(
-    paste("filterNetByThreshold:",
-          vcount(g), "nodes and", ecount(g), "edges retained at thresh >", thresh)
-  )
+  current.msg <<-
+    paste("FilterNetByThreshold:",
+          vcount(g), "nodes and", ecount(g), "edges retained at thresh >", thresh);
+  
 
-  substats <- DecomposeGraph(g)          # user’s helper: returns component stats
+    analSet <- DecomposeGraph(overall.graph,analSet);
+    substats <- analSet$substats;
   outStats <- c(vcount(g), ecount(g), length(substats))
   overall.graph <<- g;
   return(outStats)                  # compatible with FilterBipartiNet-style use
@@ -431,7 +429,7 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
         output <- 0;
     }
 
-    analSet$overall.graph <- overall.graph;
+    overall.graph <<- overall.graph;
     return(saveSet(analSet, "analSet", output));
 }
 
@@ -449,8 +447,10 @@ PrepareNetwork <- function(net.nm, jsonNm){
                      paramSet = paramSet,
                      analSet  = analSet)
 
-
    current.net.nm <<- net.nm;
+   paramSet$current.net.nm <- net.nm;
+   saveSet(paramSet, "paramSet");
+
    return(saveSet(analSet, "analSet", 1));
 
 }
@@ -488,128 +488,158 @@ PerformRegEnrichAnalysis <- function(dataSet, file.nm, fun.type, ora.vec, netInv
     return(my.reg.enrich(dataSet, file.nm, fun.type, ora.vec, netInv));
 }
 
-FindCommunities <- function(method="walktrap", use.weight=FALSE){
-  paramSet <- readSet(paramSet, "paramSet")
-  seed.expr <- paramSet$seed.expr;
-  # make sure this is the connected
-  current.net <- ppi.comps[[current.net.nm]];
-  g <- current.net;
-  if(!is.connected(g)){
-    g <- decompose.graph(current.net, min.vertices=2)[[1]];
-  }
-  total.size <- length(V(g));
-  
-  if(use.weight){ # this is only tested for walktrap, should work for other method
-    # now need to compute weights for edges
-    egs <- get.edges(g, E(g)); #node inx
-    nodes <- V(g)$name;
-    # conver to node id
-    negs <- cbind(nodes[egs[,1]],nodes[egs[,2]]);
-    
-    # get min FC change
-    base.wt <- min(abs(seed.expr))/10;
-    
-    # check if user only give a gene list without logFC or all same fake value
-    if(length(unique(seed.expr)) == 1){
-      seed.expr <- rep(1, nrow(negs));
-      base.wt <- 0.1; # weight cannot be 0 in walktrap
-    }
-    
-    wts <- matrix(base.wt, ncol=2, nrow = nrow(negs));
-    for(i in 1:ncol(negs)){
-      nd.ids <- negs[,i];
-      hit.inx <- match(names(seed.expr), nd.ids);
-      pos.inx <- hit.inx[!is.na(hit.inx)];
-      wts[pos.inx,i]<- seed.expr[!is.na(hit.inx)]+0.1;
-    }
-    nwt <- apply(abs(wts), 1, function(x){mean(x)^2})    
-  }
-  
-  if(method == "walktrap"){
-    fc <- walktrap.community(g);
-  }else if(method == "infomap"){
-    fc <- infomap.community(g);
-  }else if(method == "labelprop"){
-    fc <- label.propagation.community(g);
-  }else{
-    print(paste("Unknown method:", method));
-    return ("NA||Unknown method!");
-  }
-  
-  if(length(fc) == 0 || modularity(fc) == 0){
-    return ("NA||No communities were detected!");
-  }
-  
-  # only get communities
-  communities <- communities(fc);
-  community.vec <- vector(mode="character", length=length(communities));
-  gene.community <- NULL;
-  qnum.vec <- NULL;
-  pval.vec <- NULL;
-  rowcount <- 0;
-  nms <- V(g)$name;
-  hit.inx <- match(nms, ppi.net$node.data[,1]);
-  sybls <- ppi.net$node.data[hit.inx,2];
-  names(sybls) <- V(g)$name;
-  for(i in 1:length(communities)){
-    # update for igraph 1.0.1 
-    path.ids <- communities[[i]];
-    psize <- length(path.ids);
-    if(psize < 5){
-      next; # ignore very small community
-    }
-    if(netUploadU == 1){
-      qnums <- psize;
-    }else{
-      hits <- seed.proteins %in% path.ids;
-      qnums <- sum(hits);
-    }
-    if(qnums == 0){
-      next; # ignor community containing no queries
-    }
-    
-    rowcount <- rowcount + 1;
-    pids <- paste(path.ids, collapse="->");
-    #path.sybls <- V(g)$Label[path.inx];
-    path.sybls <- sybls[path.ids];
-    com.mat <- cbind(path.ids, path.sybls, rep(i, length(path.ids)));
-    gene.community <- rbind(gene.community, com.mat);
-    qnum.vec <- c(qnum.vec, qnums);
-    
-    # calculate p values (comparing in- out- degrees)
-    subgraph <- induced.subgraph(g, path.ids);
-    in.degrees <- degree(subgraph);
-    out.degrees <- degree(g, path.ids) - in.degrees;
-    ppval <- suppressWarnings(wilcox.test(in.degrees, out.degrees)$p.value);
-    ppval <- signif(ppval, 3);
-    pval.vec <- c(pval.vec, ppval);
-    
-    # calculate community score
-    community.vec[rowcount] <- paste(c(psize, qnums, ppval, pids), collapse=";");
-  }
 
-  # Create a dataframe to store community size and p-value
-  community_data <- do.call(rbind, lapply(community.vec, function(x) {
-    parts <- strsplit(x, ";")[[1]]
-    return(data.frame(size = as.numeric(parts[1]), p_value = as.numeric(parts[3])))
-  }))
-
-  # Order the dataframe by size (descending) and then by p-value (ascending)
-  ordered_indices <- with(community_data, order(-size, p_value))
-
-  # Order the community.vec based on sorted indices
-  community.vec <- community.vec[ordered_indices]
+FindCommunities <- function(method = "walktrap",
+                            use.weight = FALSE,
+                            component = "largest",#c("largest", "all", "seed"),
+                            min_genes = 5,
+                            require_query_hit = TRUE) {
+  save.image("find.Rdata");
+  paramSet    <- readSet(paramSet, "paramSet")
+  seed.expr   <- paramSet$seed.expr
+  current.net <- ppi.comps[[current.net.nm]]
   
-  all.communities <- paste(community.vec, collapse="||");
-  if(!is.null(gene.community)){
-    colnames(gene.community) <- c("Id", "Label", "Module");
-    fast.write(gene.community, file="module_table.csv", row.names=F);
-    return(all.communities);
-  }else{
-    return("NA");
+  if (igraph::vcount(current.net) < 2L) return("NA||Graph too small")
+  
+  # ---- choose component(s) ----------------------------------------------------
+  pick_largest <- function(g) {
+    comp <- igraph::components(g)
+    igraph::induced_subgraph(g, which(comp$membership == which.max(comp$csize)))
   }
   
+  graph_list <- switch(
+    component,
+    "largest" = list(pick_largest(current.net)),
+    "all" = {
+      comp <- igraph::components(current.net)
+      split(seq_len(igraph::vcount(current.net)), comp$membership) |>
+        lapply(function(vs) igraph::induced_subgraph(current.net, vs))
+    },
+    "seed" = {
+      seeds <- intersect(seed.proteins, igraph::V(current.net)$name)
+      if (length(seeds) == 0) return("NA||No seeds in network!")
+      comp <- igraph::components(current.net)
+      # keep components that contain at least one seed
+      keep_comp <- unique(comp$membership[match(seeds, igraph::V(current.net)$name)])
+      vs <- which(comp$membership %in% keep_comp)
+      list(igraph::induced_subgraph(current.net, vs))
+    }
+  )
+  
+  # ---- helper: run detection on one graph ------------------------------------
+  run_one <- function(g) {
+    if (!igraph::is_connected(g)) g <- pick_largest(g)
+    if (igraph::vcount(g) < 2L) return(list(vec = character(0), tbl = NULL))
+    
+    # -- FIX 1: ensure vertex names exist; fallback to other attrs/indices -----
+    vnames <- igraph::V(g)$name
+    if (is.null(vnames)) vnames <- rep(NA_character_, igraph::vcount(g))
+    if (all(is.na(vnames))) {
+      alt <- NULL
+      if (!is.null(igraph::V(g)$Id))    alt <- as.character(igraph::V(g)$Id)
+      if (!is.null(igraph::V(g)$Label)) alt <- as.character(igraph::V(g)$Label)
+      vnames <- if (!is.null(alt)) alt else as.character(seq_len(igraph::vcount(g)))
+      igraph::V(g)$name <- vnames
+    }
+    
+    # symbol mapping with fallback to name
+    hit.x <- match(vnames, ppi.net$node.data[, 1])
+    sybls <- ppi.net$node.data[hit.x, 2]
+    sybls[is.na(sybls)] <- vnames[is.na(sybls)]
+    names(sybls) <- vnames
+    
+    # -- FIX 2: robust weight assignment (no invalid indexing) -----------------
+    weights <- igraph::E(g)$weight
+    # community detection (weights used when supported)
+    fc <- switch(
+      method,
+      "walktrap"  = igraph::cluster_walktrap(g, weights = weights),
+      "infomap"   = igraph::cluster_infomap(g, e.weights = weights),
+      "labelprop" = igraph::cluster_label_prop(g, weights = weights),
+      { return(list(err = "NA||Unknown method!")) }
+    )
+    
+    comm_list <- igraph::communities(fc)
+    if (length(comm_list) == 0 || igraph::modularity(fc, weights = weights) == 0) {
+      return(list(vec = character(0), tbl = NULL))
+    }
+    
+    # iterate communities
+    community.vec  <- character(0)
+    gene.community <- NULL
+    rowcount <- 0L
+    
+    for (i in seq_along(comm_list)) {
+      vids       <- comm_list[[i]]     # vertex indices
+      comm_size  <- length(vids)
+      if (comm_size < min_genes) next
+      
+      comm_names  <- vnames[vids]
+      # ensure no NA names in printable path
+      comm_names[is.na(comm_names)] <- as.character(vids[is.na(comm_names)])
+      
+      # label strings (symbols if available)
+      comm_labels <- sybls[comm_names]
+      comm_labels[is.na(comm_labels)] <- comm_names
+      
+      # query hits
+      qnums <- comm_size
+
+      if (require_query_hit && qnums == 0) next
+      
+      # in/out degree test
+      subg    <- igraph::induced_subgraph(g, vids)
+      in.deg  <- igraph::degree(subg)
+      out.deg <- igraph::degree(g, vids) - in.deg
+      ppval   <- suppressWarnings(
+        wilcox.test(in.deg, out.deg, exact = FALSE, alternative = "two.sided")$p.value
+      )
+      ppval   <- signif(ppval, 3)
+      
+      # record
+      rowcount <- rowcount + 1L
+      pids     <- paste(comm_labels, collapse = "->")
+      
+      com.mat <- cbind(Id     = comm_names,
+                       Label  = comm_labels,
+                       Module = as.character(i))  # keep as before
+      gene.community <- rbind(gene.community, com.mat)
+      
+      community.vec[rowcount] <- paste(c(comm_size, qnums, ppval, pids), collapse = ";")
+    }
+    
+    if (length(community.vec) == 0) return(list(vec = character(0), tbl = NULL))
+    
+    # order: size desc, p-value asc (same as before)
+    community_data <- do.call(rbind, lapply(community.vec, function(x) {
+      parts <- strsplit(x, ";")[[1]]
+      data.frame(size = as.numeric(parts[1]), p_value = as.numeric(parts[3]))
+    }))
+    ord <- with(community_data, order(-size, p_value))
+    
+    list(vec = community.vec[ord], tbl = gene.community)
+  }
+  # run and combine
+  out_list <- lapply(graph_list, run_one)
+  if (any(vapply(out_list, function(x) !is.null(x$err), logical(1)))) {
+    return(out_list[[which(vapply(out_list, function(x) !is.null(x$err), logical(1)))] ]$err)
+  }
+  
+  vecs <- unlist(lapply(out_list, `[[`, "vec"), use.names = FALSE)
+  tbls <- do.call(rbind, lapply(out_list, `[[`, "tbl"))
+  
+  if (length(vecs) == 0) return("NA||No communities were detected!")
+  
+  all.communities <- paste(vecs, collapse = "||")
+  if (!is.null(tbls) && nrow(tbls) > 0) {
+    colnames(tbls) <- c("Id", "Label", "Module")
+    fast.write(tbls, file = "module_table.csv", row.names = FALSE)
+    return(all.communities)
+  } else {
+    return("NA")
+  }
 }
+
 
 community.significance.test <- function(graph, vs, ...) {
   subgraph <- induced.subgraph(graph, vs)
@@ -643,4 +673,40 @@ GetShortestPaths <- function(from, to){
   
   all.paths <- paste(path.vec, collapse="||");
   return(all.paths);
+}
+
+DecomposeGraph <- function(gObj,analSet, minNodeNum = 3, jsonBool = F){
+  # now decompose to individual connected subnetworks
+    if(jsonBool == "netjson"){
+        comps <-list(gObj)
+    }else{
+        comps <-decompose.graph(gObj, min.vertices=minNodeNum);
+    }
+  if(length(comps) == 0){
+    current.msg <<- paste("No subnetwork was identified with at least", minNodeNum, "nodes!");
+    return(NULL);
+  }
+  
+  # first compute subnet stats
+  net.stats <- ComputeSubnetStats(comps);
+  ord.inx <- order(net.stats[,1], decreasing=TRUE);
+  net.stats <- net.stats[ord.inx,];
+  comps <- comps[ord.inx];
+  names(comps) <- rownames(net.stats) <- paste("module", 1:length(comps), sep="");
+  
+  # note, we report stats for all nets (at least 3 nodes);
+  hit.inx <- net.stats$Node >= minNodeNum;
+  comps <- comps[hit.inx];
+  #overall <- list();
+  #overall[["overall"]] <- g
+  #ppi.comps <- append(overall, ppi.comps, after=1);
+  
+  # now record
+  ppi.comps <<- comps;
+  net.stats <<- net.stats;
+  sub.stats <- unlist(lapply(comps, vcount)); 
+  analSet$ppi.comps <- comps;
+  analSet$net.stats <- net.stats;
+  analSet$substats <- sub.stats;
+  return(analSet);
 }
