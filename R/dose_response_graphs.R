@@ -295,6 +295,7 @@ if (scale == "log2") {
   imgSet$PlotGeneDRCurve <- imgName;
   saveSet(imgSet);
 }
+
 PlotDRModelBars <- function(imgNm, dpi, format){
   paramSet <- readSet(paramSet, "paramSet")
   dataSet  <- readDataset(paramSet$dataName)

@@ -168,7 +168,7 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
   cat(json.obj);
   sink();
 
-  if (dataSet$de.method %in% c("deseq2", "edger", "limma", "wtt")) {
+        if (dataSet$de.method %in% c("deseq2", "edger", "limma", "wtt")) {
 
   significant_gene_table <- list()    # holds one data-frame per comparison
 
@@ -228,6 +228,73 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
     )
   }
   analSet$sig.gene.count.total <- de.Num.total
+
+
+    ## 2) Build & write the binary 0/1 incidence table (one row per gene)
+    comp_list  <- dataSet$comp.res.list
+    comp_names <- names(comp_list)
+    use_fdr    <- (FDR == "true") || isTRUE(FDR)
+
+    # collect DE gene sets per comparison
+    pass_sets <- vector("list", length(comp_list))
+    names(pass_sets) <- comp_names
+    for (i in seq_along(comp_list)) {
+      rt <- comp_list[[i]]
+      if (is.null(rt) || nrow(rt) == 0) { pass_sets[[i]] <- character(0); next }
+
+      pcol <- if (use_fdr && "adj.P.Val" %in% names(rt)) "adj.P.Val" else "P.Value"
+      lfc_col <- if ("logFC" %in% names(rt)) "logFC"
+                 else if ("log2FoldChange" %in% names(rt)) "log2FoldChange"
+                 else NULL
+
+      deg_pass <- is.finite(rt[[pcol]]) & (rt[[pcol]] <= p.lvl)
+      lfc_pass <- if (!is.null(lfc_col)) is.finite(rt[[lfc_col]]) & (abs(rt[[lfc_col]]) >= fc.lvl) else TRUE
+
+      pass_sets[[i]] <- rownames(rt)[deg_pass & lfc_pass]
+    }
+
+    genes <- sort(unique(unlist(pass_sets)))
+
+    # derive a second filename from your existing output_file
+    out_bin_file <- sub("_Significant_Genes\\.csv$", "_DE_binary_matrix.csv", output_file)
+    if (identical(out_bin_file, output_file)) {
+      out_bin_file <- paste0(tools::file_path_sans_ext(output_file), "_DE_binary_matrix.csv")
+    }
+
+    if (length(genes) > 0) {
+      de_mat <- matrix(0L, nrow = length(genes), ncol = length(comp_names),
+                       dimnames = list(genes, comp_names))
+      for (i in seq_along(pass_sets)) {
+        if (length(pass_sets[[i]]) > 0) de_mat[pass_sets[[i]], i] <- 1L
+      }
+
+      # optional annotation; if it fails, keep Symbol/Name as NA
+      annot <- tryCatch(
+        doEntrezIDAnot(genes, paramSet$data.org, paramSet$data.idType),
+        error = function(e) data.frame(symbol = rep(NA_character_, length(genes)),
+                                       name   = rep(NA_character_, length(genes)))
+      )
+
+      de_df <- data.frame(
+        GeneID = genes,
+        Symbol = annot$symbol,
+        Name   = annot$name,
+        as.data.frame(de_mat, check.names = FALSE),
+        check.names = FALSE
+      )
+      de_df$DE_Count <- rowSums(de_mat)
+      de_df$Comparisons <- apply(de_mat, 1, function(z) {
+        hits <- which(z == 1L)
+        if (length(hits) == 0) "" else paste(comp_names[hits], collapse = ";")
+      })
+
+      write.csv(de_df, file = out_bin_file, row.names = FALSE)
+      message("Binary DE matrix written to: ", out_bin_file)
+    } else {
+      # write an empty shell (optional)
+      write.csv(data.frame(GeneID = character(0)), file = out_bin_file, row.names = FALSE)
+      message("No genes passed any comparison; wrote empty binary matrix to: ", out_bin_file)
+    }
 }
 dataSet$comp.res.list <- lapply(dataSet$comp.res.list, function(tbl) {
   if (is.null(tbl) || nrow(tbl) == 0) return(tbl)

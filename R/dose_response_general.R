@@ -1079,7 +1079,6 @@ sensPOD <- function(pod = c("feat.20", "feat.10th", "mode", "lcrd"), scale) {
     trans.pod["mode"] <- if (length(per.pass) > 0) unname(maxes[per.pass[1]]) else NA_real_
   }
 
-  # ---- lcrd (GLOBAL) ---------------------------------------------------------
   if ("lcrd" %in% pod) {
     # Build a probe vector to pair with BMDs: prefer gene.id/probe; fallback to row index
     probe <- if ("gene.id" %in% names(bmd.res)) {
