@@ -1225,7 +1225,7 @@ CheckDetailsTablePerformed <-function(type){
     performed <- !is.null(dataSet$html.resTable);
   }
 
-  print(paste("checkPerformed=", type, "====",performed));
+  #print(paste("checkPerformed=", type, "====",performed));
 
 return(performed)
 }
