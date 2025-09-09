@@ -1249,13 +1249,14 @@ BuildCEMiNet <- function(dataName,
   }
 
   ## Call the implementation (compiled or pure-R)
-  my.build.cemi.net(
+  res <- my.build.cemi.net(
     dataName   = dataName,
     filter     = filter,
     min_ngen   = min_ngen,
     cor_method = cor_method,
     verbose    = verbose
   )
+  return(res);
 }
 
 GetNetsNameString <- function(){
