@@ -436,11 +436,10 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
 PrepareNetwork <- function(net.nm, jsonNm){
    analSet <- readSet(analSet, "analSet");
    paramSet <- readSet(paramSet, "paramSet");
-   print(analSet$ppi.comps);
+   #print(analSet$ppi.comps);
 
    my.ppi <- analSet$ppi.comps[[net.nm]];
    nd.nms <- V(my.ppi)$name;
-
 
   CorrIgraph2SigmaJS(my.ppi,
                      netNm    = jsonNm,
