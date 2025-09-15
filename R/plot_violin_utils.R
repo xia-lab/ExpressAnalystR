@@ -113,7 +113,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
         df.orig <- data.frame(facA = lv, value = data.norm[gene.id, inx], name = in.fac[inx])
         p_all[[lv]] <- df.orig
       }
-      Cairo(file <- imgName, width=5, height=5, type=format, bg="white", dpi=dpi,unit="in");
+      Cairo(file = imgName, width=5, height=5, type=format, bg="white", dpi=dpi,unit="in");
       
       alldata <- do.call(rbind, p_all)
       alldata$facA <- factor(as.character(alldata$facA), levels=levels(out.fac))

@@ -981,7 +981,7 @@ PerformBMDCalc <- function(ncpus = 1)
 
   # make table for html display
   if(dim(disp.res)[1] > 0) {
-
+    
     res <- disp.res[,c(1,2,4,7,6,8)];
     res.mods <- dataSet$drcfit.obj$fitres.filt[,c(1,3,4,5,6)];
     res <- merge(res, res.mods, by.y = "gene.id", by.x = "item");
@@ -989,7 +989,34 @@ PerformBMDCalc <- function(ncpus = 1)
     res[,c(3:6)] <- apply(res[,c(3:6)], 2, function(x) signif(x, digits = 2));
     rownames(res) <- as.character(res$item);
     colnames(res) <- c("gene.id","mod.name","lof.p","bmdl","bmd","bmdu","b","c","d","e");
-    res <- res[order(res$bmd), ];
+
+    # I added this, can you put bmd.lcrd right after bmdu?
+    resL <- LCRD(res$bmd, res$gene.id);
+
+    ## LCRD result
+    lcrd_gene <- as.character(resL$LCRD_Result$Gene)
+    lcrd_bmc  <- as.numeric(resL$LCRD_Result$BMC)
+
+    ## build the new column (NA everywhere except the LCRD row)
+    bmd_lcrd_col <- rep(NA_real_, nrow(res))
+    irow <- match(lcrd_gene, res$gene.id)
+    if (!is.na(irow)) bmd_lcrd_col[irow] <- lcrd_bmc
+
+    ## insert right after 'bmdu'
+    ix <- match("bmdu", colnames(res))
+    if (!is.na(ix)) {
+      res <- cbind(
+        res[, 1:ix, drop = FALSE],
+        `bmd.lcrd` = bmd_lcrd_col,
+        res[, (ix + 1):ncol(res), drop = FALSE]
+      )
+    } else {
+      # fallback: append at end if 'bmdu' isn't present
+      res$`bmd.lcrd` <- bmd_lcrd_col
+    }
+
+    ## (optional) order by bmd, as you do next
+    res <- res[order(res$bmd), ]
     dataSet$html.resTable <- res;
     RegisterData(dataSet);
     if(dim(disp.res)[1] == 1){
