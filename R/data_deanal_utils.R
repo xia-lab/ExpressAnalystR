@@ -93,7 +93,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
   }else if (dataSet$de.method == "edger"){
     dataSet <- prepareEdgeRContrast(dataSet, anal.type, par1, par2, nested.opt);
     dataSet <- .perform_limma_edger(dataSet, robustTrend);
-  }else{
+  }else{ #dataSet$de.method == "wtt"
     dataSet <- prepareContrast(dataSet, anal.type, par1, par2, nested.opt);
     dataSet <- .perform_williams_trend(dataSet, robustTrend);
   }
@@ -516,8 +516,15 @@ dataSet$comp.res.list      <- result.list
     P.Value   = P.Value,
     adj.P.Val = adj.P.Val,
     check.names = FALSE)
-  
+
+topFeatures$adj.P.Val <- as.numeric(topFeatures$adj.P.Val)
+
+ord <- order(topFeatures$adj.P.Val, na.last = TRUE)
+topFeatures <- topFeatures[ord, , drop = FALSE]  
+
   dataSet$comp.res <- topFeatures
+  dataSet$comp.res.list <- make_comp_res_list(topFeatures, stat.cols = c("t",
+                                             "P.Value", "adj.P.Val"))
   return(dataSet)
 }
 

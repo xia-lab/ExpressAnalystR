@@ -12,7 +12,15 @@
 #'@export
 #'
 my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFactorInx=1, mode = "multi",rankOpt=""){
-  #save.image("gsea.RData");
+  dataName <<- dataName;
+  file.nm <<- file.nm;
+  fun.type <<- fun.type;
+  netNm<<- netNm;
+  mType <<- mType;
+  #mode <<- mode;
+  rankOpt <<- rankOpt;
+  save.image("gsea.RData");
+
   #message("Debug Info - my.perform.gsea:")
   #message("dataName: ", dataName)
   #message("file.nm: ", file.nm)
@@ -256,7 +264,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   }
 
 
-  csvDf <- data.frame(Name=fgseaRes$pathway, Total=fgseaRes$total, Hits=fgseaRes$hits, EnrichmentScore=fgseaRes$ES, Pval=fgseaRes$pval, Padj=fgseaRes$padj);
+  csvDf <- data.frame(Name=fgseaRes$pathway, Total=fgseaRes$total, Hits=fgseaRes$hits, NormalizedEnrichmentScore=fgseaRes$NES, Pval=fgseaRes$pval, Padj=fgseaRes$padj);
   fun.ids <- as.vector(setres$current.setids[fgseaRes$pathway]); 
   csvDf$IDs <- fun.ids;
 

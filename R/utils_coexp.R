@@ -4,43 +4,65 @@ my.build.cemi.net <- function(dataName,
                               cor_method  = "pearson",
                               verbose     = FALSE,
                               classCol    = NULL) {   # <-- optional argument
+  tryCatch({
+    ## 1 · load dataset -------------------------------------------------
+    dataSet  <- readDataset(dataName)
+    expr_mat <- as.data.frame(dataSet$data.norm)    # genes × samples
 
-  ## 1 · load dataset -------------------------------------------------
-  dataSet  <- readDataset(dataName)
-  expr_mat <- as.data.frame(dataSet$data.norm)    # genes × samples
+    ## metadata: keep *all* columns, coerce factors -> character
+    meta_df <- dataSet$meta.info
+    meta_df[] <- lapply(meta_df, \(x) if (is.factor(x)) as.character(x) else x)
 
-  ## metadata: keep *all* columns, coerce factors -> character
-  meta_df <- dataSet$meta.info
-  meta_df[] <- lapply(meta_df, \(x) if (is.factor(x)) as.character(x) else x)
+    ## decide which column is the class
+    if (is.null(classCol)) {
+      classCol <- colnames(meta_df)[1]              # first column by default
+    }
+    if (!classCol %in% colnames(meta_df)) {
+      stop("classCol '", classCol, "' not found in meta.info")
+    }
 
-  ## decide which column is the class
-  if (is.null(classCol)) {
-    classCol <- colnames(meta_df)[1]              # first column by default
-  }
-  if (!classCol %in% colnames(meta_df))
-    stop("classCol '", classCol, "' not found in meta.info")
+    ## build annotation table (SampleName + all meta)
+    annot_df <- data.frame(SampleName = rownames(meta_df),
+                           meta_df,
+                           check.names = FALSE,
+                           stringsAsFactors = FALSE)
 
-  ## build annotation table (SampleName + all meta)
-  annot_df <- data.frame(SampleName = rownames(meta_df),
-                         meta_df,
-                         check.names = FALSE,
-                         stringsAsFactors = FALSE)
+    ## 2 · run CEMiTool -------------------------------------------------
+    suppressPackageStartupMessages({
+      library(CEMiTool)
+      library(WGCNA)
+    })
 
-  ## 2 · run CEMiTool -------------------------------------------------
-  suppressPackageStartupMessages({library(CEMiTool); library(WGCNA)})
+print("buildingceminet");
 
-  cem <- cemitool(expr         = expr_mat,
-                  annot        = annot_df,
-                  filter       = filter,
-                  min_ngen     = min_ngen,
-                  cor_method   = match.arg(cor_method),
-                  class_column = classCol,      # <-- tell CEMiTool!
-                  verbose      = verbose,
-                  plot         = TRUE)
+    cem <- cemitool(expr         = expr_mat,
+                    annot        = annot_df,
+                    filter       = filter,
+                    min_ngen     = min_ngen,
+                    cor_method   = match.arg(cor_method),
+                    class_column = classCol,      # <-- tell CEMiTool!
+                    verbose      = verbose,
+                    plot         = TRUE)
 
-  ## 3 · save & return -----------------------------------------------
-  qs::qsave(cem, "cem.qs")
-  return(1)
+    ## 3 · save & return -----------------------------------------------
+    qs::qsave(cem, "cem.qs")
+
+  mod <- attr(cem, "module")
+
+   if (is.null(mod) || !is.data.frame(mod) || nrow(mod) == 0 || !("modules" %in% colnames(mod))) {
+      if(nrow(cem@sample_annotation) < 25){
+      return("ERROR: No modules found. Beta selection likely failed during network construction due to low number of samples. Please have look at the Scale-free fit plot.");
+      }else{
+      return(paste0("ERROR: No modules found. Beta selection likely failed during network construction. ",
+           "Consider relaxing filtering, lowering minimum module size or ",
+           "increasing sample size. Please have look at the Scale-free fit plot."));
+      }
+    }else{
+      return("OK")
+    }
+  }, error = function(e) {
+    return(paste("Error:", conditionMessage(e)))
+  })
 }
 
 
@@ -58,7 +80,7 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
   mode <- match.arg(mode)
   expr <- attr(cem, "expression")       # genes × samples
-  mod  <- attr(cem, "module")
+  mod <- attr(cem, "module")
 
   ## helper ----------------------------------------------------------
   plotDendroColoured <- function(hc, colNamed, label, file, legendPal) {
@@ -141,7 +163,7 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
   file <- sprintf("%sdpi%d.%s", imgName, dpi, format)
   plotDendroColoured(hc, colNamed, "sample class", file, pal)
-  return(1)
+  return("OK")
 }
 
 # =======================================================================
@@ -254,4 +276,39 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
   })
 }
 
+PlotCEMiScaleFree <- function(imgName = "coexp_scalefree",
+                                     dpi = 72,
+                                     format = "png") {
+  library(Cairo); library(CEMiTool)
+
+  cem <- qs::qread("cem.qs")
+  stopifnot(inherits(cem, "CEMiTool"))
+
+  # Ensure the plot exists (some versions only populate it after calling plot_beta)
+  if (is.null(cem@beta_r2_plot)) {
+    plot_beta <- try(getFromNamespace("plot_beta", "CEMiTool"), silent = TRUE)
+    if (!inherits(plot_beta, "try-error") && is.function(plot_beta)) {
+      cem <- plot_beta(cem)  # fills cem@beta_r2_plot
+    }
+  }
+
+  # Extract ggplot object from the slot
+  g <- NULL
+  if (!is.null(cem@beta_r2_plot)) {
+    if (is.list(cem@beta_r2_plot) && "beta_r2_plot" %in% names(cem@beta_r2_plot)) {
+      g <- cem@beta_r2_plot$beta_r2_plot
+    } else {
+      g <- cem@beta_r2_plot
+    }
+  }
+  if (is.null(g)) return("Error: beta_r2_plot not available on the CEMiTool object.")
+
+  # Save
+  file <- sprintf("%sdpi%d.%s", imgName, dpi, format)
+  if (dpi == 72) dpi <- 96
+  Cairo(file, width = 1000, height = 600, dpi = dpi, bg = "white", type = format)
+  print(g)    # ggplot draw
+  dev.off()
+  "OK"
+}
 

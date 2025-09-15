@@ -140,7 +140,7 @@ UpdateNetworkLayout <- function(algo, filenm, focus=""){
 }
 
 
-ExtractModule<- function(nodeids){
+ExtractModule<- function(nodeids, type="enr"){
   paramSet <- readSet(paramSet, "paramSet");
   analSet <- readSet(analSet, "analSet");
 
@@ -197,8 +197,12 @@ ExtractModule<- function(nodeids){
   
   saveSet(paramSet, "paramSet");
   saveSet(analSet, "analSet");
-
-  convertIgraph2JSON(module.nm, filenm);
+  ##if(type == "enr"){
+    #convertIgraph2JSON(module.nm, filenm);
+  #}else{
+    my.ppi <- analSet$ppi.comps[[module.nm]];
+    CorrIgraph2SigmaJS(my.ppi, filenm)
+  #}
   return (filenm);
 }
 

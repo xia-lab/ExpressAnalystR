@@ -1225,7 +1225,7 @@ CheckDetailsTablePerformed <-function(type){
     performed <- !is.null(dataSet$html.resTable);
   }
 
-  print(paste("checkPerformed=", type, "====",performed));
+  #print(paste("checkPerformed=", type, "====",performed));
 
 return(performed)
 }
@@ -1249,11 +1249,16 @@ BuildCEMiNet <- function(dataName,
   }
 
   ## Call the implementation (compiled or pure-R)
-  my.build.cemi.net(
+  res <- my.build.cemi.net(
     dataName   = dataName,
     filter     = filter,
     min_ngen   = min_ngen,
     cor_method = cor_method,
     verbose    = verbose
   )
+  return(res);
+}
+
+GetNetsNameString <- function(){
+  paste(rownames(net.stats), collapse="||");
 }

@@ -754,9 +754,7 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
   if(nrow(meta.mat2) > 1000){
     meta.mat2 <- meta.mat2[1:1000,]; # already sorted based on meta-p values
   }
-  meta.mat2 <-signif(as.matrix(meta.mat2), 5);
-  print("===meta.mat2");
-  meta.mat2;
+  return(signif(as.matrix(meta.mat2), 5));
 }
 
 GetMetaStat<-function(){
@@ -1019,8 +1017,8 @@ GetMetaParams <- function(type="metap"){
       total <- paramSet$merge.sigTotal;
 
     }  
-print("getmetaparams");
-print(c(pval, fc, total));
+#print("getmetaparams");
+#print(c(pval, fc, total));
     return(c(pval, fc, total));
 }
 

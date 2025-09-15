@@ -86,7 +86,7 @@ GetSigDRItems <- function(deg.pval = 1, FC = 1.5, deg.FDR = FALSE, wtt = FALSE, 
   irow <- 1:length(item)
   nselect <- dim(data)[1]
   
-  if(dataSet$de.method == "deseq2" || dataSet$de.method == "edger" || dataSet$de.method == "limma" ){
+  if(dataSet$de.method == "deseq2" || dataSet$de.method == "edger" || dataSet$de.method == "limma" || dataSet$de.method == "wtt" ){
 
     table_list <- dataSet$comp.res.list;
 
@@ -1029,133 +1029,108 @@ PerformBMDCalc <- function(ncpus = 1)
   }
   
 }
+sensPOD <- function(pod = c("feat.20", "feat.10th", "mode", "lcrd"), scale) {
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet  <- readDataset(paramSet$dataName)
 
-#5a_sensPOD.R
-### Calculation of transcriptomic POD from BMDs
-sensPOD <- function(pod = c("feat.20", "feat.10th", "mode"), scale)
-{
-  paramSet <- readSet(paramSet, "paramSet");
-  dataSet <- readDataset(paramSet$dataName);
-  pod.choices <- c("feat.20", "feat.10th", "mode")
-  if (sum(pod %in% pod.choices) != length(pod))
-    stop("You must identify pod methods with the correct identifiers")
-  if (sum(duplicated(pod.choices)) > 0)
-    stop("Do not add duplicate pod methods")
-  
+  pod.choices <- c("feat.20", "feat.10th", "mode", "lcrd")
+  if (sum(pod %in% pod.choices) != length(pod)) stop("You must identify pod methods with the correct identifiers")
+  if (sum(duplicated(pod)) > 0) stop("Do not add duplicate pod methods")
+
   require(data.table)
   require(dplyr)
   require(boot)
-  
-  # get bmd data
-  bmd.res <- FilterBMDResults(dataSet)
 
-  if(scale == "log10"){
-    bmds <- log10(bmd.res$bmd);
-  } else if(scale == "log2"){
-    bmds <- log2(bmd.res$bmd);
-  } else {
-    bmds <- bmd.res$bmd;
-  }
-  
-  # prepare results
-  trans.pod <- c(rep(NA, length(pod)))
-  names(trans.pod) <- pod.choices[(pod.choices %in% pod)]
-  
-  # calculate transcriptomic pod from specified method
-  if ("feat.20" %in% pod){
-    
-    if (length(bmds) < 20) {
-      
-      trans.pod["feat.20"] <- NA
-      
-    } else {
-      
-      # get 20 lowest BMDs
+  # ---- BMDs (keep a raw copy for LCRD) --------------------------------------
+  bmd.res  <- FilterBMDResults(dataSet)            # expect at least columns: bmd, (gene.id|probe)
+  bmds_raw <- as.numeric(bmd.res$bmd)
+
+  # vector used by the existing POD methods (on the requested scale)
+  bmds <- switch(
+    scale,
+    log10 = log10(bmds_raw),
+    log2  = log2(bmds_raw),
+    bmds_raw
+  )
+
+  # ---- prepare result vector -------------------------------------------------
+  trans.pod <- rep(NA_real_, length(pod))
+  names(trans.pod) <- pod
+
+  # ---- feat.20 ---------------------------------------------------------------
+  if ("feat.20" %in% pod) {
+    if (length(bmds) >= 20) {
       bmd.sort <- sort(bmds)
       trans.pod["feat.20"] <- bmd.sort[20]
-      
+    } else {
+      trans.pod["feat.20"] <- NA_real_
     }
-    
-  } 
-  if ("feat.10th" %in% pod){
-    
-    # POD = 10th percentile BMD from all significant probes
-    trans.pod["feat.10th"] <- unname(quantile(bmds, 0.1))
-    
-  } 
-  if ("mode" %in% pod & length(bmds) > 1){
-    
-    # get density plot
+  }
+
+  # ---- feat.10th -------------------------------------------------------------
+  if ("feat.10th" %in% pod) {
+    trans.pod["feat.10th"] <- unname(quantile(bmds, 0.1, na.rm = TRUE))
+  }
+
+  # ---- mode ------------------------------------------------------------------
+  if ("mode" %in% pod && length(bmds) > 1) {
     density.bmd <- density(bmds, na.rm = TRUE)
-    
-    # interpolate with high # of data points
-    X <- density.bmd$x
-    Y <- density.bmd$y 
-    
-    # calculate first derivative
-    dY <- diff(Y)/diff(X)
-    dX <- rowMeans(embed(X,2))
-    
-    # detect index of local maxima
-    dY.signs <- sign(dY)
-    dY.signs.1 <- c(0,dY.signs[-length(dY.signs)])
-    
-    # get indices of local mins and maxes
+    X <- density.bmd$x; Y <- density.bmd$y
+    dY <- diff(Y) / diff(X); dX <- rowMeans(embed(X, 2))
+    dY.signs <- sign(dY); dY.signs.1 <- c(0, dY.signs[-length(dY.signs)])
     sign.changes <- dY.signs - dY.signs.1
     inds.maxes <- which(sign.changes == -2)
-    inds.mins <- which(sign.changes == 2)
-    
-    bmd.temp <- bmds
-    bmds.tot <- length(bmd.temp)
-    
-    # get mins and maxes
-    if((length(inds.mins) > 0) & (length(inds.maxes) > 0)){
-      
-      mins <- dX[inds.mins]
-      names(mins) <- paste0("min", c(1:length(mins)))
-      maxes <- dX[inds.maxes]
-      names(maxes) <- paste0("max", c(1:length(maxes)))
-      
-      # order mins and maxes
-      mins.maxes <- sort(c(mins,maxes))
-      num.modes <- length(mins.maxes) %/% 2
-      mins.maxes <- mins.maxes[1:(2*num.modes)]
-      
-      # initialize inputs to for loop
-      size.peaks <- c(rep(NA, num.modes))
-      per.peaks <- c(rep(NA, num.modes))
-      
-      # calculate the size of each peak
-      for(i in c(1:num.modes)){
-        
-        size.peaks[i] <- sum(bmd.temp < mins.maxes[2*i])
-        per.peaks[i] <- size.peaks[i]/bmds.tot
-        
-        # update bmd.temp to remove features from previous peak
-        bmd.temp <- bmd.temp[!(bmd.temp < mins.maxes[2*i])]
+    inds.mins  <- which(sign.changes ==  2)
+
+    bmd.temp <- bmds; bmds.tot <- length(bmd.temp)
+
+    if (length(inds.mins) > 0 && length(inds.maxes) > 0) {
+      mins <- dX[inds.mins]; maxes <- dX[inds.maxes]
+      mins.maxes <- sort(c(mins, maxes))
+      num.modes  <- length(mins.maxes) %/% 2
+      mins.maxes <- mins.maxes[1:(2 * num.modes)]
+      size.peaks <- per.peaks <- rep(NA_real_, num.modes)
+      for (i in seq_len(num.modes)) {
+        size.peaks[i] <- sum(bmd.temp < mins.maxes[2 * i])
+        per.peaks[i]  <- size.peaks[i] / bmds.tot
+        bmd.temp <- bmd.temp[!(bmd.temp < mins.maxes[2 * i])]
       }
-      
-      # check size
       per.pass <- which(per.peaks > 0.05)
-      
-    } else if((length(inds.mins) == 0) & (length(inds.maxes) > 0)){
-      
+    } else if (length(inds.mins) == 0 && length(inds.maxes) > 0) {
       maxes <- dX[inds.maxes]
       per.pass <- 1
-      
     } else {
-      per.pass <- NULL
+      per.pass <- integer(0)
     }
-    
-    # find transcriptomic pod
-    if (length(per.pass > 0)){
-      trans.pod["mode"] <- unname(maxes[per.pass[1]])
-    } else {
-      trans.pod["mode"] <- NA
-    }
-    
+
+    trans.pod["mode"] <- if (length(per.pass) > 0) unname(maxes[per.pass[1]]) else NA_real_
   }
-  return(trans.pod)
+
+  if ("lcrd" %in% pod) {
+    # Build a probe vector to pair with BMDs: prefer gene.id/probe; fallback to row index
+    probe <- if ("gene.id" %in% names(bmd.res)) {
+      as.character(bmd.res$gene.id)
+    } else if ("probe" %in% names(bmd.res)) {
+      as.character(bmd.res$probe)
+    } else {
+      seq_along(bmds_raw)
+    }
+
+    ok <- is.finite(bmds_raw) & bmds_raw > 0 & !is.na(probe)
+    if (sum(ok) >= 1) {
+      lcrd_raw <- LCRD(bmc = bmds_raw[ok], probe = probe[ok])$LCRD_Result$BMC  # compute on RAW scale
+      trans.pod["lcrd"] <- switch(
+        scale,
+        log10 = log10(lcrd_raw),
+        log2  = log2(lcrd_raw),
+        lcrd_raw
+      )
+    } else {
+      trans.pod["lcrd"] <- NA_real_
+    }
+  }
+
+  trans.pod
 }
 
 #5b_gsPOD.R
@@ -1232,6 +1207,7 @@ GetFitResultMatrix <- function(){
   res[is.nan(res)] <- 0;
   res <- as.data.frame(res);
   colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
+
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
   return(res);
@@ -1283,4 +1259,132 @@ GetFitResultGeneSymbols <-function(org){
   } else {
     return(doEntrez2SymbolMapping(as.character(dataSet$html.resTable[,1])));
   }
+}
+
+# Define the function to calculate LCRD with the largest CRGB
+
+LCRD <- function(bmc, probe, cut = 1.778, logbase = 10) {
+
+  # Order BMC values and their corresponding probes
+
+  ordered_indices <- order(bmc)
+
+  sorted_bmc <- bmc[ordered_indices]
+
+  sorted_probe <- probe[ordered_indices]
+
+ 
+
+  # Calculate ratios
+
+  ratios <- sorted_bmc[-1] / sorted_bmc[-length(sorted_bmc)]
+
+ 
+
+  # Initialize variables to store CRGB information
+
+  crgb_list <- list()
+
+  current_start <- 1
+
+ 
+
+  # Iterate through the ratios to find CRGBs
+
+  for (i in seq_along(ratios)) {
+
+    if (ratios[i] >= cut) {
+
+      # Append each CRGB together into a list
+
+      crgb_list <- append(crgb_list, list(list(start = current_start, end = i)))
+
+      current_start <- i + 1
+
+    }
+
+  }
+
+  # Append the last CRGB
+
+  crgb_list <- append(crgb_list, list(list(start = current_start, end = length(sorted_bmc))))
+
+ 
+
+  # Identify the largest CRGB
+
+  crgb_lengths <- sapply(crgb_list, function(group) group$end - group$start + 1)
+
+  largest_crgb_index <- which.max(crgb_lengths)
+
+  largest_crgb <- crgb_list[[largest_crgb_index]]
+
+ 
+
+  # Extract BMCs and probes of the largest CRGB
+
+  largest_crgb_bmcs <- sorted_bmc[largest_crgb$start:largest_crgb$end]
+
+  largest_crgb_probes <- sorted_probe[largest_crgb$start:largest_crgb$end]
+
+ 
+
+  # Identify the lowest BMC in the largest CRGB
+
+  lcrd_bmc <- min(largest_crgb_bmcs)
+
+  lcrd_probe <- largest_crgb_probes[which.min(largest_crgb_bmcs)]
+
+ 
+
+  # Extract the lowest BMC for each CRGB
+
+  crgb_bmcs_df <- do.call(rbind, lapply(seq_along(crgb_list), function(i) {
+
+    group <- crgb_list[[i]]
+
+    crgb_bmcs <- sorted_bmc[group$start:group$end]
+
+    crgb_probes <- sorted_probe[group$start:group$end]
+
+    data.frame(
+
+      Gene = crgb_probes[which.min(crgb_bmcs)],
+
+      BMC = min(crgb_bmcs),
+
+      logBMC = log(min(crgb_bmcs), base = logbase),
+
+      CRGB_Number = i,
+
+      CRGB_Size = length(crgb_bmcs)
+
+    )
+
+  }))
+
+ 
+
+  # Return the result
+
+  list(
+
+    LCRD_Result = data.frame(
+
+      Gene = lcrd_probe,
+
+      BMC = lcrd_bmc,
+
+      logBMC = log(lcrd_bmc, base = logbase),
+
+      CRGB_Number = largest_crgb_index,
+
+      CRGB_Size = length(largest_crgb_bmcs)
+
+    ),
+
+    CRGB_BMCs = crgb_bmcs_df
+
+  )
+
 }

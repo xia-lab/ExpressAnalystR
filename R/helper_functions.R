@@ -37,6 +37,7 @@ GetMetaCol<- function(dataName=""){
       return(names(dataSet$comp.res.list));
     } else if(dataSet$de.method=="wtt"){
       inx <- match("t", colNms)
+      return(names(dataSet$comp.res.list));
   } else if (dataSet$de.method=="deseq2"){
       inx <- match("baseMean", colNms)
       return(names(dataSet$comp.res.list));
@@ -202,7 +203,7 @@ GetFilesToBeSaved <-function(naviString){
 
 GetMetaInfo <- function(dataName=""){
   paramSet <- readSet(paramSet, "paramSet");
-  print(paste0("metainfo==dataname=", dataName));
+  #print(paste0("metainfo==dataname=", dataName));
   if(paramSet$anal.type == "metadata"){
   metaNms<-setdiff(colnames(paramSet$dataSet$meta.info),dataSet$rmMetaCol)
   }else{
@@ -266,7 +267,7 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     }else if (dataSet$de.method=="edger"){
         inx <- match("logCPM", colnames(dataSet$comp.res))
         res <- dataSet$comp.res.list[[inxt]];
-    }else if (dataSet$de.method=="limma"){
+    }else if (dataSet$de.method=="limma" || dataSet$de.method=="wtt"){
         inx <- match("AveExpr", colnames(dataSet$comp.res))
         res <- dataSet$comp.res.list[[inxt]];
     } else{
@@ -288,7 +289,7 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     dataSet$comp.res <- dataSet$comp.res[complete.cases(dataSet$comp.res), ]
 
     ## --- now extract the column(s) for the return value -------
-    if (dataSet$de.method %in% c("limma", "edger", "deseq2")) {
+    if (dataSet$de.method %in% c("limma", "edger", "deseq2", "wtt")) {
       res <- dataSet$comp.res.list[[inxt]]
     } else {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
