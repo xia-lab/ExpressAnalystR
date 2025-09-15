@@ -119,7 +119,8 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     meta.info <- dataSet$meta.info[hit.inx,];
   }
   qs::qsave(data, file="data.stat.qs");
-dataSet$comp.res <- dataSet$comp.res[order(dataSet$comp.res$adj.P.Val), ]
+o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
+dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
 dataSet$comp.res <- dataSet$comp.res[
                       !(rownames(dataSet$comp.res) %in% rownames(resTable)), ]
 dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
@@ -299,8 +300,7 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
 dataSet$comp.res.list <- lapply(dataSet$comp.res.list, function(tbl) {
   if (is.null(tbl) || nrow(tbl) == 0) return(tbl)
 
-  # p column (prefer FDR)
-  pcol <- if (paramSet$use.fdr && "adj.P.Val" %in% names(tbl)) "adj.P.Val"
+  pcol <- if ( "P.Value" %in% names(tbl)) "P.Value"
           else if ("padj" %in% names(tbl)) "padj"
           else "P.Value"
   pvec <- suppressWarnings(as.numeric(tbl[[pcol]]))
