@@ -282,7 +282,8 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
         colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
 
-    dataSet$comp.res <- dataSet$comp.res[order(dataSet$comp.res$adj.P.Val), ]
+    o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
+    dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
     dataSet$comp.res <- dataSet$comp.res[
         !(rownames(dataSet$comp.res) %in% rownames(dataSet$sig.mat)), ]
     dataSet$comp.res <- rbind(dataSet$sig.mat, dataSet$comp.res)
@@ -291,9 +292,10 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     ## --- now extract the column(s) for the return value -------
     if (dataSet$de.method %in% c("limma", "edger", "deseq2", "wtt")) {
       res <- dataSet$comp.res.list[[inxt]]
+      dataSet$comp.res <- res;
     } else {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
-      res <- res[order(res$adj.P.Val), ]
+      res <- res[order(res$P.Value), ]
       colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
 

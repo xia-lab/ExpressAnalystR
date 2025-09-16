@@ -12,14 +12,14 @@
 #'@export
 #'
 my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFactorInx=1, mode = "multi",rankOpt=""){
-  dataName <<- dataName;
-  file.nm <<- file.nm;
-  fun.type <<- fun.type;
-  netNm<<- netNm;
-  mType <<- mType;
+  #dataName <<- dataName;
+  #file.nm <<- file.nm;
+  #fun.type <<- fun.type;
+  #netNm<<- netNm;
+  #mType <<- mType;
   #mode <<- mode;
-  rankOpt <<- rankOpt;
-  save.image("gsea.RData");
+  #rankOpt <<- rankOpt;
+  Ssave.image("gsea.RData");
 
   #message("Debug Info - my.perform.gsea:")
   #message("dataName: ", dataName)
