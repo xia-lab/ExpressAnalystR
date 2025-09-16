@@ -163,6 +163,9 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
   file <- sprintf("%sdpi%d.%s", imgName, dpi, format)
   plotDendroColoured(hc, colNamed, "sample class", file, pal)
+    imgSet <- readSet(imgSet, "imgSet");
+    imgSet$coexp_dendrogram <- file;
+    saveSet(imgSet):
   return("OK")
 }
 
@@ -268,6 +271,9 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 
     dev.off()
     message("Heat-map written to: ", outFile)
+    imgSet <- readSet(imgSet, "imgSet");
+    imgSet$coexp_traitheat <- outFile;
+    saveSet(imgSet):
     1
 
   }, error = function(e) {
@@ -309,6 +315,9 @@ PlotCEMiScaleFree <- function(imgName = "coexp_scalefree",
   Cairo(file, width = 1000, height = 600, dpi = dpi, bg = "white", type = format)
   print(g)    # ggplot draw
   dev.off()
-  "OK"
+    imgSet <- readSet(imgSet, "imgSet");
+    imgSet$coexp_scalefree <- file;
+    saveSet(imgSet):
+  return(1);
 }
 

@@ -350,6 +350,11 @@ if (nrow(other) > 0 && pcol %in% names(other)) {
 
 dataSet$comp.res <- rbind(resTable, other)
 
+  output_file <- paste0(dataName, "_logFC_",format(as.numeric(fc.lvl), digits = 2, nsmall = 0, trim = TRUE, scientific = FALSE),
+                        "_Significant_Genes.csv")
+    write.csv(dataSet$comp.res,
+              file = output_file, row.names = FALSE)
+
   analSet$sig.gene.count <- de.Num;
   saveSet(analSet, "analSet");
 

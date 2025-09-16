@@ -167,7 +167,7 @@ CorrIgraph2SigmaJS <- function(g,
   
   ## track for later download
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, fileNm)
-  paramSet$jsonNms$network <- basename(fileNm)
+  paramSet$jsonNms$coexpNet <- basename(fileNm)
   saveSet(paramSet, "paramSet")
   analSet$corNet <- netData
   saveSet(analSet, "analSet")
