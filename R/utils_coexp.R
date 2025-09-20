@@ -5,6 +5,7 @@ my.build.cemi.net <- function(dataName,
                               verbose     = FALSE,
                               classCol    = NULL) {   # <-- optional argument
   tryCatch({
+
     ## 1 · load dataset -------------------------------------------------
     dataSet  <- readDataset(dataName)
     expr_mat <- as.data.frame(dataSet$data.norm)    # genes × samples

@@ -19,7 +19,6 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   #mType <<- mType;
   #mode <<- mode;
   #rankOpt <<- rankOpt;
-  Ssave.image("gsea.RData");
 
   #message("Debug Info - my.perform.gsea:")
   #message("dataName: ", dataName)
