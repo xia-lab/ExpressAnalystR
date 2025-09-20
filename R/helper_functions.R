@@ -291,8 +291,8 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
 
     ## --- now extract the column(s) for the return value -------
     if (dataSet$de.method %in% c("limma", "edger", "deseq2", "wtt")) {
-      res <- dataSet$comp.res.list[[inxt]]
-      dataSet$comp.res <- res;
+      #res <- dataSet$comp.res.list[[inxt]]
+      res <- dataSet$comp.res
     } else {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
       res <- res[order(res$P.Value), ]
