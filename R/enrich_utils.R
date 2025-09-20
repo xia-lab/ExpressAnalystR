@@ -445,7 +445,7 @@ GetHTMLPathSet <- function(type, setNm){
   
   # use actual cmpd names
   #nms <- names(set);
-  nms <- set;
+  nms <- doEntrez2SymbolMapping(set);
   nms[red.inx] <- paste("<font color=\"red\">", "<b>", nms[red.inx], "</b>", "</font>",sep="");
 
   return(cbind(setNm, paste(unique(nms), collapse="; ")));

@@ -387,7 +387,7 @@ FilterNetByThresh <- function(thresh      = 0.05,
     substats <- analSet$substats;
   outStats <- c(vcount(g), ecount(g), length(substats))
   overall.graph <<- g;
-  return(outStats)                  # compatible with FilterBipartiNet-style use
+    return(saveSet(analSet, "analSet", outStats));
 }
 
 
