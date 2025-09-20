@@ -347,7 +347,7 @@ ComputeSubnetStats <- function(comps){
 FilterNetByThresh <- function(thresh      = 0.05,
                                  maxEdges    = 2000,
                                  rmIsolated  = TRUE) {
-  save.image("filter.RDAta");
+  # save.image("filter.RDAta");
   analSet  <- readSet(analSet,  "analSet")
   
   g <- overall.graph;
@@ -493,7 +493,7 @@ FindCommunities <- function(method = "walktrap",
                             component = "largest",#c("largest", "all", "seed"),
                             min_genes = 5,
                             require_query_hit = TRUE) {
-  save.image("find.Rdata");
+  # save.image("find.Rdata");
   paramSet    <- readSet(paramSet, "paramSet")
   seed.expr   <- paramSet$seed.expr
   current.net <- ppi.comps[[current.net.nm]]
