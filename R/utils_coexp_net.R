@@ -87,9 +87,9 @@ V(g)$colorw <- V(g)$color                             # same for dark bg
   xy <- layoutFun(g)
   V(g)$posx <- xy[, 1]
   V(g)$posy <- xy[, 2]
-  overall.graph <<- g;
   analSet <- readSet(analSet,"analSet");
   analSet$overall.graph <- g;
+  analSet$overall.graph.orig <- g;
   saveSet(analSet):
   return(1)
 }
@@ -207,7 +207,7 @@ GenerateCEMModuleNetworks <- function(fileName  = "coexp_network",
   paramSet <- readSet(paramSet, "paramSet")
   analSet  <- readSet(analSet,  "analSet")
   
-  g.all   <- analSet$overall.graph
+  g.all   <- analSet$overall.graph.orig
   g.byMod <- SplitIgraphByModule(g.all, keepXTalk = keepXTalk)
   
   comps <- g.byMod
@@ -349,7 +349,7 @@ FilterNetByThresh <- function(thresh      = 0.05,
                                  rmIsolated  = TRUE) {
   # save.image("filter.RDAta");
   analSet  <- readSet(analSet,  "analSet")
-  
+  overall.graph <- analSet$overall.graph;
   g <- overall.graph;
   if (!"weight" %in% edge_attr_names(g))
     stop("edge attribute 'weight' not found")
@@ -386,14 +386,15 @@ FilterNetByThresh <- function(thresh      = 0.05,
     analSet <- DecomposeGraph(overall.graph,analSet);
     substats <- analSet$substats;
   outStats <- c(vcount(g), ecount(g), length(substats))
-  overall.graph <<- g;
+  analSet$overall.graph <- g;
     return(saveSet(analSet, "analSet", outStats));
 }
 
 
 FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
     paramSet <- readSet(paramSet, "paramSet");
-
+    analSet <- readSet(analSet, "analSet");
+    overall.graph <- analSet$overall.graph
     all.nms <- V(overall.graph)$name;
     edge.mat <- get.edgelist(overall.graph);
     dgrs <- degree(overall.graph);
@@ -423,13 +424,12 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
     analSet <- DecomposeGraph(overall.graph,analSet);
     substats <- analSet$substats;
     if(!is.null(substats)){
-        overall.graph <<- overall.graph;
         output <- c(vcount(overall.graph), ecount(overall.graph), length(ppi.comps), substats);
     }else{
         output <- 0;
     }
+    analSet$overall.graph <- overall.graph;
 
-    overall.graph <<- overall.graph;
     return(saveSet(analSet, "analSet", output));
 }
 
