@@ -33,6 +33,7 @@ MapListIds <- function(listNm, geneIDs, org, idType){
   paramSet$data.org <- org;
   paramSet$data.idType <- idType;
   listNms <- vector();
+
   res <- .parseListInput(geneIDs, paramSet, msgSet); 
   dataList <- res[[1]];
   paramSet <- res[[2]];

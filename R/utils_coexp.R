@@ -283,7 +283,7 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
   })
 }
 
-PlotCEMiScaleFree <- function(imgName = "coexp_scalefree",
+PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
                                      dpi = 72,
                                      format = "png") {
   library(Cairo); library(CEMiTool)

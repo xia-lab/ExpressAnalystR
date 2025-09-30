@@ -42,7 +42,7 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
   paramSet$abun.perc  <- count.thresh
 
   if (identical(norm.opt, "MORlog")) {
-    # ---- NEW BRANCH: DESeq2 RLE + log2(x+1) ----
+
     if (!requireNamespace("DESeq2", quietly = TRUE)) {
       AddErrMsg("MORlog normalization requires the 'DESeq2' package. Please install it.")
       return(0)
@@ -427,4 +427,57 @@ LoessNorm <- function(x, weights = NULL, span=0.7, iterations = 3){
     }
   
   return(x)
+}
+
+
+# Prepare MORlog: save expression matrix into dat.in.qs
+.prepare.morlog <- function(expr) {
+  di <- list(expr = expr)
+  qs::qsave(di, "dat.in.qs")
+  return(1L)
+}
+
+
+# Apply MORlog back to the active dataSet
+.apply.morlog <- function(dataName) {
+  dataSet <- readDataset(dataName)
+  di <- qs::qread("dat.in.qs")
+
+  dataSet$expr <- di$expr
+  dataSet$norm <- di$norm
+
+  dataSet$data.norm <- dataSet$norm
+  fast.write(dataSet$data.norm, file = "data_normalized.csv")
+  qs::qsave(dataSet$data.norm, file = "data.stat.qs")
+
+  msgSet <- readSet(msgSet, "msgSet")
+  msgSet$current.msg <- "[MORlog] Applied DESeq2 size-factor normalization and log2(x+1)."
+  saveSet(msgSet, "msgSet")
+
+  return(RegisterData(dataSet))
+}
+
+
+# Microservice entrypoint: expects dat.in.qs in working dir,
+# runs DESeq2 size factor normalization + log2(x+1)
+morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
+  requireNamespace("DESeq2", quietly = TRUE)
+
+  di <- qs::qread("dat.in.qs")
+  m  <- as.matrix(di[[expr_field]])
+
+  # basic checks
+  if (any(m < 0, na.rm = TRUE)) stop("MORlog expects non-negative counts")
+  if (!is.integer(m)) m <- round(m)
+
+  # minimal DESeq2 object
+  cd  <- S4Vectors::DataFrame(row.names = colnames(m))
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData = m, colData = cd, design = ~ 1)
+  dds <- DESeq2::estimateSizeFactors(dds)
+
+  norm_counts <- DESeq2::counts(dds, normalized = TRUE)
+  di[[norm_field]] <- log2(norm_counts + 1)
+
+  qs::qsave(di, "dat.in.qs")
+  return(1L)
 }
