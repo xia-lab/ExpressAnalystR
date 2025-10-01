@@ -65,7 +65,7 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     imgSet$enrTables[[vis.type]]$table <- resTable;
     imgSet$enrTables[[vis.type]]$library <- geneDB;
     imgSet$enrTables[[vis.type]]$algo <- "Overrepresentation Analysis"
-    saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 
     #prepare pathway table 
     details.50 <- details$gene.matches[names(details$gene.matches) %in% data.sorted$name]
@@ -191,7 +191,7 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
 
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$PlotGeneBMD <- imgName;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 }
 
 PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bmd, bmdu, scale){
@@ -293,7 +293,7 @@ if (scale == "log2") {
 
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$PlotGeneDRCurve <- imgName;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 }
 
 PlotDRModelBars <- function(imgNm, dpi, format){
@@ -327,7 +327,7 @@ PlotDRModelBars <- function(imgNm, dpi, format){
 
   imgSet <- readSet(imgSet, "imgSet")
   imgSet$PlotDRModelBars <- imgNm
-  saveSet(imgSet)
+    saveSet(imgSet, "imgSet");
 }
 
 PlotDRFilterSummary <- function(imgNm, dpi = 72, format = "png") {
@@ -404,7 +404,7 @@ PlotDRFilterSummary <- function(imgNm, dpi = 72, format = "png") {
 
   imgSet <- readSet(imgSet, "imgSet")
   imgSet$PlotDRFilterSummary <- outFile
-  saveSet(imgSet)
+    saveSet(imgSet, "imgSet");
 }
 
 PlotDRHistogram <- function(imgNm,
@@ -533,7 +533,7 @@ PlotDRHistogram <- function(imgNm,
 
   imgSet <- readSet(imgSet, "imgSet")
   imgSet$PlotDRHistogram <- imgFile
-  saveSet(imgSet)
+    saveSet(imgSet, "imgSet");
 }
 
 
@@ -611,7 +611,7 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
 
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$PlotPWHeatmap <- imgNm;
-    saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 }
 
 ###################
@@ -663,5 +663,5 @@ PlotDRHistogramOld <- function(imgNm, dpi, format, units, scale){
 
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$PlotDRHistogram <- imgNm;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 }

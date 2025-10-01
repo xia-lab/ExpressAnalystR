@@ -299,7 +299,7 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
   rownames(resTable) <- NULL;
   
   imgSet$compute.ridgeline <- imageName;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
   
   return(totalSigPws)
 }

@@ -381,7 +381,7 @@ PerformBatchCorrection <- function(){
     .perform.computing();
     paramSet <- readSet(paramSet, "paramSet");
     paramSet$performedBatch <- T;
-    saveSet(paramSet);
+    saveSet(paramSet, "paramSet");
     return(dataSets);
 }
 

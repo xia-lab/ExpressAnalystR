@@ -120,5 +120,5 @@ PrepareUpsetData <- function(fileNm){
 SetUpsetMode <- function(mode){
       paramSet <- readSet(paramSet, "paramSet");
       paramSet$upsetMode <- mode;
-      saveSet(paramSet);
+  saveSet(paramSet, "paramSet");
 }

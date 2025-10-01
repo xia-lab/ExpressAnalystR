@@ -921,7 +921,7 @@ PlotMetaPCA <- function(imgNm, dpi, format, interactive=F){
   #}else{
   #  imgSet$qc_meta_pca_batch <- imgNm;
   #}
-  saveSet(imgSet);
+  saveSet(imgSet, "imgSet");
 
   #if(interactive){
     library(plotly);
@@ -973,7 +973,7 @@ PlotMetaDensity<- function(imgNm, dpi=72, format, interactive=F){
   #}else{
   #  imgSet$qc_meta_density_batch <- imgNm;
   #}
-  saveSet(imgSet);
+  saveSet(imgSet, "imgSet");
 
  # if(interactive){
     library(plotly);

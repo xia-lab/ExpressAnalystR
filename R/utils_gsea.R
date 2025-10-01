@@ -278,7 +278,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   imgSet$enrTables[["gsea"]]$res.mat<- csvDf[,-c(1,7)];
   imgSet$enrTables[["gsea"]]$current.geneset.symb <- current.geneset.symb;
 
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
       
   analSet$rankedVec <- rankedVec;
   saveSet(analSet, "analSet");
@@ -669,6 +669,6 @@ plot.gs.view <-function(fileName, format="png", dpi=72, width=NA, imgName=NA){
   dev.off();
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$GSEAbarcode <- imgName;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
   return(imgName);
 }

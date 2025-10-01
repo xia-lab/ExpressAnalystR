@@ -210,7 +210,7 @@
     imgSet$enrTables[[vis.type]]$res.mat<- res.mat;
     imgSet$enrTables[[vis.type]]$current.geneset.symb <- current.geneset.symb;
   
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
   saveSet(paramSet, "paramSet");
   
   saveSet(msgSet, "msgSet");

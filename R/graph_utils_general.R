@@ -209,7 +209,8 @@ ExtractModule<- function(nodeids, type="enr"){
 # also save to GraphML
 ExportNetwork <- function(fileName){
   paramSet <- readSet(paramSet, "paramSet");
-  current.net <- ppi.comps[[paramSet$current.net.nm]];
+  analSet <- readSet(analSet, "analSet");
+  current.net <- analSet$ppi.comps[[paramSet$current.net.nm]];
   write.graph(current.net, file=fileName, format="graphml");
 }
 

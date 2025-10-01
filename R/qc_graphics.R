@@ -88,7 +88,7 @@ qc.boxplot <- function(dat, imgNm, dpi=72, format="png", interactive=F){
   }else{
     imgSet$qc_boxplot <- imgNm;
   }
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
   if(dpi == 72){
   dpi <- dpi *1.34
   }
@@ -171,7 +171,7 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
   }else{
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$qc.density_norm <- imgNm;
-    saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
   if(dpi == 72){
   dpi <- dpi *1.34
   }
@@ -276,7 +276,7 @@ PlotLibSizeView<-function(fileName, imgNm,dpi=72, format="png"){
 
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$libsize <- imgNm;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 
   return(str);
 }
@@ -307,7 +307,7 @@ qc.meanstd <- function(dat, imgNm,dpi=72, format="png"){
   
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$qc.meanstd <- imgNm;
-  saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 
   return(str);
 }
@@ -526,8 +526,8 @@ trash <- capture.output(
   pca$x <- pca$x[,1:3]; # 
   analSet$pca <- pca;
   analSet$permanova.res <-permanova_results;
-  saveSet(analSet);
-  saveSet(paramSet);
+  saveSet(analSet, "analSet");
+  saveSet(paramSet, "paramSet");
   
   if (interactive) {
     library(plotly)
@@ -1112,16 +1112,16 @@ SummarizeQC <- function(fileName, imgNameBase, threshold = 0.1) {
   group_info <- dataSet$meta.info[,1]
   names(group_info) <- rownames(dataSet$meta.info)
 
-  max_distances <- sapply(colnames(data), function(sample) {
-    sample_group <- group_info[sample]
-    same_group_samples <- names(group_info)[group_info == sample_group]
-    same_group_samples <- same_group_samples[same_group_samples != sample]
+ mean_distances <- sapply(colnames(data), function(sample) {
+      sample_group <- group_info[sample]
+      same_group_samples <- names(group_info)[group_info == sample_group]
+      same_group_samples <- same_group_samples[same_group_samples != sample]
 
-    if (length(same_group_samples) == 0) {
-      return(NA)
-    }
+      if (length(same_group_samples) == 0) {
+        return(NA)
+      }
 
-    max(dist_mat[sample, same_group_samples], na.rm = TRUE)
+    mean(dist_mat[sample, same_group_samples], na.rm = TRUE)
   })
 
   dendrogram_df <- data.frame(Sample = names(max_distances), 

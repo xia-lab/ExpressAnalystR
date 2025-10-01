@@ -873,13 +873,10 @@ comments.inx <- grep("^#", dat1[,1]);
 }
 
 saveSet <- function(obj=NA, set="", output=1){
-
-    if(globalConfig$anal.mode == "api"){ 
-      qs:::qsave(obj, paste0(set, ".qs"));
-    }else{
-      if(set == ""){
+     if(set == ""){
         set <- obj$objName;
       }
+
       if(set == "dataSet"){
         dataSet <<- obj;
       }else if(set == "analSet"){
@@ -893,31 +890,30 @@ saveSet <- function(obj=NA, set="", output=1){
       }else if(set == "cmdSet"){
         cmdSet <<- obj;
       }
+
+    
+    print("saveAnal");
+    print(names(obj));
       qs:::qsave(obj, paste0(set, ".qs"));
 
-    }
       return(output);
 }
 
-readSet <- function(obj=NA, set=""){
-    if(globalConfig$anal.mode == "api"){
-      path <- "";
-      if(exists('user.path')){
-        path <- user.path;
-      }
+readSet <- function(obj = NULL, set = "") {
+  file_path <- paste0(set, ".qs")
 
-      if(path != ""){
-        obj <- load_qs(paste0(path, set, ".qs"));
-      }else{
-        obj <- qs:::qread(paste0(set, ".qs"));
-      }
-    }else{
-        if(file.exists(paste0(set, ".qs"))){
-                obj <- qs:::qread(paste0(set, ".qs"));
-        }
+  if (file.exists(file_path)) {
+    obj <- qs::qread(file_path)
+  } else {
+    if (is.null(obj)) {
+      warning(sprintf("readSet: File '%s' not found and no default object supplied.", file_path))
+      return(NULL)
     }
-    return(obj);
+  }
+
+  return(obj)
 }
+
 load_qs <- function(url) {
   qs::qdeserialize(curl::curl_fetch_memory(url)$content)
 }
@@ -933,20 +929,6 @@ readDataset <- function(dataName = "", quiet = FALSE) {
   #── 2 · choose source --------------------------------------------------------
   tryCatch({
 
-    if (globalConfig$anal.mode == "api") {
-
-      if (exists("user.path", inherits = FALSE)) {           # API + user path
-        path <- user.path
-        qsfile <- paste0(path, replace_extension_with_qs(dataName))
-        obj <- load_qs(qsfile)
-
-      } else {                                              # API, local disk
-        qsfile <- replace_extension_with_qs(dataName)
-        obj <- qs::qread(qsfile)
-      }
-
-    } else {                                                # interactive mode
-
       if (exists("dataSets") &&
           !is.null(dataSets) &&
           !is.null(dataSets[[dataName]])) {
@@ -957,7 +939,7 @@ readDataset <- function(dataName = "", quiet = FALSE) {
         qsfile <- replace_extension_with_qs(dataName)
         obj <- qs::qread(qsfile)
       }
-    }
+    
 
     obj
 
@@ -1203,7 +1185,7 @@ AddFeatureToReport <- function(id, imgName){
       imgSet$featureList <- list()
     }
     imgSet$featureList[[id]] <- imgName; 
-    saveSet(imgSet);
+    saveSet(imgSet, "imgSet");
 }
 
 initMetaTable <- function(paired = TRUE){
