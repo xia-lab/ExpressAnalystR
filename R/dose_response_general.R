@@ -717,7 +717,7 @@ FilterDRFit <- function()
   dataSet$drcfit.obj$data <- data
   dataSet$drcfit.obj$data.mean <- data.mean
   dataSet$drcfit.obj$item <- item
-  saveSet(paramSet);
+  saveSet(paramSet, "paramSet");
   RegisterData(dataSet);
   return(1)
 }

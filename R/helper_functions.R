@@ -180,7 +180,7 @@ GetMetaSummaryData<- function(){
     cls.lbls <- unique(inmex.meta$cls.lbl)
     cls.lbls <- paste(cls.lbls, collapse="; ")
     paramSet$summaryVecMeta <- c(length(colnames(inmex.meta$data)),nrow(inmex.meta$data), sel.nms, cls.lbls);
-    saveSet(paramSet);
+    saveSet(paramSet, "paramSet");
     return(paramSet$summaryVecMeta)
 }
 
@@ -489,11 +489,11 @@ SetUniverseOpt <- function(universe.opt){
   }else{
     paramSet$universe.opt.readable <- "Gene Set Library";
   }
-  saveSet(paramSet);
+    saveSet(paramSet, "paramSet");
 }
 
 SetInitLib <-function(library){
   paramSet <- readSet(paramSet, "paramSet");
   paramSet$init.lib <- library;
-  saveSet(paramSet);
+    saveSet(paramSet, "paramSet");
 }

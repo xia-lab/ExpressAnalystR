@@ -166,7 +166,7 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
   plotDendroColoured(hc, colNamed, "sample class", file, pal)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_dendrogram <- file;
-    saveSet(imgSet):
+    saveSet(imgSet, "imgSet"):
   return("OK")
 }
 
@@ -274,7 +274,7 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     message("Heat-map written to: ", outFile)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_traitheat <- outFile;
-    saveSet(imgSet):
+    saveSet(imgSet, "imgSet"):
     1
 
   }, error = function(e) {
@@ -318,7 +318,7 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
   dev.off()
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_scalefree <- file;
-    saveSet(imgSet):
+    saveSet(imgSet, "imgSet"):
   return(1);
 }
 

@@ -87,10 +87,12 @@ V(g)$colorw <- V(g)$color                             # same for dark bg
   xy <- layoutFun(g)
   V(g)$posx <- xy[, 1]
   V(g)$posy <- xy[, 2]
-  analSet <- readSet(analSet,"analSet");
+  analSet <- qs::qread("analSet.qs");
   analSet$overall.graph <- g;
   analSet$overall.graph.orig <- g;
-  saveSet(analSet):
+
+  saveSet(analSet, "analSet"):
+
   return(1)
 }
 
@@ -176,7 +178,7 @@ CorrIgraph2SigmaJS <- function(g,
 }
 
 SplitIgraphByModule <- function(g, keepXTalk = FALSE) {
-  
+
   stopifnot("module" %in% vertex_attr_names(g))
   
   mods <- sort(unique(V(g)$module))
@@ -206,7 +208,9 @@ GenerateCEMModuleNetworks <- function(fileName  = "coexp_network",
 
   paramSet <- readSet(paramSet, "paramSet")
   analSet  <- readSet(analSet,  "analSet")
-  
+  library(igraph);
+
+  print(names(analSet));
   g.all   <- analSet$overall.graph.orig
   g.byMod <- SplitIgraphByModule(g.all, keepXTalk = keepXTalk)
   
@@ -234,7 +238,6 @@ GenerateCEMModuleNetworks <- function(fileName  = "coexp_network",
   firstMod <- names(g.byMod)[1]              # e.g. "M1"
   netNm <- fileName;
   analSet$ppi.comps <- comps;
-  ppi.comps <<- comps
   saveSet(analSet, "analSet")
   return(c(vcount(g.all), ecount(g.all), length(comps), sub.stats));
 }
@@ -424,7 +427,7 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
     analSet <- DecomposeGraph(overall.graph,analSet);
     substats <- analSet$substats;
     if(!is.null(substats)){
-        output <- c(vcount(overall.graph), ecount(overall.graph), length(ppi.comps), substats);
+        output <- c(vcount(overall.graph), ecount(overall.graph), length(analSet$ppi.comps), substats);
     }else{
         output <- 0;
     }
@@ -440,7 +443,7 @@ PrepareNetwork <- function(net.nm, jsonNm){
 
    my.ppi <- analSet$ppi.comps[[net.nm]];
    nd.nms <- V(my.ppi)$name;
-
+  print(names(analSet))
   CorrIgraph2SigmaJS(my.ppi,
                      netNm    = jsonNm,
                      paramSet = paramSet,
@@ -495,7 +498,10 @@ FindCommunities <- function(method = "walktrap",
                             require_query_hit = TRUE) {
   # save.image("find.Rdata");
   paramSet    <- readSet(paramSet, "paramSet")
+  analSet    <- readSet(analSet, "analSet")
+
   seed.expr   <- paramSet$seed.expr
+  ppi.comps <- analSet$ppi.comps
   current.net <- ppi.comps[[current.net.nm]]
   
   if (igraph::vcount(current.net) < 2L) return("NA||Graph too small")
@@ -701,7 +707,6 @@ DecomposeGraph <- function(gObj,analSet, minNodeNum = 3, jsonBool = F){
   #ppi.comps <- append(overall, ppi.comps, after=1);
   
   # now record
-  ppi.comps <<- comps;
   net.stats <<- net.stats;
   sub.stats <- unlist(lapply(comps, vcount)); 
   analSet$ppi.comps <- comps;

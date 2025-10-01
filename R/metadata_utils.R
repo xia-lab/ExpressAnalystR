@@ -204,7 +204,7 @@ GetResColType <- function(dataName="",colNm="NA"){
       RegisterData(dat);
     }else{
       paramSet$dataSet <- dat;
-      saveSet(paramSet);
+      saveSet(paramSet, "paramSet");
     }
   }
   return(meta.status);
@@ -487,7 +487,7 @@ GetMetaSummary <- function(dataName = "") {
   
   ## -- save & return -------------------------------------------------------
   paramSet$metadata.summary <- res
-  saveSet(paramSet)
+  saveSet(paramSet, "paramSet")
 
   return(res)
 }
