@@ -521,10 +521,19 @@ trash <- capture.output(
 
   analSet <- readSet(analSet, "analSet");
 
-  # only save those required for json
+  # pca is a large object. only save those required for json
   # never use more than top 3. Update this if you require more PCs
-  pca$x <- pca$x[,1:3]; # 
-  analSet$pca <- pca;
+
+  imp     <- summary(pca)$importance[2, 1:2]
+  xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
+  ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
+  my.pca <- list(
+        x = pca$x[,1:3],
+        xlabel = xlabel,
+        ylabel = ylabel
+    );
+
+  analSet$pca <- my.pca;
   analSet$permanova.res <-permanova_results;
   saveSet(analSet, "analSet");
   saveSet(paramSet, "paramSet");
@@ -898,10 +907,12 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
 
   # load PCA & metadata
   analSet <- readSet(analSet, "analSet")
-  pca     <- analSet$pca
-  imp     <- summary(pca)$importance[2, 1:2]
-  xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
-  ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
+  pca     <- analSet$pca;
+  xlabel  <- pca$xlabel;
+  ylabel  <- pca$ylabel;
+  #imp     <- summary(pca)$importance[2, 1:2]
+  #xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
+  #ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
   
   pca.res <- as.data.frame(pca$x)[, 1:2, drop = FALSE]
   colnames(pca.res) <- c("PC1", "PC2")
