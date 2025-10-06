@@ -521,10 +521,19 @@ trash <- capture.output(
 
   analSet <- readSet(analSet, "analSet");
 
-  # only save those required for json
+  # pca is a large object. only save those required for json
   # never use more than top 3. Update this if you require more PCs
-  pca$x <- pca$x[,1:3]; # 
-  analSet$pca <- pca;
+
+  imp     <- summary(pca)$importance[2, 1:2]
+  xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
+  ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
+  my.pca <- list(
+        x = pca$x[,1:3],
+        xlabel = xlabel,
+        ylabel = ylabel
+    );
+
+  analSet$pca <- my.pca;
   analSet$permanova.res <-permanova_results;
   saveSet(analSet, "analSet");
   saveSet(paramSet, "paramSet");
@@ -898,10 +907,12 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
 
   # load PCA & metadata
   analSet <- readSet(analSet, "analSet")
-  pca     <- analSet$pca
-  imp     <- summary(pca)$importance[2, 1:2]
-  xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
-  ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
+  pca     <- analSet$pca;
+  xlabel  <- pca$xlabel;
+  ylabel  <- pca$ylabel;
+  #imp     <- summary(pca)$importance[2, 1:2]
+  #xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
+  #ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
   
   pca.res <- as.data.frame(pca$x)[, 1:2, drop = FALSE]
   colnames(pca.res) <- c("PC1", "PC2")
@@ -1070,96 +1081,124 @@ qc.gini.plot <- function(gini_df,
     return("NA")
   }
 }
-
 SummarizeQC <- function(fileName, imgNameBase, threshold = 0.1) {
   # save.image("summarize.RData");
   dataSet <- readDataset(fileName)
 
-  summary_df <- data.frame(Sample = character(), 
-                           HighCoverageGeneCount = numeric(), 
-                           NSig80 = numeric(), 
-                           Gini = numeric(), 
-                           Dendrogram_Distance = numeric(),
-                           Outlier_HighCoverageGeneCount = numeric(),
-                           Outlier_NSig80 = numeric(),
-                           Outlier_Gini = numeric(),
-                           Outlier_Dendrogram = numeric(),
-                           stringsAsFactors = FALSE)
+  summary_df <- data.frame(
+    Sample = character(),
+    HighCoverageGeneCount = numeric(),
+    NSig80 = numeric(),
+    Gini = numeric(),
+    Dendrogram_Distance = numeric(),
+    Outlier_HighCoverageGeneCount = numeric(),
+    Outlier_NSig80 = numeric(),
+    Outlier_Gini = numeric(),
+    Outlier_Dendrogram = numeric(),
+    stringsAsFactors = FALSE
+  )
 
   if (grepl("norm", imgNameBase)) {
     data <- dataSet$data.norm
   } else {
-    data <- .get.annotated.data();
+    data <- .get.annotated.data()
   }
 
+  ## --- basic per-sample metrics ---
+  HighCoverageGeneCount <- colSums(data > 5, na.rm = TRUE)
+  ncov5_df <- data.frame(
+    Sample = names(HighCoverageGeneCount),
+    HighCoverageGeneCount = as.numeric(HighCoverageGeneCount),
+    stringsAsFactors = FALSE
+  )
 
-  HighCoverageGeneCount <- colSums(data > 5)
-  ncov5_df <- data.frame(Sample = names(HighCoverageGeneCount), 
-                         HighCoverageGeneCount = as.numeric(HighCoverageGeneCount), 
-                         stringsAsFactors = FALSE)
-
-  NSig80 <- apply(data, 2, function(col) sum(cumsum(sort(col, decreasing = TRUE)) <= 0.8 * sum(col)))
-  nsig_df <- data.frame(Sample = names(NSig80), NSig80 = as.numeric(NSig80), stringsAsFactors = FALSE)
+  NSig80 <- apply(data, 2, function(col) {
+    col[is.na(col)] <- 0
+    s <- sum(col)
+    if (s <= 0) return(0)
+    sum(cumsum(sort(col, decreasing = TRUE)) <= 0.8 * s)
+  })
+  nsig_df <- data.frame(
+    Sample = names(NSig80),
+    NSig80 = as.numeric(NSig80),
+    stringsAsFactors = FALSE
+  )
 
   gini_scores <- apply(data, 2, calculate_gini)
-  gini_df <- data.frame(Sample = colnames(data), Gini = gini_scores, stringsAsFactors = FALSE)
+  gini_df <- data.frame(
+    Sample = colnames(data),
+    Gini = as.numeric(gini_scores),
+    stringsAsFactors = FALSE
+  )
 
-  ## Use Pearson correlation for dendrogram distance
-  pearson_corr <- cor(data, method = "pearson", use = "pairwise.complete.obs")
-  distance_matrix <- as.dist(1 - pearson_corr)
+  ## --- correlation distance (0..1) & within-group mean distance ---
+  pearson_corr <- suppressWarnings(cor(data, method = "pearson", use = "pairwise.complete.obs"))
+  # keep diagonal sane and replace NA correlations
+  if (!is.null(pearson_corr)) {
+    diag(pearson_corr) <- 1
+    pearson_corr[is.na(pearson_corr)] <- 0
+  }
+  distance_matrix <- as.dist((1 - pearson_corr) / 2)  # 0..1
   dist_mat <- as.matrix(distance_matrix)
 
-  group_info <- dataSet$meta.info[,1]
+  group_info <- dataSet$meta.info[, 1]
   names(group_info) <- rownames(dataSet$meta.info)
 
- mean_distances <- sapply(colnames(data), function(sample) {
-      sample_group <- group_info[sample]
-      same_group_samples <- names(group_info)[group_info == sample_group]
-      same_group_samples <- same_group_samples[same_group_samples != sample]
-
-      if (length(same_group_samples) == 0) {
-        return(NA)
-      }
-
+  mean_distances <- sapply(colnames(data), function(sample) {
+    sample_group <- group_info[sample]
+    same_group_samples <- names(group_info)[group_info == sample_group]
+    same_group_samples <- setdiff(same_group_samples, sample)
+    # ensure they exist in the distance matrix
+    same_group_samples <- intersect(same_group_samples, colnames(data))
+    if (length(same_group_samples) == 0 || is.null(dist_mat)) return(NA_real_)
     mean(dist_mat[sample, same_group_samples], na.rm = TRUE)
   })
 
-  dendrogram_df <- data.frame(Sample = names(max_distances), 
-                              Dendrogram_Distance = max_distances, 
-                              stringsAsFactors = FALSE)
-
-  # Outlier calls
-  Q1_nsig <- quantile(nsig_df$NSig80, 0.25)
-  Q3_nsig <- quantile(nsig_df$NSig80, 0.75)
-  IQR_nsig <- IQR(nsig_df$NSig80)
-
-  nsig_outliers <- as.numeric((nsig_df$NSig80 < (Q1_nsig - 3 * IQR_nsig)) | 
-                              (nsig_df$NSig80 > (Q3_nsig + 3 * IQR_nsig)))
-
-  gini_outliers <- as.numeric(gini_df$Gini > 0.95)
-
-  dendrogram_outliers <- as.numeric(dendrogram_df$Dendrogram_Distance > threshold)
-
-  high_coverage_outliers <- as.numeric(
-    ncov5_df$HighCoverageGeneCount < (quantile(ncov5_df$HighCoverageGeneCount, 0.25) - 3 * IQR(ncov5_df$HighCoverageGeneCount)) | 
-    ncov5_df$HighCoverageGeneCount > (quantile(ncov5_df$HighCoverageGeneCount, 0.75) + 3 * IQR(ncov5_df$HighCoverageGeneCount))
+  dendrogram_df <- data.frame(
+    Sample = names(mean_distances),
+    Dendrogram_Distance = as.numeric(mean_distances),
+    stringsAsFactors = FALSE
   )
 
-  # Combine
-  summary_df <- merge(ncov5_df, nsig_df, by = "Sample")
-  summary_df <- merge(summary_df, gini_df, by = "Sample")
-  summary_df <- merge(summary_df, dendrogram_df, by = "Sample")
+  ## --- Merge first (align by Sample) ---
+  summary_df <- Reduce(function(x, y) merge(x, y, by = "Sample", all = TRUE),
+                       list(ncov5_df, nsig_df, gini_df, dendrogram_df))
 
-  summary_df$Outlier_HighCoverageGeneCount <- high_coverage_outliers
-  summary_df$Outlier_NSig80 <- nsig_outliers
-  summary_df$Outlier_Gini <- gini_outliers
-  summary_df$Outlier_Dendrogram <- dendrogram_outliers
+  ## --- Outlier calls on the merged columns ---
+  # NSig80 IQR rule (3*IQR)
+  Q1_nsig <- quantile(summary_df$NSig80, 0.25, na.rm = TRUE)
+  Q3_nsig <- quantile(summary_df$NSig80, 0.75, na.rm = TRUE)
+  IQR_nsig <- IQR(summary_df$NSig80, na.rm = TRUE)
+  summary_df$Outlier_NSig80 <- as.integer(
+    summary_df$NSig80 < (Q1_nsig - 3 * IQR_nsig) |
+      summary_df$NSig80 > (Q3_nsig + 3 * IQR_nsig)
+  )
+
+  # HighCoverageGeneCount IQR rule (3*IQR)
+  Q1_cov <- quantile(summary_df$HighCoverageGeneCount, 0.25, na.rm = TRUE)
+  Q3_cov <- quantile(summary_df$HighCoverageGeneCount, 0.75, na.rm = TRUE)
+  IQR_cov <- IQR(summary_df$HighCoverageGeneCount, na.rm = TRUE)
+  summary_df$Outlier_HighCoverageGeneCount <- as.integer(
+    summary_df$HighCoverageGeneCount < (Q1_cov - 3 * IQR_cov) |
+      summary_df$HighCoverageGeneCount > (Q3_cov + 3 * IQR_cov)
+  )
+
+  # Gini hard cutoff
+  summary_df$Outlier_Gini <- as.integer(summary_df$Gini > 0.95)
+
+  # Dendrogram distance threshold (0..1 scale)
+  summary_df$Outlier_Dendrogram <- as.integer(summary_df$Dendrogram_Distance > threshold)
+
+  ## --- finalize & register ---
+  # Optional: stable ordering by Sample
+  summary_df <- summary_df[order(summary_df$Sample), , drop = FALSE]
 
   dataSet$summary_df <- summary_df
-   RegisterData(dataSet)
+  RegisterData(dataSet)
 
   return(1)
 }
+
 
 # -------------------------------------------------------------------------
 #  qc.giniplot.json()
