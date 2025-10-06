@@ -714,3 +714,9 @@ DecomposeGraph <- function(gObj,analSet, minNodeNum = 3, jsonBool = F){
   analSet$substats <- sub.stats;
   return(analSet);
 }
+
+regEnrichment <- function(dataName, file.nm, fun.type, IDs, netInv){
+
+  regBool <<- "false";
+  res <- PerformNetEnrichment(dataName, file.nm, fun.type, IDs);
+}
