@@ -890,7 +890,6 @@ saveSet <- function(obj=NA, set="", output=1){
       }else if(set == "cmdSet"){
         cmdSet <<- obj;
       }
-
       qs:::qsave(obj, paste0(set, ".qs"));
 
       return(output);
