@@ -891,9 +891,6 @@ saveSet <- function(obj=NA, set="", output=1){
         cmdSet <<- obj;
       }
 
-    
-    print("saveAnal");
-    print(names(obj));
       qs:::qsave(obj, paste0(set, ".qs"));
 
       return(output);
