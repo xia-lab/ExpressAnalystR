@@ -51,7 +51,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     data.proc <- qs::qread("data.raw.qs");
   }
   data.anot <- data.proc;
-
+  
   if (org != 'NA' & idType != 'NA'){
     feature.vec <- rownames(data.proc);
     
@@ -256,7 +256,7 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
 
 #Convert a vector of ids to vector of entrez ids
 .doAnnotation <- function(feature.vec, idType, paramSet){
-  if(idType %in% c("entrez", "symbol", "refseq", "gb", "embl_gene","embl_protein","uniprot", "embl_transcript", "orf", "tair", "wormbase", "ko", "custom", "cds", "s2f", "string")){
+  if(idType %in% c("entrez", "symbol", "refseq", "gb", "embl_gene","embl_protein","uniprot", "embl_transcript", "orf", "tair", "wormbase", "ko", "custom", "cds", "s2f", "string", "transcript")){
     anot.id <- .doGeneIDMapping(feature.vec, idType, paramSet, "vec");
   }else{
     anot.id <- .doProbeMapping(feature.vec, idType, paramSet);
@@ -278,7 +278,7 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
   col.nm <- "";
   db.nm <- "";
   
-  if (org == "zhangshugang" || org == "cro") {
+  if (org == "zhangshugang" || org == "cro" || org == "dimmitis"|| org == "hpolygyrus") {
       q.mat <- do.call(rbind, strsplit(feature.vec, "\\."));
       feature.vec <- q.mat[, 1];
   }

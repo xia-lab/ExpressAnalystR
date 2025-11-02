@@ -301,7 +301,6 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
 
     RegisterData(dataSet)
     qs::qsave(res, "express.de.res.qs")
-
     return(head(signif(as.matrix(res), 5),1000))
 }
 
