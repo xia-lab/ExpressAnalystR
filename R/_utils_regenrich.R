@@ -1,5 +1,6 @@
 
 my.reg.enrich <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
+  save.image("my.reg.RData");
   require(dplyr)
   
   paramSet <- readSet(paramSet, "paramSet");
@@ -43,7 +44,7 @@ my.reg.enrich <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
     
   }else{
     table.nm <- paste("drug", data.org, sep="_");
-    ora.vec <- doEntrez2UniprotMapping(ora.vec);
+    ora.vec <- doEntrez2UniprotMapping(ora.vec, paramSet);
     res <- QueryDrugSQLite(sqlite.path, ora.vec);
     if(nrow(res)==0){ return(c(0,0)); }
     entrez.vec <- .doGeneIDMapping(res[,"upid"], "uniprot", data.org, "vec")
@@ -87,7 +88,7 @@ my.reg.enrich <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
     for(i in 1:nrow(hit.freq)){
       df = edge.res[which(edge.res$id == hit.freq$id[i]),];
       gene.vec = as.vector(df$gene);
-      gene.vec = doEntrez2UniprotMapping(gene.vec)
+      gene.vec = doEntrez2UniprotMapping(gene.vec, paramSet)
       hits.gene[[i]]=gene.vec;
     }
   } else if(id_type == "entrez") {

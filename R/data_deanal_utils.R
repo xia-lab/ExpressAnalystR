@@ -81,7 +81,6 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
-
   if (dataSet$de.method == "deseq2") {
     dataSet <- prepareContrast(dataSet, anal.type, par1, par2, nested.opt);
     .prepare.deseq(dataSet, anal.type, par1, par2 , nested.opt);
@@ -941,74 +940,92 @@ parse_contrast_groups <- function(contrast_str) {
 
   return(topFeatures)
 }
+
 prepareEdgeRContrast <- function(dataSet,
                                  anal.type  = "reference",
                                  par1       = NULL,
                                  par2       = NULL,
                                  nested.opt = "intonly") {
-
   msgSet <- readSet(msgSet, "msgSet")
   set.seed(1337)
-
-  ## ------------------------------------------------------------------ ##
-  ## 1 · Clean & store group factor                                     ##
-  ## ------------------------------------------------------------------ ##
-  cls            <- factor(dataSet$cls)
-  levels(cls)    <- make.names(levels(cls))   # ensure valid variable names
-  dataSet$cls    <- cls
-  grp.nms        <- levels(cls)
-
-  dataSet$comp.type <- anal.type
-  dataSet$par1      <- par1   # (handy for UI / reporting)
-
   require(limma)
 
-  ## ------------------------------------------------------------------ ##
-  ## 2 · Create design matrix (no intercept; columns = group levels)    ##
-  ## ------------------------------------------------------------------ ##
-  design <- model.matrix(~ 0 + cls)
-  colnames(design) <- grp.nms  # make the column names match levels exactly
+  cls_raw      <- factor(dataSet$cls)
+  raw_levels   <- levels(cls_raw)
+  syn_levels   <- make.names(raw_levels)
 
-  ## ------------------------------------------------------------------ ##
-  ## 3 · Build list of contrast expressions                             ##
-  ## ------------------------------------------------------------------ ##
+  cls_syn      <- factor(cls_raw, levels = raw_levels, labels = syn_levels)
+
+  dataSet$cls_raw   <- cls_raw
+  dataSet$cls       <- cls_syn               # <- modeling uses sanitized
+  dataSet$grp.nms   <- syn_levels
+  dataSet$grp.nms_raw <- raw_levels
+  dataSet$comp.type <- anal.type
+  dataSet$par1      <- par1
+
+  design <- model.matrix(~ 0 + cls_syn)
+  colnames(design) <- syn_levels
+
+  # helper: map a UI label (raw or syn) into sanitized
+  to_syn <- function(x) {
+    if (is.null(x)) return(NULL)
+    x <- trimws(as.character(x))
+    if (!nzchar(x)) return(NULL)
+    if (x %in% raw_levels) return(make.names(x))
+    x
+  }
+
+  # parse "A vs. B" (accept raw or syn on either side)
+  parse_vs <- function(x) {
+    if (is.null(x)) return(c(NA_character_, NA_character_))
+    parts <- strsplit(x, "\\s*vs\\.?\\s*", perl = TRUE)[[1]]
+    if (length(parts) != 2) return(c(NA_character_, NA_character_))
+    c(to_syn(parts[1]), to_syn(parts[2]))
+  }
+
+  ## build contrasts using sanitized tokens
   if (anal.type == "reference") {
+    ref_syn <- to_syn(par1)
+    if (is.null(ref_syn) || !(ref_syn %in% syn_levels)) {
+      stop("`par1` must specify a valid reference level. You gave '",
+           if (is.null(par1)) "NULL" else par1,
+           "'. Valid (raw): ", paste(raw_levels, collapse = ", "))
+    }
+    others <- setdiff(syn_levels, ref_syn)
+    conts  <- setNames(lapply(others, \(g) paste0(g, " - ", ref_syn)),
+                       paste0(others, "_vs_", ref_syn))
 
-    ref <- par1
-    if (is.null(ref) || !ref %in% grp.nms)
-      stop("`par1` must specify a valid reference level.")
-    others <- setdiff(grp.nms, ref)
-    conts  <- setNames(lapply(others, \(g) paste0(g, " - ", ref)),
-                       paste0(others, "_vs_", ref))
+  } else if (anal.type == "default") {
+    combs <- combn(syn_levels, 2, simplify = FALSE)
+    conts <- setNames(lapply(combs, \(x) paste0(x[1], " - ", x[2])),
+                      sapply(combs, \(x) paste0(x[1], "_vs_", x[2])))
 
-  } else if (anal.type == "default") {               # all pairwise
-    combs  <- combn(grp.nms, 2, simplify = FALSE)
-    conts  <- setNames(lapply(combs, \(x) paste0(x[1], " - ", x[2])),
-                       sapply(combs, \(x) paste0(x[1], "_vs_", x[2])))
+  } else if (anal.type == "time") {
+    tm <- syn_levels
+    conts <- setNames(lapply(seq_len(length(tm) - 1L),
+                             \(i) paste0(tm[i + 1L], " - ", tm[i])),
+                      paste0(tm[-1], "_vs_", tm[-length(tm)]))
 
-  } else if (anal.type == "time") {                  # consecutive time‑points
-    tm     <- grp.nms
-    conts  <- setNames(lapply(seq_len(length(tm) - 1),
-                              \(i) paste0(tm[i + 1], " - ", tm[i])),
-                       paste0(tm[-1], "_vs_", tm[-length(tm)]))
-
-  } else if (anal.type == "custom") {                # “A vs. B”
-    grp <- strsplit(par1, " vs. ")[[1]]
-    if (length(grp) != 2) stop("`par1` must be like 'A vs. B'")
+  } else if (anal.type == "custom") {
+    grp <- parse_vs(par1)
+    if (anyNA(grp) || !all(grp %in% syn_levels)) {
+      stop("`par1` must be 'A vs. B'. Valid (raw): ",
+           paste(raw_levels, collapse = ", "))
+    }
     conts <- setNames(list(paste0(grp[2], " - ", grp[1])),
                       paste0(grp[2], "_vs_", grp[1]))
 
-  } else if (anal.type == "nested") {                # interaction designs
-    g1 <- strsplit(par1, " vs. ")[[1]]
-    g2 <- strsplit(par2, " vs. ")[[1]]
-    if (length(g1) != 2 || length(g2) != 2)
-      stop("`par1` and `par2` must each be like 'A vs. B'")
-
-    if (nested.opt == "intonly") {
-      expr <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
-      nm   <- paste0(g1[1], g1[2], "_vs_", g2[1], g2[2], "_interaction")
+  } else if (anal.type == "nested") {
+    g1 <- parse_vs(par1); g2 <- parse_vs(par2)
+    if (anyNA(g1) || anyNA(g2) || !all(c(g1, g2) %in% syn_levels)) {
+      stop("`par1` and `par2` must be 'A vs. B'. Valid (raw): ",
+           paste(raw_levels, collapse = ", "))
+    }
+    if (identical(nested.opt, "intonly")) {
+      expr  <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
+      nm    <- paste0(g1[1], g1[2], "_vs_", g2[1], g2[2], "_interaction")
       conts <- setNames(list(expr), nm)
-    } else {  # main effects + interaction
+    } else {
       expr1 <- paste0(g1[2], " - ", g1[1])
       expr2 <- paste0(g2[2], " - ", g2[1])
       expr3 <- paste0("(", g1[2], " - ", g1[1], ") - (", g2[2], " - ", g2[1], ")")
@@ -1021,22 +1038,14 @@ prepareEdgeRContrast <- function(dataSet,
     stop("Unsupported `anal.type`: ", anal.type)
   }
 
-  ## ------------------------------------------------------------------ ##
-  ## 4 · Convert contrast expressions to a matrix                       ##
-  ## ------------------------------------------------------------------ ##
-  contrast.matrix <- do.call(makeContrasts,
-                             c(conts, list(levels = design)))
+  contrast.matrix <- do.call(makeContrasts, c(conts, list(levels = design)))
 
-  ## ------------------------------------------------------------------ ##
-  ## 5 · Attach to dataSet                                              ##
-  ## ------------------------------------------------------------------ ##
   dataSet$design          <- design
   dataSet$contrast.matrix <- contrast.matrix
   dataSet$contrast.names  <- colnames(contrast.matrix)
   dataSet$contrast.type   <- anal.type
-  dataSet$grp.nms         <- grp.nms
   dataSet$filename        <- paste0("edgeR_", anal.type, "_", dataSet$de.method)
 
   RegisterData(dataSet)
-  return(dataSet)
+  dataSet
 }
