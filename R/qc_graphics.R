@@ -39,15 +39,16 @@ qc.boxplot <- function(dat, imgNm, dpi=72, format="png", interactive=F){
   } else {
     Mss <- Mss
   }
-  sample_id <- rep(seq_len(ncol(Mss)), each = nrow(Mss));
-  values  <- as.numeric(Mss)
-  
-  df <- cbind(values, sample_id)
-  
-  df <- data.frame(df)
-  df$sample_id <- factor(df$sample_id)
-  xlower <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE)[1])
-  xupper <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE)[2])
+  # OPTIMIZED: Direct data.frame construction to eliminate 3 intermediate copies
+  df <- data.frame(
+    values = as.numeric(Mss),
+    sample_id = factor(rep(seq_len(ncol(Mss)), each = nrow(Mss)))
+  )
+
+  # OPTIMIZED: Single quantile call instead of duplicate calculations
+  q_vals <- quantile(df$values, probs = c(0.01, 0.99), na.rm = TRUE)
+  xlower <- unname(q_vals[1])
+  xupper <- unname(q_vals[2])
   height <- length(unique(df$sample_id)) *20;
   if(height<450){
     height <- 450
@@ -118,17 +119,24 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
   df <- stack(df)
   sampleNms <-colnames(dataSet$data.norm)
   if(length(dataSet$meta.info) == 2){
-    
+
+    # OPTIMIZED: Single merge instead of sequential merges to eliminate intermediate copies
     Factor1 <- dataSet$meta.info[,1]
-    factorNm1 <- colnames(dataSet$meta.info)[1]
-    conv <- data.frame(ind=sampleNms, Factor1=Factor1)
-    colnames(conv) <- c("ind", factorNm1);
-    df1 <- merge(df, conv, by="ind")
     Factor2 <- dataSet$meta.info[,2]
+    factorNm1 <- colnames(dataSet$meta.info)[1]
     factorNm2 <- colnames(dataSet$meta.info)[2]
-    conv <- data.frame(ind=sampleNms, Factor2=Factor2)
-    colnames(conv) <- c("ind", factorNm2);
-    df1 <- merge(df1, conv, by="ind")
+
+    # Build combined metadata once
+    conv <- data.frame(
+      ind = sampleNms,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    conv[[factorNm1]] <- Factor1
+    conv[[factorNm2]] <- Factor2
+
+    # Single merge operation
+    df1 <- merge(df, conv, by="ind")
     df2 <- reshape::melt(df1, measure.vars=c(factorNm1,factorNm2))
     colnames(df2)[4] <- "Conditions"
     
