@@ -435,95 +435,133 @@ dataSet$comp.res.list      <- result.list
                                     robustTrend = FALSE,
                                     verbose     = TRUE)
 {
-  require(limma)
-  require(multcomp)
-  
-  ## ── 1. expression matrix & dose factor ──────────────────────
+
   expr <- if (length(dataSet$rmidx) > 0)
     dataSet$data.norm[, -dataSet$rmidx, drop = FALSE] else
       dataSet$data.norm
-  
+
   cls_vals <- if (length(dataSet$rmidx) > 0)
     dataSet$cls[-dataSet$rmidx] else
       dataSet$cls
-  
-  ## attempt numeric sorting
+
   unique_cls <- unique(cls_vals)
   dose_order <- suppressWarnings(as.numeric(as.character(unique_cls)))
-  
+
   if (all(!is.na(dose_order))) {
     ord_levels <- unique_cls[order(dose_order)]
   } else {
     ord_levels <- sort(unique_cls)
   }
-  
+
   grp <- factor(cls_vals, levels = ord_levels, ordered = TRUE)
   grp <- droplevels(grp)
-  
-  if (nlevels(grp) < 3)
-    stop("Williams trend test requires ≥ 3 ordered doses.")
-  
-  design <- model.matrix(~0 + grp)
-  colnames(design) <- levels(grp)
-  
-  will.mat <- multcomp::contrMat(table(grp), "Williams")
-  will.mat <- t(will.mat)
-  rownames(will.mat) <- levels(grp)
-  colnames(will.mat) <- paste0("C", seq_len(ncol(will.mat)))
-  
-  if (!identical(rownames(will.mat), colnames(design)))
-    stop("Contrast rows and design columns do not match!")
-  
-  if (verbose) {
-    cat("DEBUG ↴\n",
-        "Dose levels : ", paste(levels(grp), collapse = ", "), "\n",
-        "design :", nrow(design), "×", ncol(design), "\n",
-        "will   :", nrow(will.mat), "×", ncol(will.mat), "\n\n")
-  }
-  
-  fit      <- limma::lmFit(expr, design)
-  fit.will <- limma::eBayes(
-    limma::contrasts.fit(fit, will.mat),
-    trend  = robustTrend,
-    robust = robustTrend)
-  
-  t.mat <- fit.will$t
-  flip  <- ifelse(will.mat[1, ] < 0, -1, 1)
-  t.mat <- sweep(t.mat, 2, flip, `*`)
-  min.t <- apply(t.mat, 1, function(x) min(x, na.rm = TRUE))
 
-  P.Value   <- 2 * pt(-abs(min.t), df = fit.will$df.total)
+  if (nlevels(grp) < 3L)
+    stop("Williams trend test requires ≥ 3 ordered doses.")
+
+  grp_levels <- levels(grp)
+  grp_index  <- lapply(grp_levels, function(lv) which(grp == lv))
+  n_per_grp  <- vapply(grp_index, length, integer(1))
+
+  total_n  <- sum(n_per_grp)
+  df_resid <- total_n - length(grp_levels)
+  if (df_resid <= 0)
+    stop("Williams trend test requires replication (df <= 0).")
+
+  gene_ids   <- rownames(expr)
+  gene_count <- nrow(expr)
+
+  group_means <- matrix(NA_real_, nrow = gene_count,
+                        ncol = length(grp_levels),
+                        dimnames = list(gene_ids, grp_levels))
+  SSE <- numeric(gene_count)
+
+  for (i in seq_along(grp_levels)) {
+    idx <- grp_index[[i]]
+    mat <- expr[, idx, drop = FALSE]
+    gm  <- rowMeans(mat)
+    group_means[, i] <- gm
+
+    if (length(idx) > 1L) {
+      centered <- sweep(mat, 1, gm, "-", check.margin = FALSE)
+      SSE <- SSE + rowSums(centered^2)
+    }
+  }
+
+  MSE <- SSE / df_resid
+
+  control_mean <- group_means[, 1, drop = TRUE]
+  dose_means   <- group_means[, -1, drop = FALSE]
+  pair_logFC   <- sweep(dose_means, 1, control_mean, "-")
+  colnames(pair_logFC) <- paste0("Dose_", grp_levels[1],
+                                 ".Dose_", grp_levels[-1])
+
+  ave_expr <- rowMeans(expr)
+
+  combo_idx <- lapply(seq_len(length(grp_levels) - 1L),
+                      function(k) seq(from = length(grp_levels) - k + 1L,
+                                      to   = length(grp_levels)))
+  combo_n  <- vapply(combo_idx, function(idx) sum(n_per_grp[idx]), numeric(1))
+
+  diff_mat <- matrix(NA_real_, nrow = gene_count,
+                     ncol = length(combo_idx))
+  for (j in seq_along(combo_idx)) {
+    idx      <- combo_idx[[j]]
+    weights  <- n_per_grp[idx] / sum(n_per_grp[idx])
+    submeans <- group_means[, idx, drop = FALSE]
+    weighted <- sweep(submeans, 2, weights, `*`)
+    diff_mat[, j] <- rowSums(weighted) - control_mean
+  }
+
+  sqrt_terms <- sqrt(1 / n_per_grp[1] + 1 / combo_n)
+  denom_mat  <- outer(sqrt(MSE), sqrt_terms, `*`)
+  t_mat      <- diff_mat / denom_mat
+
+  zero_mask <- denom_mat == 0
+  if (any(zero_mask, na.rm = TRUE)) {
+    t_mat[zero_mask & diff_mat > 0]  <- Inf
+    t_mat[zero_mask & diff_mat < 0]  <- -Inf
+    t_mat[zero_mask & diff_mat == 0] <- 0
+  }
+
+  t_pos <- apply(t_mat, 1, max, na.rm = TRUE)
+  t_neg <- apply(t_mat, 1, min, na.rm = TRUE)
+  t_pos[is.infinite(t_pos) & t_pos < 0] <- NA_real_
+  t_neg[is.infinite(t_neg) & t_neg > 0] <- NA_real_
+
+  both_na <- is.na(t_pos) & is.na(t_neg)
+  abs_pos <- abs(t_pos); abs_pos[is.na(abs_pos)] <- -Inf
+  abs_neg <- abs(t_neg); abs_neg[is.na(abs_neg)] <- -Inf
+  use_pos <- abs_pos >= abs_neg
+  t_stat  <- ifelse(use_pos, t_pos, t_neg)
+  t_stat[both_na] <- NA_real_
+
+  P.Value   <- 2 * pt(-abs(t_stat), df = df_resid)
   adj.P.Val <- p.adjust(P.Value, "fdr")
-  
-  lev     <- levels(grp)
-  control <- lev[1]
-  pair.mat <- sapply(lev[-1], function(lv) {
-    v <- setNames(rep(0, length(lev)), lev)
-    v[lv]      <-  1
-    v[control] <- -1
-    v
-  })
-  colnames(pair.mat) <- paste0("Dose_", control , ".Dose_", lev[-1])
-  
-  pair.fit   <- limma::contrasts.fit(fit, pair.mat)
-  pair.logFC <- pair.fit$coefficients
-  
-  ## ── 7. Assemble results ────────────────────────────────────
+
   topFeatures <- data.frame(
-    pair.logFC,
-    t         = min.t,
+    pair_logFC,
+    AveExpr   = ave_expr,
+    t         = t_stat,
     P.Value   = P.Value,
     adj.P.Val = adj.P.Val,
     check.names = FALSE)
 
-topFeatures$adj.P.Val <- as.numeric(topFeatures$adj.P.Val)
-
-ord <- order(topFeatures$adj.P.Val, na.last = TRUE)
-topFeatures <- topFeatures[ord, , drop = FALSE]  
+  ord <- order(topFeatures$adj.P.Val, na.last = TRUE)
+  topFeatures <- topFeatures[ord, , drop = FALSE]
 
   dataSet$comp.res <- topFeatures
-  dataSet$comp.res.list <- make_comp_res_list(topFeatures, stat.cols = c("t",
-                                             "P.Value", "adj.P.Val"))
+  dataSet$comp.res.list <- make_comp_res_list(
+    topFeatures,
+    stat.cols = c("AveExpr", "t", "P.Value", "adj.P.Val"))
+  dataSet$de.method <- "wtt"
+
+  if (verbose) {
+    cat("Williams trend test (BMDExpress-style):",
+        nrow(topFeatures), "features processed;",
+        "df =", df_resid, "\n")
+  }
+
   return(dataSet)
 }
 
