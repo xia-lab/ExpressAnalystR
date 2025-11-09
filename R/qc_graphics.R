@@ -1758,7 +1758,6 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), , drop = FALSE]
   pca.res$sample_id <- rownames(pca.res)
 
-  # ----- aesthetics (same as yours) -----
   meta <- dataSet$meta.info
   stopifnot(nrow(meta) == nrow(pca.res))
   pca.res$group <- as.character(meta[[1]])
@@ -1777,16 +1776,14 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     }
   }
 
-  get_col <- function(nm) if (nm %in% colnames(meta)) meta[[nm]] else NULL
-  dose        <- get_col("dose")
-  is_vehicle  <- get_col("is_vehicle")
-  uniq_map    <- if (uniq_map_col %in% colnames(meta)) as.numeric(meta[[uniq_map_col]]) else NULL
+  nR <- nrow(meta)
+  pca.res$dose <- if ("dose" %in% colnames(meta)) as.character(meta[["dose"]]) else rep(NA_character_, nR)
+  pca.res$is_vehicle <- if ("is_vehicle" %in% colnames(meta)) {
+    as.logical(as.character(meta[["is_vehicle"]]))
+  } else rep(FALSE, nR)
+  pca.res$uniq_map <- if (uniq_map_col %in% colnames(meta)) as.numeric(meta[[uniq_map_col]]) else rep(NA_real_, nR)
 
-  pca.res$dose       <- if (!is.null(dose)) as.character(dose) else NA_character_
-  pca.res$is_vehicle <- if (!is.null(is_vehicle)) as.logical(as.character(is_vehicle)) else FALSE
-  pca.res$uniq_map   <- uniq_map
-
-  # ----- color mapping (same palettes as yours) -----
+  # ----- color mapping (your palettes) -----
   paramSet <- readSet(paramSet, "paramSet")
   unique_grps <- unique(pca.res$group)
   if (grepl("norm", imgNm) && !is.null(paramSet$oneDataAnalType) && paramSet$oneDataAnalType == "dose") {
@@ -1797,8 +1794,6 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   }
   col.map <- setNames(pal, unique_grps)
 
-  # ================= ROBUST OUTLIER POLICY =================
-  # NEW: robust per-axis classification against the core (Hampel). Prevents paired-extreme masking.
   axis_class <- function(vals_named) {
     labs <- names(vals_named); vals <- as.numeric(vals_named)
     n <- length(vals)
@@ -1807,16 +1802,13 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     med <- median(vals, na.rm = TRUE)
     md  <- mad(vals, constant = 1, na.rm = TRUE)
     if (is.na(md) || md == 0) {
-      # fallback: 10–90% trimmed core
       q <- quantile(vals, probs = c(0.10, 0.90), na.rm = TRUE, names = FALSE)
       core_idx <- vals >= q[1] & vals <= q[2]
     } else {
       core_idx <- abs(vals - med) <= 3 * md
     }
-    # ensure at least 3 in core; if not, use middle 80% by rank
     if (sum(core_idx, na.rm = TRUE) < 3) {
-      ord <- order(vals)
-      k1 <- max(1, floor(0.10 * n)); k2 <- min(n, ceiling(0.90 * n))
+      ord <- order(vals); k1 <- max(1, floor(0.10 * n)); k2 <- min(n, ceiling(0.90 * n))
       core_idx <- FALSE; core_idx[ord[k1:k2]] <- TRUE
     }
 
@@ -1826,9 +1818,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
 
     for (k in seq_len(n)) {
       xi <- vals[k]
-      # if point is in core, not an outlier
       if (core_idx[k]) { cls[k] <- "none"; next }
-      # distance to nearest *core* sample on this axis
       sep_core <- min(abs(xi - core_vals))
       if (sep_core > 2 * span_core)      cls[k] <- "strong"
       else if (sep_core > 1 * span_core) cls[k] <- "moderate"
@@ -1855,6 +1845,33 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     )
   }
 
+  .safe_chr <- function(x) { if (length(x) == 0 || is.na(x) || x == "NA") "" else as.character(x) }
+  .safe_reason <- function(x) { if (length(x) == 0 || is.na(x) || x == "NA" || x == "") "" else as.character(x) }
+  .make_customdata <- function(subdf) {
+    n <- nrow(subdf)
+    out <- vector("list", n)
+    for (i in seq_len(n)) {
+      out[[i]] <- list(
+        dose       = .safe_chr(subdf$dose[i]),
+        is_vehicle = .safe_chr(subdf$is_vehicle[i]),
+        reason     = .safe_reason(subdf$reason[i])
+      )
+    }
+    out
+  }
+
+  # trace appending guards
+  .is_single_trace <- function(x) is.list(x) && !is.null(x$type) && !is.null(x$x) && !is.null(x$y)
+  .append_trace <- function(dst, tr) {
+    if (is.null(tr) || !is.list(tr)) return(dst)
+    if (.is_single_trace(tr)) { dst[[length(dst) + 1]] <- tr; return(dst) }
+    for (k in seq_along(tr)) {
+      tk <- tr[[k]]
+      if (.is_single_trace(tk)) dst[[length(dst) + 1]] <- tk
+    }
+    dst
+  }
+
   df <- pca.res
   ax1 <- axis_class(setNames(df$PC1, df$sample_id))
   ax2 <- axis_class(setNames(df$PC2, df$sample_id))
@@ -1868,15 +1885,9 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   df$far_euclid <- D > (2 * median(D, na.rm = TRUE))
   df$far_repl  <- within_dose_far(df)
 
-  df$worse_qc <- FALSE
-  if (!is.null(df$uniq_map)) {
-    med_uniq <- median(df$uniq_map, na.rm = TRUE)
-    df$worse_qc <- df$uniq_map < med_uniq
-  }
-
-  # Initial exclusion: strong outliers (with dose rule)
+  df$reason  <- NA_character_
   df$exclude <- df$axis_class == "strong"
-  df$reason  <- ifelse(df$exclude, "Strong axis separation vs. core (>2× core span)", NA_character_)
+  df$reason[df$exclude] <- "Strong axis separation vs. core (>2× core span)"
 
   if (!all(is.na(df$dose))) {
     strong_rows <- which(df$exclude)
@@ -1889,7 +1900,6 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     }
   }
 
-  # Moderate rules → exclusion when satisfied
   m_idx <- which(!df$exclude & df$axis_class == "moderate")
   for (i in m_idx) {
     reasons <- character(0)
@@ -1905,7 +1915,6 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     }
   }
 
-  # Dose-level minimums
   if (!all(is.na(df$dose))) {
     kept_by_dose <- tapply(!df$exclude & !df$is_vehicle, df$dose, sum)
     drop_doses <- names(kept_by_dose[!is.na(kept_by_dose) & kept_by_dose < min_per_dose])
@@ -1918,12 +1927,10 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     }
   }
 
-  # Vehicles count check (informational)
   veh_kept <- sum(!df$exclude & df$is_vehicle, na.rm = TRUE)
-  vehicle_note <- if (!is.null(is_vehicle) && veh_kept < min_vehicles)
+  vehicle_note <- if (any("is_vehicle" == colnames(meta)) && veh_kept < min_vehicles)
     sprintf("Warning: only %d vehicle samples kept (< %d).", veh_kept, min_vehicles) else NULL
 
-  # ================= PLOTLY JSON (labels only for outliers) =================
   status_lab <- ifelse(df$exclude, "Excluded",
                        ifelse(df$axis_class == "moderate", "Moderate", "Kept"))
   df$.__status__ <- status_lab
@@ -1935,37 +1942,43 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   )
 
   mk_trace <- function(subdf, name, color) {
-    st <- unique(subdf$.__status__)
-    base_marker <- c(list(color = color), status_styles[[st]])
+    st <- as.character(unique(subdf$.__status__))[1]
+    base_marker <- c(list(color = as.character(color)), status_styles[[st]])
     mode_val <- if (st == "Kept") "markers" else "markers+text"
     text_val <- if (st == "Kept") NULL else subdf$sample_id
+    leg_name <- if (st == "Kept") name else paste0(name, " • ", st)
 
     if (doShape && "shape" %in% colnames(subdf)) {
       spl <- split(subdf, subdf$shape)
-      out <- vector("list", length(spl))
-      i <- 0L
+      out <- vector("list", length(spl)); i <- 0L
       for (sh in names(spl)) {
         i <- i + 1L
         ss <- spl[[sh]]
         mkr <- base_marker; mkr$symbol <- unname(shape.map[sh])
+        shaped_name <- if (st == "Kept") paste0(name, " • ", sh) else paste0(name, " • ", sh, " • ", st)
         out[[i]] <- list(
           x = ss$PC1, y = ss$PC2, type = "scatter",
           mode = mode_val,
-          name = paste0(name, " • ", sh, " • ", st),
+          name = shaped_name,
+          showlegend = TRUE,
           marker = mkr,
           text = if (st == "Kept") NULL else ss$sample_id,
+          customdata = .make_customdata(ss),  # list-of-objects
           hoverinfo = "text",
           textposition = "top center"
         )
       }
       return(out)
     }
+
     list(
       x = subdf$PC1, y = subdf$PC2, type = "scatter",
       mode = mode_val,
-      name = paste0(name, " • ", st),
+      name = leg_name,
+      showlegend = TRUE,
       marker = base_marker,
       text = text_val,
+      customdata = .make_customdata(subdf),  # list-of-objects
       hoverinfo = "text",
       textposition = "top center"
     )
@@ -1977,12 +1990,8 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     for (st in c("Kept","Moderate","Excluded")) {
       sdf <- gdf[gdf$.__status__ == st, , drop = FALSE]
       if (nrow(sdf) == 0) next
-      tr <- mk_trace(sdf, g, col.map[g])
-      if (!is.null(tr$type)) {
-        traces[[length(traces) + 1]] <- tr
-      } else {
-        for (k in seq_along(tr)) traces[[length(traces) + 1]] <- tr[[k]]
-      }
+      tr <- mk_trace(sdf, g, col.map[[g]])
+      traces <- .append_trace(traces, tr)
     }
   }
 
@@ -2002,6 +2011,8 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     xaxis = list(title = xlabel),
     yaxis = list(title = ylabel),
     legend = list(orientation = "v", x = 1.02, y = 1, xanchor = "left", yanchor = "top"),
+    `shape.map` = shape.map,          # keep for JS legend helpers if you use them
+    meta2Name = if (doShape) names(meta)[2] else NULL,
     annotations = if (nzchar(subtitle)) list(list(
       x = 0, y = 1.08, xref = "paper", yref = "paper",
       xanchor = "left", yanchor = "bottom",
@@ -2013,11 +2024,13 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   json.obj  <- toJSON(plot_data)
   sink(jsonFile); cat(json.obj); sink()
 
-  out_tab <- df[, c("sample_id","group","dose","is_vehicle","uniq_map",
-                    "PC1","PC2","ax_PC1","ax_PC2","axis_class",
-                    "moderate_both_axes","far_euclid","far_repl",
-                    "worse_qc","exclude","reason","__.__status__")]
-  colnames(out_tab)[ncol(out_tab)] <- "status"
+  out_cols <- c("sample_id","group","dose","is_vehicle","uniq_map",
+                "PC1","PC2","ax_PC1","ax_PC2","axis_class",
+                "moderate_both_axes","far_euclid","far_repl",
+                "worse_qc","exclude","reason","__.__status__")
+  keep_cols <- intersect(out_cols, colnames(df))
+  out_tab   <- df[, keep_cols, drop = FALSE]
+  colnames(out_tab)[colnames(out_tab) == ".__status__"] <- "status"
   utils::write.csv(out_tab, file = csvFile, row.names = FALSE)
 
   return("NA")
