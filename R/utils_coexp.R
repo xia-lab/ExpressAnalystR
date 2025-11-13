@@ -1,3 +1,28 @@
+# Helper function to suppress ALL graphics device popups on macOS
+.suppress_quartz <- function(expr) {
+  # Save current state
+  old_device <- getOption("device")
+  old_bitmapType <- getOption("bitmapType")
+
+  # Override device options to prevent Quartz
+  options(device = function(...) pdf(file = NULL))
+  if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+    options(bitmapType = "cairo")
+  }
+
+  # Close any stray devices
+  while (dev.cur() > 1) try(dev.off(), silent = TRUE)
+
+  # Ensure cleanup happens
+  on.exit({
+    while (dev.cur() > 1) try(dev.off(), silent = TRUE)
+    options(device = old_device, bitmapType = old_bitmapType)
+  })
+
+  # Execute the expression
+  eval(expr, envir = parent.frame())
+}
+
 my.build.cemi.net <- function(dataName,
                               filter      = TRUE,
                               min_ngen    = 30,
@@ -36,14 +61,17 @@ my.build.cemi.net <- function(dataName,
 
 print("buildingceminet");
 
-    cem <- cemitool(expr         = expr_mat,
-                    annot        = annot_df,
-                    filter       = filter,
-                    min_ngen     = min_ngen,
-                    cor_method   = match.arg(cor_method),
-                    class_column = classCol,      # <-- tell CEMiTool!
-                    verbose      = verbose,
-                    plot         = TRUE)
+    # FIX: Suppress Quartz popup on macOS - completely disable plotting during cemitool
+    # We'll generate plots separately using the other functions
+    cem <- cemitool(expr              = expr_mat,
+                    annot             = annot_df,
+                    filter            = filter,
+                    min_ngen          = min_ngen,
+                    cor_method        = match.arg(cor_method),
+                    class_column      = classCol,
+                    verbose           = verbose,
+                    plot              = FALSE,           # Disable all plotting
+                    plot_diagnostics  = FALSE)
 
     ## 3 · save & return -----------------------------------------------
     qs::qsave(cem, "cem.qs")
@@ -75,6 +103,17 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
   library(Cairo); library(WGCNA)
 
+  # FIX: Suppress Quartz popup on macOS - override device at function start
+  old_device <- getOption("device")
+  old_bitmapType <- getOption("bitmapType")
+  options(device = function(...) pdf(file = NULL))
+  if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+    options(bitmapType = "cairo")
+  }
+  on.exit({
+    options(device = old_device, bitmapType = old_bitmapType)
+  }, add = TRUE)
+
   cem <- qs::qread("cem.qs")
   if (!inherits(cem, "CEMiTool"))
     stop("'cem.qs' does not contain a valid CEMiTool object.")
@@ -95,6 +134,10 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
                      dimnames = list(leaves, NULL))
 
     if (dpi == 72) dpi <- 96
+
+    # FIX: Suppress Quartz popup on macOS - close any existing devices first
+    while (dev.cur() > 1) dev.off()
+
     Cairo(file, width = 1000, height = 600, dpi = dpi,
           bg = "white", type = format)
 
@@ -119,7 +162,9 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
            cex    = 0.8,
            bty    = "n")
 
-    par(oldMar); dev.off()
+    # FIX: Suppress Quartz popup on macOS
+    par(oldMar)
+    invisible(dev.off())
   }
 
   # ── MODULE dendrogram ────────────────────────────────────────────
@@ -190,6 +235,17 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 
     library(CEMiTool); library(WGCNA); library(Cairo)
 
+    # FIX: Suppress Quartz popup on macOS - override device at function start
+    old_device <- getOption("device")
+    old_bitmapType <- getOption("bitmapType")
+    options(device = function(...) pdf(file = NULL))
+    if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+      options(bitmapType = "cairo")
+    }
+    on.exit({
+      options(device = old_device, bitmapType = old_bitmapType)
+    }, add = TRUE)
+
     cem <- qs::qread("cem.qs")
     stopifnot(inherits(cem, "CEMiTool"))
 
@@ -238,6 +294,8 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     width_in  <- width_px  / dpi
     height_in <- height_px / dpi
 
+    # FIX: Suppress Quartz popup on macOS - close any existing devices first
+    while (dev.cur() > 1) dev.off()
 
     if (tolower(format) == "png") {
       Cairo(file   = outFile,
@@ -270,7 +328,8 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
                    zlim            = c(-1, 1),
                    main            = paste("Module ×", colLabel, "Levels"))
 
-    dev.off()
+    # FIX: Suppress Quartz popup on macOS
+    invisible(dev.off())
     message("Heat-map written to: ", outFile)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_traitheat <- outFile;
@@ -287,6 +346,17 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
                                      dpi = 72,
                                      format = "png") {
   library(Cairo); library(CEMiTool)
+
+  # FIX: Suppress Quartz popup on macOS - override device at function start
+  old_device <- getOption("device")
+  old_bitmapType <- getOption("bitmapType")
+  options(device = function(...) pdf(file = NULL))
+  if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+    options(bitmapType = "cairo")
+  }
+  on.exit({
+    options(device = old_device, bitmapType = old_bitmapType)
+  }, add = TRUE)
 
   cem <- qs::qread("cem.qs")
   stopifnot(inherits(cem, "CEMiTool"))
@@ -313,9 +383,13 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
   # Save
   file <- sprintf("%sdpi%d.%s", imgName, dpi, format)
   if (dpi == 72) dpi <- 96
+
+  # FIX: Suppress Quartz popup on macOS - close any existing devices first
+  while (dev.cur() > 1) dev.off()
+
   Cairo(file, width = 1000, height = 600, dpi = dpi, bg = "white", type = format)
-  print(g)    # ggplot draw
-  dev.off()
+  invisible(print(g))    # ggplot draw
+  invisible(dev.off())
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_scalefree <- file;
     saveSet(imgSet, "imgSet"):

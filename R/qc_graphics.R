@@ -39,15 +39,16 @@ qc.boxplot <- function(dat, imgNm, dpi=72, format="png", interactive=F){
   } else {
     Mss <- Mss
   }
-  sample_id <- rep(seq_len(ncol(Mss)), each = nrow(Mss));
-  values  <- as.numeric(Mss)
-  
-  df <- cbind(values, sample_id)
-  
-  df <- data.frame(df)
-  df$sample_id <- factor(df$sample_id)
-  xlower <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE)[1])
-  xupper <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE)[2])
+  # OPTIMIZED: Direct data.frame construction to eliminate 3 intermediate copies
+  df <- data.frame(
+    values = as.numeric(Mss),
+    sample_id = factor(rep(seq_len(ncol(Mss)), each = nrow(Mss)))
+  )
+
+  # OPTIMIZED: Single quantile call instead of duplicate calculations
+  q_vals <- quantile(df$values, probs = c(0.01, 0.99), na.rm = TRUE)
+  xlower <- unname(q_vals[1])
+  xupper <- unname(q_vals[2])
   height <- length(unique(df$sample_id)) *20;
   if(height<450){
     height <- 450
@@ -118,17 +119,24 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
   df <- stack(df)
   sampleNms <-colnames(dataSet$data.norm)
   if(length(dataSet$meta.info) == 2){
-    
+
+    # OPTIMIZED: Single merge instead of sequential merges to eliminate intermediate copies
     Factor1 <- dataSet$meta.info[,1]
-    factorNm1 <- colnames(dataSet$meta.info)[1]
-    conv <- data.frame(ind=sampleNms, Factor1=Factor1)
-    colnames(conv) <- c("ind", factorNm1);
-    df1 <- merge(df, conv, by="ind")
     Factor2 <- dataSet$meta.info[,2]
+    factorNm1 <- colnames(dataSet$meta.info)[1]
     factorNm2 <- colnames(dataSet$meta.info)[2]
-    conv <- data.frame(ind=sampleNms, Factor2=Factor2)
-    colnames(conv) <- c("ind", factorNm2);
-    df1 <- merge(df1, conv, by="ind")
+
+    # Build combined metadata once
+    conv <- data.frame(
+      ind = sampleNms,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    conv[[factorNm1]] <- Factor1
+    conv[[factorNm2]] <- Factor2
+
+    # Single merge operation
+    df1 <- merge(df, conv, by="ind")
     df2 <- reshape::melt(df1, measure.vars=c(factorNm1,factorNm2))
     colnames(df2)[4] <- "Conditions"
     
@@ -374,12 +382,23 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
   dataSet <- readDataset(fileName);
   if(grepl("_norm", imgName)){
     qc.pcaplot(dataSet, dataSet$data.norm, imgName, dpi, format, F);
+        if (paramSet$oneDataAnalType == "dose") {
+    qc.pcaplot.outliers.json(dataSet, dataSet$data.norm, imgName);
+}else{
     qc.pcaplot.json(dataSet, dataSet$data.norm, imgName);
+
+}
 
   }else{
     data.anot <- .get.annotated.data();
     qc.pcaplot(dataSet, data.anot, imgName, dpi, format, F);
+        if (paramSet$oneDataAnalType == "dose") {
+
+   qc.pcaplot.outliers.json(dataSet, data.anot, imgName);
+}else{
     qc.pcaplot.json(dataSet, data.anot, imgName);
+
+}
 
   }
   return("NA");
@@ -896,113 +915,127 @@ ComputePERMANOVA <- function(pc1, pc2, cls, numPermutations = 999) {
 
 qc.pcaplot.json <- function(dataSet, x, imgNm) {
   jsonFile <- paste0(imgNm, ".json")
-  
-  require(lattice)
-  require(ggplot2)
-  require(reshape)
-  require(see)
-  require(ggrepel)
-  require(plotly)
-  require(rjson)
 
-  # load PCA & metadata
+  # libs (only jsonlite is really needed now)
+  suppressMessages({
+    require(jsonlite)
+  })
+
+  # ---------- Load PCA & metadata ----------
   analSet <- readSet(analSet, "analSet")
-  pca     <- analSet$pca;
-  xlabel  <- pca$xlabel;
-  ylabel  <- pca$ylabel;
-  #imp     <- summary(pca)$importance[2, 1:2]
-  #xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
-  #ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
-  
+  pca     <- analSet$pca
+  xlabel  <- pca$xlabel
+  ylabel  <- pca$ylabel
+
   pca.res <- as.data.frame(pca$x)[, 1:2, drop = FALSE]
   colnames(pca.res) <- c("PC1", "PC2")
-  pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), ]
-  
-  # metadata1 → color
+  pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), , drop = FALSE]
+
+  # metadata1 → color (group)
   pca.res$group  <- as.character(dataSet$meta.info[[1]])
   pca.res$sample <- rownames(pca.res)
-  
-  # detect 2nd metadata for shapes
+
+  # ---------- Detect 2nd metadata for shapes ----------
   doShape <- FALSE
+  shape.levels <- character(0)
+  shape.map <- NULL
+
   if (ncol(dataSet$meta.info) >= 2) {
     second <- dataSet$meta.info[[2]]
+    # treat non-numeric as discrete for shapes
     isDisc  <- !is.numeric(second)
     levs    <- unique(as.character(second))
-    if (isDisc && length(levs) <= 6) {
-      doShape      <- TRUE
+    if (isDisc && length(levs) <= 8) {
+      doShape <- TRUE
       pca.res$shape <- as.character(second)
-      symbols      <- c("circle","square","diamond",
-                        "cross","x","triangle-up",
-                        "triangle-down","star")
-      shape.map    <- setNames(symbols[seq_along(levs)], levs)
+      symbols <- c("circle","square","diamond",
+                   "cross","x","triangle-up",
+                   "triangle-down","star")
+      shape.map    <- stats::setNames(symbols[seq_along(levs)], levs)
       shape.levels <- levs
     }
   }
-  
-  # ——— COLOR MAPPING exactly as in qc.pcaplot() ————————————
-  # read paramSet for dose check
-  paramSet <- readSet(paramSet, "paramSet")
+
+  # ---------- Color mapping (dose-aware like qc.pcaplot) ----------
+  paramSet    <- readSet(paramSet, "paramSet")
   unique_grps <- unique(pca.res$group)
-  
+
   if (grepl("norm", imgNm) &&
       !is.null(paramSet$oneDataAnalType) &&
       paramSet$oneDataAnalType == "dose") {
-    
-    # blue→orange ramp for dose
-    pal <- colorRampPalette(c("#2196F3", "#DE690D"))(length(unique_grps))
-    
+    pal <- grDevices::colorRampPalette(c("#2196F3", "#DE690D"))(length(unique_grps))
   } else {
-    # Okabe–Ito discrete palette
     okabe <- c("#E69F00","#56B4E9","#009E73",
                "#F0E442","#0072B2","#D55E00","#CC79A7")
     pal <- rep(okabe, length.out = length(unique_grps))
   }
-  col.map <- setNames(pal, unique_grps)
-  # ——————————————————————————————————————————————————————————
+  col.map <- stats::setNames(pal, unique_grps)
 
-  # build traces
-  traces <- lapply(unique_grps, function(g) {
-    df  <- subset(pca.res, group == g)
-    mkr <- list(color = col.map[g], size = 8,
-                line  = list(color = "white", width = 0.5))
-    if (doShape) {
-      mkr$symbol <- unname(shape.map[df$shape])
-    }
-    list(
-      x            = df$PC1,
-      y            = df$PC2,
-      type         = "scatter",
-      mode         = if (nrow(df) > 20) "markers" else "markers+text",
-      name         = g,
-      marker       = mkr,
-      text         = if (nrow(df) <= 20) df$sample else NULL,
-      hoverinfo    = "text",
-      textposition = "top center"
-    )
-  })
+  # ---------- Build traces ----------
+  traces <- list()
 
-  # append dummy shape‐legend traces
   if (doShape) {
-    for (sh in shape.levels) {
-      traces <- c(traces, list(
-        list(
-          x          = c(NA), y = c(NA),
-          type       = "scatter", mode = "markers",
-          name       = sh,
-          showlegend = TRUE,
-          marker     = list(symbol = shape.map[[sh]],
-                            color  = "black",
-                            size   = 8)
-        )
-      ))
+    # one trace per (group × shape)
+    combos <- unique(pca.res[, c("group","shape")])
+    for (i in seq_len(nrow(combos))) {
+      g  <- combos$group[i]
+      sh <- combos$shape[i]
+
+      df <- pca.res[pca.res$group == g & pca.res$shape == sh, , drop = FALSE]
+      if (nrow(df) == 0) next
+
+      mkr <- list(
+        color = unname(col.map[g]),
+        size  = 8,
+        line  = list(color = "white", width = 0.5),
+        symbol = unname(shape.map[[sh]]) # scalar symbol per trace
+      )
+
+      traces[[length(traces) + 1]] <- list(
+        x            = df$PC1,
+        y            = df$PC2,
+        type         = "scatter",
+        mode         = if (nrow(df) > 20) "markers" else "markers+text",
+        name         = paste0(g, " • ", sh),
+        legendgroup  = g,          # groups align in legend
+        marker       = mkr,
+        text         = if (nrow(df) <= 20) df$sample else NULL,
+        hoverinfo    = "text",
+        textposition = "top center"
+      )
+    }
+  } else {
+    # one trace per color group (no shapes)
+    for (g in unique_grps) {
+      df <- pca.res[pca.res$group == g, , drop = FALSE]
+      if (nrow(df) == 0) next
+
+      mkr <- list(
+        color = unname(col.map[g]),
+        size  = 8,
+        line  = list(color = "white", width = 0.5)
+      )
+
+      traces[[length(traces) + 1]] <- list(
+        x            = df$PC1,
+        y            = df$PC2,
+        type         = "scatter",
+        mode         = if (nrow(df) > 20) "markers" else "markers+text",
+        name         = g,
+        legendgroup  = g,
+        marker       = mkr,
+        text         = if (nrow(df) <= 20) df$sample else NULL,
+        hoverinfo    = "text",
+        textposition = "top center"
+      )
     }
   }
 
-  # layout with legend on right
+  # ---------- Layout ----------
   layout <- list(
     title = "",
-    xaxis = list(title = xlabel),
-    yaxis = list(title = ylabel),
+    xaxis = list(title = xlabel, zeroline = FALSE),
+    yaxis = list(title = ylabel, zeroline = FALSE),
     legend = list(
       orientation = "v",
       x           = 1.02,
@@ -1012,13 +1045,14 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
     )
   )
 
-  # dump JSON
+  # ---------- Dump JSON ----------
   plot_data <- list(data = traces, layout = layout)
-  json.obj   <- toJSON(plot_data)
-  sink(jsonFile); cat(json.obj); sink()
-  
+  json.obj  <- jsonlite::toJSON(plot_data, auto_unbox = TRUE, null = "null", digits = NA)
+  writeLines(json.obj, jsonFile)
+
   return("NA")
 }
+
 
 PlotDataGini <- function(fileName, imgName, threshold, dpi, format){
   dataSet <- readDataset(fileName)
@@ -1702,4 +1736,302 @@ qc.nsigplot.json <- function(nsig_df,
     paste0(imgNm, ".json"),
     auto_unbox = TRUE, digits = 16
   )
+}
+qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
+                                     uniq_map_col = "uniq_map",
+                                     min_per_dose = 2,
+                                     min_vehicles = 3) {
+  jsonFile <- paste0(imgNm, ".json")
+  csvFile  <- paste0(imgNm, "_outliers.csv")
+
+  require(plotly)
+  require(rjson)
+
+  # ----- load PCA & align to meta -----
+  analSet <- readSet(analSet, "analSet")
+  pca     <- analSet$pca
+  xlabel  <- pca$xlabel
+  ylabel  <- pca$ylabel
+
+  pca.res <- as.data.frame(pca$x)[, 1:2, drop = FALSE]
+  colnames(pca.res) <- c("PC1","PC2")
+  pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), , drop = FALSE]
+  pca.res$sample_id <- rownames(pca.res)
+
+  meta <- dataSet$meta.info
+  stopifnot(nrow(meta) == nrow(pca.res))
+  pca.res$group <- as.character(meta[[1]])
+
+  doShape <- FALSE; shape.map <- NULL; shape.levels <- NULL
+  if (ncol(meta) >= 2) {
+    second <- meta[[2]]
+    isDisc <- !is.numeric(second)
+    levs   <- unique(as.character(second))
+    if (isDisc && length(levs) <= 6) {
+      doShape <- TRUE
+      pca.res$shape <- as.character(second)
+      symbols <- c("circle","square","diamond","cross","x","triangle-up","triangle-down","star")
+      shape.map <- setNames(symbols[seq_along(levs)], levs)
+      shape.levels <- levs
+    }
+  }
+
+  nR <- nrow(meta)
+  pca.res$dose <- if ("dose" %in% colnames(meta)) as.character(meta[["dose"]]) else rep(NA_character_, nR)
+  pca.res$is_vehicle <- if ("is_vehicle" %in% colnames(meta)) {
+    as.logical(as.character(meta[["is_vehicle"]]))
+  } else rep(FALSE, nR)
+  pca.res$uniq_map <- if (uniq_map_col %in% colnames(meta)) as.numeric(meta[[uniq_map_col]]) else rep(NA_real_, nR)
+
+  # ----- color mapping (your palettes) -----
+  paramSet <- readSet(paramSet, "paramSet")
+  unique_grps <- unique(pca.res$group)
+  if (grepl("norm", imgNm) && !is.null(paramSet$oneDataAnalType) && paramSet$oneDataAnalType == "dose") {
+    pal <- colorRampPalette(c("#2196F3", "#DE690D"))(length(unique_grps))
+  } else {
+    okabe <- c("#E69F00","#56B4E9","#009E73","#F0E442","#0072B2","#D55E00","#CC79A7")
+    pal <- rep(okabe, length.out = length(unique_grps))
+  }
+  col.map <- setNames(pal, unique_grps)
+
+  axis_class <- function(vals_named) {
+    labs <- names(vals_named); vals <- as.numeric(vals_named)
+    n <- length(vals)
+    cls <- rep("none", n)
+
+    med <- median(vals, na.rm = TRUE)
+    md  <- mad(vals, constant = 1, na.rm = TRUE)
+    if (is.na(md) || md == 0) {
+      q <- quantile(vals, probs = c(0.10, 0.90), na.rm = TRUE, names = FALSE)
+      core_idx <- vals >= q[1] & vals <= q[2]
+    } else {
+      core_idx <- abs(vals - med) <= 3 * md
+    }
+    if (sum(core_idx, na.rm = TRUE) < 3) {
+      ord <- order(vals); k1 <- max(1, floor(0.10 * n)); k2 <- min(n, ceiling(0.90 * n))
+      core_idx <- FALSE; core_idx[ord[k1:k2]] <- TRUE
+    }
+
+    core_vals <- vals[core_idx]
+    span_core <- max(core_vals, na.rm = TRUE) - min(core_vals, na.rm = TRUE)
+    if (!is.finite(span_core) || span_core == 0) span_core <- diff(range(vals, na.rm = TRUE))
+
+    for (k in seq_len(n)) {
+      xi <- vals[k]
+      if (core_idx[k]) { cls[k] <- "none"; next }
+      sep_core <- min(abs(xi - core_vals))
+      if (sep_core > 2 * span_core)      cls[k] <- "strong"
+      else if (sep_core > 1 * span_core) cls[k] <- "moderate"
+      else                                cls[k] <- "none"
+    }
+    setNames(cls, labs)
+  }
+
+  euclid_med <- function(df) {
+    cx <- median(df$PC1, na.rm = TRUE); cy <- median(df$PC2, na.rm = TRUE)
+    sqrt((df$PC1 - cx)^2 + (df$PC2 - cy)^2)
+  }
+  within_dose_far <- function(df) {
+    if (all(is.na(df$dose))) return(rep(FALSE, nrow(df)))
+    unlist(
+      by(df, df$dose, function(dd) {
+        if (nrow(dd) < 2) return(rep(NA, nrow(dd)))
+        cx <- median(dd$PC1); cy <- median(dd$PC2)
+        d  <- sqrt((dd$PC1-cx)^2 + (dd$PC2-cy)^2)
+        thr <- median(d, na.rm = TRUE) * 2
+        d > thr
+      }),
+      use.names = FALSE
+    )
+  }
+
+  .safe_chr <- function(x) { if (length(x) == 0 || is.na(x) || x == "NA") "" else as.character(x) }
+  .safe_reason <- function(x) { if (length(x) == 0 || is.na(x) || x == "NA" || x == "") "" else as.character(x) }
+  .make_customdata <- function(subdf) {
+    n <- nrow(subdf)
+    out <- vector("list", n)
+    for (i in seq_len(n)) {
+      out[[i]] <- list(
+        dose       = .safe_chr(subdf$dose[i]),
+        is_vehicle = .safe_chr(subdf$is_vehicle[i]),
+        reason     = .safe_reason(subdf$reason[i])
+      )
+    }
+    out
+  }
+
+  # trace appending guards
+  .is_single_trace <- function(x) is.list(x) && !is.null(x$type) && !is.null(x$x) && !is.null(x$y)
+  .append_trace <- function(dst, tr) {
+    if (is.null(tr) || !is.list(tr)) return(dst)
+    if (.is_single_trace(tr)) { dst[[length(dst) + 1]] <- tr; return(dst) }
+    for (k in seq_along(tr)) {
+      tk <- tr[[k]]
+      if (.is_single_trace(tk)) dst[[length(dst) + 1]] <- tk
+    }
+    dst
+  }
+
+  df <- pca.res
+  ax1 <- axis_class(setNames(df$PC1, df$sample_id))
+  ax2 <- axis_class(setNames(df$PC2, df$sample_id))
+  df$ax_PC1 <- ax1[df$sample_id]
+  df$ax_PC2 <- ax2[df$sample_id]
+  df$axis_class <- ifelse(df$ax_PC1 == "strong" | df$ax_PC2 == "strong", "strong",
+                          ifelse(df$ax_PC1 == "moderate" | df$ax_PC2 == "moderate", "moderate", "none"))
+  df$moderate_both_axes <- (df$ax_PC1 == "moderate" & df$ax_PC2 == "moderate")
+
+  D  <- euclid_med(df)
+  df$far_euclid <- D > (2 * median(D, na.rm = TRUE))
+  df$far_repl  <- within_dose_far(df)
+
+  df$reason  <- NA_character_
+  df$exclude <- df$axis_class == "strong"
+  df$reason[df$exclude] <- "Strong axis separation vs. core (>2× core span)"
+
+  if (!all(is.na(df$dose))) {
+    strong_rows <- which(df$exclude)
+    if (length(strong_rows) > 1) {
+      dups <- duplicated(df$dose[strong_rows]) | duplicated(df$dose[strong_rows], fromLast = TRUE)
+      if (any(dups, na.rm = TRUE)) {
+        df$exclude[strong_rows] <- FALSE
+        df$reason[strong_rows]  <- NA_character_
+      }
+    }
+  }
+
+  m_idx <- which(!df$exclude & df$axis_class == "moderate")
+  for (i in m_idx) {
+    reasons <- character(0)
+    if (isTRUE(df$moderate_both_axes[i]) && isTRUE(df$far_euclid[i]))
+      reasons <- c(reasons, "Moderate on both axes with large Euclidean distance")
+    if (isTRUE(df$far_repl[i]))
+      reasons <- c(reasons, "Far from replicate/similar dose cluster")
+    if (isTRUE(df$worse_qc[i]))
+      reasons <- c(reasons, "Lower sequencing quality")
+    if (length(reasons)) {
+      df$exclude[i] <- TRUE
+      df$reason[i]  <- paste(reasons, collapse = "; ")
+    }
+  }
+
+  if (!all(is.na(df$dose))) {
+    kept_by_dose <- tapply(!df$exclude & !df$is_vehicle, df$dose, sum)
+    drop_doses <- names(kept_by_dose[!is.na(kept_by_dose) & kept_by_dose < min_per_dose])
+    if (length(drop_doses)) {
+      hit <- which(df$dose %in% drop_doses & !df$is_vehicle)
+      df$exclude[hit] <- TRUE
+      df$reason[hit]  <- ifelse(is.na(df$reason[hit]),
+                                "Dose dropped (<2 samples after QC/outlier)",
+                                paste(df$reason[hit], "Dose dropped (<2 samples)", sep="; "))
+    }
+  }
+
+  veh_kept <- sum(!df$exclude & df$is_vehicle, na.rm = TRUE)
+  vehicle_note <- if (any("is_vehicle" == colnames(meta)) && veh_kept < min_vehicles)
+    sprintf("Warning: only %d vehicle samples kept (< %d).", veh_kept, min_vehicles) else NULL
+
+  status_lab <- ifelse(df$exclude, "Excluded",
+                       ifelse(df$axis_class == "moderate", "Moderate", "Kept"))
+  df$.__status__ <- status_lab
+
+  status_styles <- list(
+    Kept     = list(line = list(color = "white", width = 0.5), size = 8,  opacity = 0.9),
+    Moderate = list(line = list(color = "orange", width = 2),  size = 9,  opacity = 1.0),
+    Excluded = list(line = list(color = "red",    width = 3),  size = 10, opacity = 1.0)
+  )
+
+  mk_trace <- function(subdf, name, color) {
+    st <- as.character(unique(subdf$.__status__))[1]
+    base_marker <- c(list(color = as.character(color)), status_styles[[st]])
+    mode_val <- if (st == "Kept") "markers" else "markers+text"
+    text_val <- if (st == "Kept") NULL else subdf$sample_id
+    leg_name <- if (st == "Kept") name else paste0(name, " • ", st)
+
+    if (doShape && "shape" %in% colnames(subdf)) {
+      spl <- split(subdf, subdf$shape)
+      out <- vector("list", length(spl)); i <- 0L
+      for (sh in names(spl)) {
+        i <- i + 1L
+        ss <- spl[[sh]]
+        mkr <- base_marker; mkr$symbol <- unname(shape.map[sh])
+        shaped_name <- if (st == "Kept") paste0(name, " • ", sh) else paste0(name, " • ", sh, " • ", st)
+        out[[i]] <- list(
+          x = ss$PC1, y = ss$PC2, type = "scatter",
+          mode = mode_val,
+          name = shaped_name,
+          showlegend = TRUE,
+          marker = mkr,
+          text = if (st == "Kept") NULL else ss$sample_id,
+          customdata = .make_customdata(ss),  # list-of-objects
+          hoverinfo = "text",
+          textposition = "top center"
+        )
+      }
+      return(out)
+    }
+
+    list(
+      x = subdf$PC1, y = subdf$PC2, type = "scatter",
+      mode = mode_val,
+      name = leg_name,
+      showlegend = TRUE,
+      marker = base_marker,
+      text = text_val,
+      customdata = .make_customdata(subdf),  # list-of-objects
+      hoverinfo = "text",
+      textposition = "top center"
+    )
+  }
+
+  traces <- list()
+  for (g in unique_grps) {
+    gdf <- df[df$group == g, , drop = FALSE]
+    for (st in c("Kept","Moderate","Excluded")) {
+      sdf <- gdf[gdf$.__status__ == st, , drop = FALSE]
+      if (nrow(sdf) == 0) next
+      tr <- mk_trace(sdf, g, col.map[[g]])
+      traces <- .append_trace(traces, tr)
+    }
+  }
+
+  if (doShape) {
+    for (sh in shape.levels) {
+      traces[[length(traces) + 1]] <- list(
+        x = c(NA), y = c(NA), type = "scatter", mode = "markers",
+        name = paste0("Shape: ", sh), showlegend = TRUE,
+        marker = list(symbol = shape.map[[sh]], color = "black", size = 8)
+      )
+    }
+  }
+
+  subtitle <- if (!is.null(vehicle_note)) vehicle_note else ""
+  layout <- list(
+    title = "",
+    xaxis = list(title = xlabel),
+    yaxis = list(title = ylabel),
+    legend = list(orientation = "v", x = 1.02, y = 1, xanchor = "left", yanchor = "top"),
+    `shape.map` = shape.map,          # keep for JS legend helpers if you use them
+    meta2Name = if (doShape) names(meta)[2] else NULL,
+    annotations = if (nzchar(subtitle)) list(list(
+      x = 0, y = 1.08, xref = "paper", yref = "paper",
+      xanchor = "left", yanchor = "bottom",
+      text = subtitle, showarrow = FALSE, font = list(size = 12)
+    )) else NULL
+  )
+
+  plot_data <- list(data = traces, layout = layout)
+  json.obj  <- toJSON(plot_data)
+  sink(jsonFile); cat(json.obj); sink()
+
+  out_cols <- c("sample_id","group","dose","is_vehicle","uniq_map",
+                "PC1","PC2","ax_PC1","ax_PC2","axis_class",
+                "moderate_both_axes","far_euclid","far_repl",
+                "worse_qc","exclude","reason","__.__status__")
+  keep_cols <- intersect(out_cols, colnames(df))
+  out_tab   <- df[, keep_cols, drop = FALSE]
+  colnames(out_tab)[colnames(out_tab) == ".__status__"] <- "status"
+  utils::write.csv(out_tab, file = csvFile, row.names = FALSE)
+
+  return("NA")
 }

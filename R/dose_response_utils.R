@@ -1009,11 +1009,15 @@ interpFits <- function(){
   dataSet <- readDataset(paramSet$dataName);
 
     fitres.filt <- dataSet$drcfit.obj$fitres.filt
-    resp.list <- vector(mode = "list", length = nrow(fitres.filt))
     max.dose <- max(dataSet$bmdcalc.obj$dose)
     dose = seq(from = 0, to = max.dose, length.out = 100)
 
-    for(i in c(1:nrow(fitres.filt))){
+    # OPTIMIZED: Pre-allocate matrix instead of list + do.call(rbind) to eliminate memory spikes
+    nr <- nrow(fitres.filt)
+    nc <- length(dose)
+    df <- matrix(nrow = nr, ncol = nc)
+
+    for(i in c(1:nr)){
       params <- fitres.filt[i,]
       model.nm <- as.vector(params$mod.name)
       b <- as.numeric(as.vector(params$b))
@@ -1058,10 +1062,12 @@ interpFits <- function(){
       resp.max <- max(response)
       response <- response/resp.max
 
-      resp.list[[i]] <- response
+      # Direct matrix assignment - no intermediate list
+      df[i,] <- response
     }
 
-    df <- as.data.frame(do.call(rbind, resp.list))
+    # Convert to data.frame once at the end
+    df <- as.data.frame(df)
     colnames(df) <- as.character(dose)
     rownames(df) <- fitres.filt$gene.id
 
