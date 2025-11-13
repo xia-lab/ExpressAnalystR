@@ -648,7 +648,8 @@ MultiCovariateRegression <- function(fileName,
                                      contrast = "anova",  # comparison class from analysis.var (only if categorical)
                                      blocking.factor = NULL, 
                                      robustTrend = F, 
-                                     internal=F){ # whether returns 0/1 or dataset object
+                                     internal=F,
+                                     useBatchCorrected=TRUE){ # whether returns 0/1 or dataset object
 
   dataSet <- readDataset(fileName);
   if(!exists('adj.vec')){ ## covariate to adjust for
@@ -660,7 +661,7 @@ MultiCovariateRegression <- function(fileName,
       adj.vec <- "NA"
     }
   }
-  interim <- .multiCovariateRegression(dataSet, analysis.var, ref, contrast, blocking.factor, adj.vec, robustTrend, F)
+  interim <- .multiCovariateRegression(dataSet, analysis.var, ref, contrast, blocking.factor, adj.vec, robustTrend, F, useBatchCorrected)
   if(is.list(interim)){
     res <- 1;
   }else{
@@ -677,7 +678,8 @@ MultiCovariateRegression <- function(fileName,
                                      blocking.factor = NULL, 
                                      adj.factors="NA",# metadata variables to adjust for
                                      robustTrend = F, 
-                                     internal=F){ # whether returns 0/1 or dataset object, T for metaanal covariate
+                                     internal=F, # whether returns 0/1 or dataset object, T for metaanal covariate
+                                     useBatchCorrected=TRUE){
   # load libraries
   library(limma);
   library(dplyr);
@@ -687,13 +689,13 @@ MultiCovariateRegression <- function(fileName,
   dataSet$rmidx <- NULL;
 
   # for embedded inside tools (ExpressAnalyst etc)
-  if(internal){
-  inmex.meta<-qs::qread("inmex_meta.qs");
-  #only get shared features
-  #feature_table <- dataSet$data.norm[rownames(dataSet$data.norm) %in% rownames(inmex.meta$data), ];
-  feature_table <- inmex.meta$data[,colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
+  paramSet <- readSet(paramSet, "paramSet");
+  useMeta <- useBatchCorrected && !is.null(paramSet$performedBatch) && isTRUE(paramSet$performedBatch);
+  if(useMeta || internal){
+    inmex.meta <- qs::qread("inmex_meta.qs");
+    feature_table <- inmex.meta$data[, colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
   }else{
-  feature_table <- dataSet$data.norm;
+    feature_table <- dataSet$data.norm;
   }
   covariates <- dataSet$meta.info;
 
@@ -733,6 +735,9 @@ MultiCovariateRegression <- function(fileName,
     saveSet(msgSet, "msgSet");
     return(0)
   }
+  
+  message("[Covariate] feature_table dims ", paste(dim(feature_table), collapse="x"))
+  print(head(feature_table[, seq_len(min(5, ncol(feature_table))), drop=FALSE]))
   
   # get analysis type
   analysis.type = ifelse(dataSet$disc.inx[analysis.var],"disc","cont")
