@@ -198,10 +198,13 @@ SanityAttachMeta(sel.nms, paramSet, msgSet);
                          gene.symbls = symbols,
                          cls.lbl=factor(cls.lbl),
                          data.lbl=data.lbl);
-  .safe_qsave(inmex.meta.orig, "inmex.meta.orig.qs");
+  if(!file.exists("inmex.meta.orig.qs")){
+    qs::qsave(inmex.meta.orig, "inmex.meta.orig.qs");
+  }
   message("[MetaQC] Saved merged meta (raw snapshot)");
-
-  .safe_qsave(inmex.meta, "inmex_meta.qs");
+  if(!file.exists("inmex_meta.qs")){
+  qs::qsave(inmex.meta, "inmex_meta.qs");
+  }
   message("[MetaQC] Saved merged meta (current)");
   paramSet$smps.vec <- colnames(common.matrix);
   # setup common stats gene number, smpl number, grp info

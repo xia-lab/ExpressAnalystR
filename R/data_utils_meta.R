@@ -422,7 +422,7 @@ RestoreMetaData <- function(){
     paramSet <- readSet(paramSet, "paramSet");
     paramSet$performedBatch <- FALSE;
     saveSet(paramSet, "paramSet");
-    CheckMetaDataIntegrity();
+    #CheckMetaDataIntegrity();
     return(1);
 }
 
