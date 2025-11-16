@@ -104,6 +104,10 @@ GetResColNames <- function(dataName=""){
   return(colnms);
 }
 
+filterDatasetColumn <- function(colNames) {
+  colNames[!toupper(colNames) %in% "DATASET"]
+}
+
 GetDiscMetas <- function(dataName=""){
   if(dataName != "NA"){
     dataSet <- readDataset(dataName);
@@ -119,7 +123,7 @@ GetDiscMetas <- function(dataName=""){
   }
   colnms<- colnames(dataSet$meta.info)[keepidx]
   #print(colnms)
-  return(colnms);
+  return(filterDatasetColumn(colnms));
 }
 
 GetMetaDataCol <- function(dataName="",colnm){
@@ -527,7 +531,7 @@ UpdatePrimaryMeta <- function(fileName,primaryMeta){
 GetMetaDataGroups <- function(dataName){
   paramSet <- readSet(paramSet, "paramSet");
   groups <- colnames(paramSet$dataSet$meta.info);
-  return(groups);
+  return(filterDatasetColumn(groups));
 }
 
 GetMetaDataStatus <- function(dataName){
