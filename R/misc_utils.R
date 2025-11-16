@@ -860,6 +860,14 @@ comments.inx <- grep("^#", dat1[,1]);
   return(dat1);
 }
 
+sanitizeSmallNumbers <- function(mat, tol=1e-10) {
+  if (is.null(mat) || !is.matrix(mat)) {
+    return(mat);
+  }
+  mat[abs(mat) < tol] <- 0;
+  mat;
+}
+
 
 # note, this may leads to duplicate names, use make.unque as last step
 .cleanNames <- function(query, type){

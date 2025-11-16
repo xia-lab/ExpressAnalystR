@@ -384,5 +384,5 @@ dataSet$comp.res <- rbind(resTable, other)
   dataSet$comp.res.filename <- filename;
   res <- RegisterData(dataSet);
   saveSet(paramSet, "paramSet");
-  return(c(filename, de.Num, geneList, total, up, down, non.de.Num));
+  return(c(output_file, de.Num, geneList, total, up, down, non.de.Num));
 }

@@ -177,7 +177,11 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     }
 
     # ---- Run DESeq2 ----
-    dds <- DESeqDataSetFromMatrix(countData = round(data.anot),
+    count_mat <- data.anot
+    if (any(!is.finite(count_mat))) {
+      count_mat[!is.finite(count_mat)] <- 0
+    }
+    dds <- DESeqDataSetFromMatrix(countData = round(count_mat),
                                   colData   = colData,
                                   design    = design)
     dds <- DESeq(dds, betaPrior = FALSE)

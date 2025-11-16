@@ -134,7 +134,8 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     qs::qsave(data.anot, file="data.missed.qs");
   }
 
-  fast.write(data.anot, file="data_annotated.csv");
+  data.anot <- sanitizeSmallNumbers(data.anot);
+  fast.write(sanitizeSmallNumbers(data.anot), file="data_annotated.csv");
   .save.annotated.data(data.anot);
 
   saveSet(paramSet, "paramSet");
