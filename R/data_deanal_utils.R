@@ -732,9 +732,17 @@ MultiCovariateRegression <- function(fileName,
 
   # for embedded inside tools (ExpressAnalyst etc)
   paramSet <- readSet(paramSet, "paramSet");
-  useMeta <- useBatchCorrected && !is.null(paramSet$performedBatch) && isTRUE(paramSet$performedBatch);
-  if(useMeta || internal){
+  useMeta <- !is.null(paramSet$performedBatch) && isTRUE(paramSet$performedBatch);
+  if(internal){
+    if(useMeta){
+    print("batchadjustedcov");
     inmex.meta <- qs::qread("inmex_meta.qs");
+    }else{
+    print("notbatchadjusted");
+
+    inmex.meta <- qs::qread("inmex.meta.orig.qs");
+
+    }
     feature_table <- inmex.meta$data[, colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
   }else{
     feature_table <- dataSet$data.norm;
@@ -778,8 +786,6 @@ MultiCovariateRegression <- function(fileName,
     return(0)
   }
   
-  message("[Covariate] feature_table dims ", paste(dim(feature_table), collapse="x"))
-  print(head(feature_table[, seq_len(min(5, ncol(feature_table))), drop=FALSE]))
   
   # get analysis type
   analysis.type = ifelse(dataSet$disc.inx[analysis.var],"disc","cont")

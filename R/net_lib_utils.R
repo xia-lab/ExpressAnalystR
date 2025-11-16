@@ -173,7 +173,6 @@ if(idType == "entrez"){
 }
 
 doEntrez2UniprotMapping<-function(entrez.vec, paramSet){
-  print(paramSet);
   data.org <- paramSet[["data.org"]];
  
   db.map <-  queryGeneDB("entrez_uniprot", data.org);
