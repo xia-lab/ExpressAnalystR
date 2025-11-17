@@ -134,12 +134,14 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
                      dimnames = list(leaves, NULL))
 
     if (dpi == 72) dpi <- 96
+    width_in <- 10
+    height_in <- 6
 
     # FIX: Suppress Quartz popup on macOS - close any existing devices first
     while (dev.cur() > 1) dev.off()
 
-    Cairo(file, width = 1000, height = 600, dpi = dpi,
-          bg = "white", type = format)
+    Cairo(file, width = width_in, height = height_in, dpi = dpi,
+          bg = "white", type = format, units = "in")
 
     oldMar <- par("mar"); par(mar = oldMar + c(0, 0, 0, 4))
     plotDendroAndColors(
@@ -299,11 +301,12 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 
     if (tolower(format) == "png") {
       Cairo(file   = outFile,
-            width  = width_px,
-            height = height_px,
+            width  = width_in,
+            height = height_in,
             dpi    = dpi,
             bg     = "white",
-            type   = "png")
+            type   = "png",
+            units  = "in")
     } else {
       Cairo(file   = outFile,
             width  = width_in,
@@ -333,7 +336,7 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     message("Heat-map written to: ", outFile)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_traitheat <- outFile;
-    saveSet(imgSet, "imgSet"):
+    saveSet(imgSet, "imgSet");
     1
 
   }, error = function(e) {
@@ -382,17 +385,18 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
 
   # Save
   file <- sprintf("%sdpi%d.%s", imgName, dpi, format)
-  if (dpi == 72) dpi <- 96
+    if (dpi == 72) dpi <- 96
+  width_in <- 10
+  height_in <- 6
 
-  # FIX: Suppress Quartz popup on macOS - close any existing devices first
-  while (dev.cur() > 1) dev.off()
+    # FIX: Suppress Quartz popup on macOS - close any existing devices first
+    while (dev.cur() > 1) dev.off()
 
-  Cairo(file, width = 1000, height = 600, dpi = dpi, bg = "white", type = format)
+    Cairo(file, width = width_in, height = height_in, dpi = dpi, bg = "white", type = format, units = "in")
   invisible(print(g))    # ggplot draw
   invisible(dev.off())
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_scalefree <- file;
-    saveSet(imgSet, "imgSet"):
+    saveSet(imgSet, "imgSet");
   return(1);
 }
-
