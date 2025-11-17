@@ -23,6 +23,31 @@
   eval(expr, envir = parent.frame())
 }
 
+.trim_cem_object_for_save <- function(cem) {
+  # Reset slots that are not used downstream so the saved object stays small.
+  slot(cem, "fit_indices") <- data.frame()
+  slot(cem, "selected_genes") <- character(0)
+  slot(cem, "enrichment") <- list()
+  slot(cem, "ora") <- data.frame()
+  slot(cem, "interactions") <- list()
+  slot(cem, "interaction_plot") <- list()
+  slot(cem, "profile_plot") <- list()
+  slot(cem, "enrichment_plot") <- list()
+  slot(cem, "mean_k_plot") <- list()
+  slot(cem, "barplot_ora") <- list()
+  slot(cem, "mean_var_plot") <- ggplot2::ggplot()
+  slot(cem, "hist_plot") <- ggplot2::ggplot()
+  slot(cem, "qq_plot") <- ggplot2::ggplot()
+  slot(cem, "sample_tree_plot") <- gtable::gtable(
+    widths = grid::unit(0, "cm"),
+    heights = grid::unit(0, "cm"))
+  slot(cem, "mod_colors") <- character(0)
+  slot(cem, "input_params") <- list()
+  slot(cem, "calls") <- list()
+  slot(cem, "adjacency") <- matrix(numeric(0), 0, 0)
+  cem
+}
+
 my.build.cemi.net <- function(dataName,
                               filter      = TRUE,
                               min_ngen    = 30,
@@ -74,6 +99,7 @@ print("buildingceminet");
                     plot_diagnostics  = FALSE)
 
     ## 3 · save & return -----------------------------------------------
+    cem <- .trim_cem_object_for_save(cem)
     qs::qsave(cem, "cem.qs")
 
   mod <- attr(cem, "module")

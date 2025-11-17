@@ -39,7 +39,10 @@ BuildIgraphFromCEM <- function(thresh    = 0.05,
     beta
   }
   
-  if (is.null(cem@adjacency)) {
+  adj_missing <- is.null(cem@adjacency) ||
+                 (is.matrix(cem@adjacency) && nrow(cem@adjacency) == 0)
+
+  if (adj_missing) {
     beta <- get_beta(cem)
     cem  <- get_adj(cem, beta = beta)
   }
