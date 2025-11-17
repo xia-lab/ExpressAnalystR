@@ -838,26 +838,34 @@ gm_mean <- function(x, na.rm=TRUE){
 
 # obtain a numeric matrix, exclude comments if any
 .to.numeric.mat <- function(dat1){
-  # now remove all comments in dat1
-  # assign rownames after covert to matrix as data.frame does not allow duplicate names
-comments.inx <- grep("^#", dat1[,1]);
-  if(length(comments.inx)==0){
-    row.nms <- dat1[,1];
-    col.nms <- colnames(dat1)[-1]
-    dat1 = apply(dat1[,-1], 2, as.numeric)
-    rownames(dat1) <- row.nms;
-    colnames(dat1) <- col.nms; 
-  }else{
-    row.nms <- dat1[-comments.inx,1];
-    dat1<-dat1[-comments.inx,-1];
-    dimensions <- dim(dat1)
-    col.nms <- colnames(dat1)
-    dat1 <- sapply(dat1, as.numeric);
-    dat1 <- matrix(data=dat1, ncol=dimensions[2], nrow=dimensions[1])
-    rownames(dat1) <- row.nms;
-    colnames(dat1) <- col.nms; 
+  to_numeric_column <- function(vec){
+    if(inherits(vec, "integer64")){
+      return(as.numeric(as.character(vec)))
+    }
+    as.numeric(vec)
   }
-  return(dat1);
+
+
+  comments.inx <- grep("^#", dat1[,1]);
+  if(length(comments.inx) == 0){
+    data.mat <- dat1[,-1,drop=FALSE];
+    row.nms <- dat1[,1];
+  } else {
+    data.mat <- dat1[-comments.inx,-1,drop=FALSE];
+    row.nms <- dat1[-comments.inx,1];
+  }
+
+  if(nrow(data.mat) == 0 || ncol(data.mat) == 0){
+    return(matrix(nrow = 0, ncol = 0))
+  }
+
+  converted <- vapply(seq_len(ncol(data.mat)), function(i) to_numeric_column(data.mat[[i]]), numeric(nrow(data.mat)))
+  dat.mat <- matrix(converted, nrow = nrow(data.mat), ncol = ncol(data.mat))
+  if(length(row.nms) > 0){
+    rownames(dat.mat) <- row.nms
+  }
+  colnames(dat.mat) <- colnames(data.mat)
+  return(dat.mat);
 }
 
 sanitizeSmallNumbers <- function(mat, tol=1e-10) {
