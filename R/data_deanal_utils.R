@@ -184,6 +184,8 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     dds <- DESeqDataSetFromMatrix(countData = round(count_mat),
                                   colData   = colData,
                                   design    = design)
+    # ensure DESeq2 operations use a fixed seed for reproducible DE gene lists
+    set.seed(123)
     dds <- DESeq(dds, betaPrior = FALSE)
     qs::qsave(dds, "deseq.res.obj.rds")
 
