@@ -35,6 +35,15 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
                                                     " max=", max(ds, na.rm=T)))
   saveSet(msgSet,"msgSet")
 
+  # reload the original annotated counts before filtering so each normalization run starts from raw data
+  if (file.exists("orig.data.anot.qs")) {
+    raw.annot <- qs::qread("orig.data.anot.qs")
+  } else if (file.exists("data.raw.qs")) {
+    raw.annot <- qs::qread("data.raw.qs")
+  } else {
+    raw.annot <- dataSet$data.norm
+  }
+  qs::qsave(raw.annot, file = "data.anot.qs")
   data <- PerformFiltering(dataSet, var.thresh, count.thresh, filterUnmapped, countOpt)
   .save.annotated.data(data)
   msg <- paste(filt.msg, msg)
