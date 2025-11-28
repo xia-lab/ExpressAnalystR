@@ -570,28 +570,29 @@ FindCommunities <- function(method = "walktrap",
     }
     
     # iterate communities
+    # OPTIMIZED: Use list to avoid rbind in loop
     community.vec  <- character(0)
-    gene.community <- NULL
+    gene_community_list <- vector("list", length(comm_list))
     rowcount <- 0L
-    
+
     for (i in seq_along(comm_list)) {
       vids       <- comm_list[[i]]     # vertex indices
       comm_size  <- length(vids)
       if (comm_size < min_genes) next
-      
+
       comm_names  <- vnames[vids]
       # ensure no NA names in printable path
       comm_names[is.na(comm_names)] <- as.character(vids[is.na(comm_names)])
-      
+
       # label strings (symbols if available)
       comm_labels <- sybls[comm_names]
       comm_labels[is.na(comm_labels)] <- comm_names
-      
+
       # query hits
       qnums <- comm_size
 
       if (require_query_hit && qnums == 0) next
-      
+
       # in/out degree test
       subg    <- igraph::induced_subgraph(g, vids)
       in.deg  <- igraph::degree(subg)
@@ -600,18 +601,21 @@ FindCommunities <- function(method = "walktrap",
         wilcox.test(in.deg, out.deg, exact = FALSE, alternative = "two.sided")$p.value
       )
       ppval   <- signif(ppval, 3)
-      
+
       # record
       rowcount <- rowcount + 1L
       pids     <- paste(comm_labels, collapse = "->")
-      
+
       com.mat <- cbind(Id     = comm_names,
                        Label  = comm_labels,
                        Module = as.character(i))  # keep as before
-      gene.community <- rbind(gene.community, com.mat)
-      
+      gene_community_list[[rowcount]] <- com.mat
+
       community.vec[rowcount] <- paste(c(comm_size, qnums, ppval, pids), collapse = ";")
     }
+
+    # OPTIMIZED: Combine once at the end
+    gene.community <- if(rowcount > 0) do.call(rbind, gene_community_list[1:rowcount]) else NULL
     
     if (length(community.vec) == 0) return(list(vec = character(0), tbl = NULL))
     

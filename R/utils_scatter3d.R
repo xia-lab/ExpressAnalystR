@@ -13,19 +13,20 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   seeds <- vector();
   if(anal.type == "metadata"){
     sel.nms <- names(mdata.all)[mdata.all==1];
+    # OPTIMIZED: Collect in lists instead of growing with rbind/c
+    seeds_list <- vector("list", length(sel.nms));
+    meta_list <- vector("list", length(sel.nms));
+
     for(i in 1:length(sel.nms)){
       dataSet <- readDataset(sel.nms[i]);
-      if(i == 1){
-        seeds <- rownames(dataSet$sig.mat);
-        meta <- dataSet$meta.info;
-        #meta$dataSet <- rep(sel.nms[i],nrow(meta));
-      }else{
-        seeds <- c(seeds, rownames(dataSet$sig.mat));
-        currMeta <- dataSet$meta.info;
-        #currMeta$dataSet <- rep(sel.nms[i],nrow(currMeta));
-        meta <- rbind(meta, currMeta);
-      }
+      seeds_list[[i]] <- rownames(dataSet$sig.mat);
+      meta_list[[i]] <- dataSet$meta.info;
+      #meta_list[[i]]$dataSet <- rep(sel.nms[i], nrow(dataSet$meta.info));
     }
+
+    # OPTIMIZED: Combine once at the end
+    seeds <- unlist(seeds_list);
+    meta <- do.call(rbind, meta_list);
     sig.tbl <- qs::qread("meta.resTable.qs");
     sig.tbl$id <- rownames(sig.tbl);
     sig.mats[[1]] <- sig.tbl;

@@ -57,8 +57,10 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
         coords <- data.frame(t(signif(pca$x[,1:3], 5)));
     }else if(clustOpt == "umap"){
         require('uwot');
-        if(ncol(dat)<100){
-            neighbor_num <- ncol(dat)
+        # OPTIMIZED: Calculate ncol once
+        n_cols <- ncol(dat)
+        if(n_cols < 100){
+            neighbor_num <- n_cols
         }else{
             neighbor_num <- 100;
         }
@@ -121,11 +123,9 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
     qs::qsave(pca3d, "pca3d.qs");
 
     paramSet$jsonNms$pcascore <- fileName
-    json.mat <- rjson::toJSON(pca3d);
     paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
-    sink(fileName);
-    cat(json.mat);
-    sink();
+    # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+    jsonlite::write_json(pca3d, fileName, auto_unbox = TRUE, pretty = FALSE);
     msgSet$current.msg <- "Annotated data is now ready for 3D visualization!";
     saveSet(msgSet, "msgSet");
     saveSet(paramSet, "paramSet");
@@ -186,10 +186,8 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
   paramSet$jsonNms$pcaload <- fileName;
   qs::qsave(pca3d, "pca3d.qs");
-  json.mat <- rjson::toJSON(pca3d);
-  sink(fileName);
-  cat(json.mat);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(pca3d, fileName, auto_unbox = TRUE, pretty = FALSE);
   msgSet$current.msg <- "Annotated data is now ready for 3D visualization!";
   saveSet(msgSet, "msgSet");
   saveSet(paramSet, "paramSet");
@@ -244,12 +242,10 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   
   fast.write(mypos, file="expressanalyst_3d_load_pos.csv");
   qs::qsave(pca3d, "pca3d.qs");
-  json.mat <- rjson::toJSON(pca3d);
   paramSet$jsonNms$pcaload <- fileName
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
-  sink(fileName);
-  cat(json.mat);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(pca3d, fileName, auto_unbox = TRUE, pretty = FALSE);
   msgSet$current.msg <- "Annotated data is now ready for PCA 3D visualization!";
   saveSet(msgSet, "msgSet");
   saveSet(paramSet, "paramSet");
@@ -280,8 +276,10 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
     coords <- data.frame(t(signif(pca$x[,1:3], 5)));
   }else if(clustOpt == "umap"){
     require('uwot');
-    if(ncol(dat)<100){
-      neighbor_num <- ncol(dat)
+    # OPTIMIZED: Calculate ncol once
+    n_cols <- ncol(dat)
+    if(n_cols < 100){
+      neighbor_num <- n_cols
     }else{
       neighbor_num <- 100;
     }
@@ -357,10 +355,8 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   rownames(mypos) <- colnames(dataSet$data.norm);
   
   fast.write(mypos, file="expressanalyst_3d_pos.csv");
-  json.mat <- rjson::toJSON(pca3d);
-  sink(fileName);
-  cat(json.mat);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(pca3d, fileName, auto_unbox = TRUE, pretty = FALSE);
   msgSet$current.msg <- "Annotated data is now ready for PCA 3D visualization!";
   saveSet(msgSet, "msgSet");
   saveSet(paramSet, "paramSet");
@@ -394,10 +390,8 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
     sc = scene3d();
     mesh = sc$objects;
   }
-  require(RJSONIO);
-  sink(filenm);
-  cat(toJSON(mesh));
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of RJSONIO + sink/cat
+  jsonlite::write_json(mesh, filenm, auto_unbox = TRUE, pretty = FALSE);
   return(filenm);
 }
 

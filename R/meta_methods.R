@@ -89,35 +89,41 @@ CheckMetaDataIntegrity <- function(){
         
     print("Passed exp condition check!");
     # now construct a common matrix to faciliated plotting across all studies
-    dataName <- sel.nms[1];
-    dataSet <- readDataset(dataName);
-    common.matrix <- dataSet$data.norm[as.character(shared.nms), ];
-    nms.vec <- rownames(dataSet$data.norm);
-    smps.vec <- colnames(dataSet$data.norm);
-    data.lbl <- rep(dataName, ncol(common.matrix));
-    cls.lbl <- dataSet$cls;
-    
-    for(i in 2:length(sel.nms)){
+    # OPTIMIZED: Use lists to avoid repeated memory copies from cbind/c()
+    n_datasets <- length(sel.nms);
+    matrix_list <- vector("list", n_datasets);
+    nms_list <- vector("list", n_datasets);
+    smps_list <- vector("list", n_datasets);
+    data_lbl_list <- vector("list", n_datasets);
+    cls_lbl_list <- vector("list", n_datasets);
+
+    # Collect all data first
+    for(i in 1:n_datasets){
       dataName <- sel.nms[i];
       dataSet <- readDataset(dataName);
       ndat <- dataSet$data.norm[as.character(shared.nms), ];
-      nms.vec <- c(nms.vec, rownames(dataSet$data.norm));
-      smps.vec <- c(smps.vec, colnames(dataSet$data.norm));
-      plot.ndat <- t(scale(t(ndat)));
-      common.matrix <- cbind(common.matrix, ndat);
-      data.lbl <- c(data.lbl, rep(dataName, ncol(dataSet$data.norm[,])));
-      cls.lbl <- c(cls.lbl, dataSet$cls);
+
+      matrix_list[[i]] <- ndat;
+      nms_list[[i]] <- rownames(dataSet$data.norm);
+      smps_list[[i]] <- colnames(dataSet$data.norm);
+      data_lbl_list[[i]] <- rep(dataName, ncol(ndat));
+      cls_lbl_list[[i]] <- dataSet$cls;
     }
+
+    # Combine once at the end (much faster than repeated cbind/c)
+    common.matrix <- do.call(cbind, matrix_list);
+    nms.vec <- unlist(nms_list);
+    smps.vec <- unlist(smps_list);
+    data.lbl <- unlist(data_lbl_list);
+    cls.lbl <- unlist(cls_lbl_list);
     cls.lbl <- factor(cls.lbl);
     levels(cls.lbl) <- lvls;
     
     smps.nms <- colnames(common.matrix)
     if(length(unique(smps.nms)) != length(smps.nms)){
       data.nb <- length(unique(data.lbl));
-      data.vec <- vector()
-      for(i in 1:data.nb){
-        data.vec[i] <- paste0("d", i);
-      }
+      # OPTIMIZED: Vectorized instead of loop
+      data.vec <- paste0("d", seq_len(data.nb));
       levels(data.lbl) <- data.vec;
       colnames(common.matrix) <- make.unique(paste(data.vec, smps.nms, sep="_"));
       

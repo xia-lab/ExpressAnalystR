@@ -164,10 +164,8 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
   data.norm <- dataSet$data.norm
   colnames(data.norm) <- NULL
   lst <- list(colnames(dataSet$data.norm),data.norm, dataSet$meta.info, dataSet$comp.res, rownames(data.norm), org=paramSet$data.org)
-  json.obj <- rjson::toJSON(lst);
-  sink("ExpressAnalyst_matrix.json");
-  cat(json.obj);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(lst, "ExpressAnalyst_matrix.json", auto_unbox = TRUE, pretty = FALSE);
 
         if (dataSet$de.method %in% c("deseq2", "edger", "limma", "wtt")) {
 

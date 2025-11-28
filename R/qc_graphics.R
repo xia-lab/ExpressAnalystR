@@ -46,8 +46,10 @@ qc.boxplot <- function(dat, imgNm, dpi=72, format="png", interactive=F){
   
   df <- data.frame(df)
   df$sample_id <- factor(df$sample_id)
-  xlower <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE)[1])
-  xupper <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE)[2])
+  # OPTIMIZED: Calculate quantile once instead of twice
+  quantiles <- unname(quantile(df$values, probs = c(0.01, 0.99), na.rm=TRUE))
+  xlower <- quantiles[1]
+  xupper <- quantiles[2]
   height <- length(unique(df$sample_id)) *20;
   if(height<450){
     height <- 450
@@ -415,13 +417,16 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
   if (!(all(rownames(pca.res) == rownames(dataSet$meta.info)))) {
     pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), ]
   }
-  
+
+
   if (length(dataSet$meta.info) == 2) {
+    # OPTIMIZED: Get column names once
+    meta_colnames <- colnames(dataSet$meta.info)
     Factor1 <- as.vector(dataSet$meta.info[, 1])
-    factorNm1 <- colnames(dataSet$meta.info)[1]
+    factorNm1 <- meta_colnames[1]
     pca.res[, factorNm1] <- Factor1
     Factor2 <- as.vector(dataSet$meta.info[, 2])
-    factorNm2 <- colnames(dataSet$meta.info)[2]
+    factorNm2 <- meta_colnames[2]
     pca.res[, factorNm2] <- Factor2
     pca.rest <- reshape::melt(pca.res, measure.vars = c(factorNm1, factorNm2))
     colnames(pca.rest)[4] <- "Conditions"
@@ -903,7 +908,6 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
   require(see)
   require(ggrepel)
   require(plotly)
-  require(rjson)
 
   # load PCA & metadata
   analSet <- readSet(analSet, "analSet")
@@ -963,6 +967,8 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
   # build traces
   traces <- lapply(unique_grps, function(g) {
     df  <- subset(pca.res, group == g)
+    # OPTIMIZED: Calculate nrow once instead of twice
+    n_samples <- nrow(df)
     mkr <- list(color = col.map[g], size = 8,
                 line  = list(color = "white", width = 0.5))
     if (doShape) {
@@ -972,10 +978,10 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
       x            = df$PC1,
       y            = df$PC2,
       type         = "scatter",
-      mode         = if (nrow(df) > 20) "markers" else "markers+text",
+      mode         = if (n_samples > 20) "markers" else "markers+text",
       name         = g,
       marker       = mkr,
-      text         = if (nrow(df) <= 20) df$sample else NULL,
+      text         = if (n_samples <= 20) df$sample else NULL,
       hoverinfo    = "text",
       textposition = "top center"
     )
@@ -1013,10 +1019,10 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
   )
 
   # dump JSON
+  # OPTIMIZED: Use jsonlite::write_json instead of sink/cat for better performance
   plot_data <- list(data = traces, layout = layout)
-  json.obj   <- toJSON(plot_data)
-  sink(jsonFile); cat(json.obj); sink()
-  
+  jsonlite::write_json(plot_data, jsonFile, auto_unbox = TRUE, pretty = FALSE)
+
   return("NA")
 }
 

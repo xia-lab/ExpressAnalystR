@@ -124,11 +124,9 @@ my.reg.enrich <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
     fun.hits = fun.hits,
     fun.genes = hits.gene 
   );
-  json.mat <- rjson::toJSON(json1.res);
   json.nm <- paste(file.nm, ".json", sep="");
-  sink(json.nm)
-  cat(json.mat);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(json1.res, json.nm, auto_unbox = TRUE, pretty = FALSE);
   
   # write csv
   csv.nm <- paste(file.nm, ".csv", sep="");

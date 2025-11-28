@@ -92,15 +92,15 @@ MapListIds <- function(listNm, geneIDs, org, idType){
     dataSet$sig.mat <- gene.mat;
     dataSet$prot.mat <- prot.mat;
     dataSet$seeds.proteins <- seed.proteins;
+    # OPTIMIZED: Collect in lists instead of growing with rbind/c
     if(i == 1){
-      all.prot.mat <- prot.mat;
-      totalseed.proteins = seed.proteins
-      list.num <- length(seed.proteins);
-    }else{
-      totalseed.proteins  = c(totalseed.proteins, seed.proteins);
-      all.prot.mat <- rbind(all.prot.mat, prot.mat)
-      list.num <-  paste(list.num, length(seed.proteins), sep="; ");
+      all.prot.mat <- vector("list", length(dataList));
+      totalseed.proteins <- vector("list", length(dataList));
+      list.num.vec <- numeric(length(dataList));
     }
+    all.prot.mat[[i]] <- prot.mat;
+    totalseed.proteins[[i]] <- seed.proteins;
+    list.num.vec[i] <- length(seed.proteins);
     dataSet$listNum <- length(dataSet$seeds.proteins);
     #print(dataSet$listNum);
     fast.write.csv(dataSet$prot.mat, paste0(dataSet$name, ".csv"));
@@ -108,8 +108,12 @@ MapListIds <- function(listNm, geneIDs, org, idType){
     RegisterData(dataSet);
     inx <- inx + 1;
   }
-  
-     
+
+  # OPTIMIZED: Combine lists into matrices after loop
+  all.prot.mat <- do.call(rbind, all.prot.mat);
+  totalseed.proteins <- unlist(totalseed.proteins);
+  list.num <- paste(list.num.vec, collapse = "; ");
+
   # Save mapping results to a CSV file
   combined.mapping.df <- do.call(rbind, all.mapping);
   write.csv(combined.mapping.df, "mapping_results.csv", row.names=F);
@@ -191,7 +195,9 @@ MapMultiListIds <- function(listNm, org, geneIDs, type){
 
     # Store mapped and unmapped results
     if (length(unmapped) > 0) {
-        unmapped.df <- data.frame(accession = unmapped, gene_id = rep("NA", length(unmapped)), symbol = rep("NA", length(unmapped)), stringsAsFactors = F);
+        # OPTIMIZED: Calculate length once
+        n_unmapped <- length(unmapped)
+        unmapped.df <- data.frame(accession = unmapped, gene_id = rep("NA", n_unmapped), symbol = rep("NA", n_unmapped), stringsAsFactors = F);
         combined.mapping <- rbind(mapped, unmapped.df);
     } else {
         #unmapped.df <- data.frame(accession = character(0), gene_id = character(0),symbol=character(0), stringsAsFactors = F);

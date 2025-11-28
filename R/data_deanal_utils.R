@@ -146,8 +146,10 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     }
 
     if (anal.type == "default") {
-      for (i in 1:(length(all_conditions) - 1))
-        for (j in (i + 1):length(all_conditions)) {
+      # OPTIMIZED: Calculate length once for loop bounds
+      n_conditions <- length(all_conditions)
+      for (i in 1:(n_conditions - 1))
+        for (j in (i + 1):n_conditions) {
           contrast_name <- paste0(all_conditions[i], " vs ", all_conditions[j])
           contrast_list[[contrast_name]] <-
             c("condition",
