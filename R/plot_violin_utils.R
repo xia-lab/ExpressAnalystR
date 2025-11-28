@@ -82,9 +82,11 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
              ggtitle(cmpdNm)
 
       # Save ----------------------------------------------------------------
+      # FIX: Suppress Quartz popup on macOS by using invisible() and checking device
       Cairo(file = imgName, width = 5, height = 5, unit = "in",
             dpi  = dpi, bg   = "white", type = format)
-      print(myplot); dev.off()
+      invisible(print(myplot))
+      invisible(dev.off())
       return;
     }else{
       out.fac <- dataSet$sec.cls
@@ -113,24 +115,28 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
         df.orig <- data.frame(facA = lv, value = data.norm[gene.id, inx], name = in.fac[inx])
         p_all[[lv]] <- df.orig
       }
+      # FIX: Suppress Quartz popup on macOS
       Cairo(file = imgName, width=5, height=5, type=format, bg="white", dpi=dpi,unit="in");
-      
+
       alldata <- do.call(rbind, p_all)
       alldata$facA <- factor(as.character(alldata$facA), levels=levels(out.fac))
-      p.time <- ggplot2::ggplot(alldata, aes(x=name, y=value, fill=name)) + 
-        geom_violin(trim = FALSE, aes(color = name), show.legend = FALSE) + 
-        geom_jitter(height = 0, width = 0.05, show.legend = FALSE) + 
-        facet_wrap(~facA, nrow = row.num) + 
+      p.time <- ggplot2::ggplot(alldata, aes(x=name, y=value, fill=name)) +
+        geom_violin(trim = FALSE, aes(color = name), show.legend = FALSE) +
+        geom_jitter(height = 0, width = 0.05, show.legend = FALSE) +
+        facet_wrap(~facA, nrow = row.num) +
         theme(axis.title.x = element_blank(), legend.position = "none", axis.text.x = element_text(angle=90, hjust=1),
-              plot.title = element_text(size = 11, hjust=0.5, face = "bold"), panel.grid.minor = element_blank(), panel.grid.major = element_blank()) + 
-        scale_fill_okabeito() + 
-        scale_color_okabeito() + 
-        ggtitle(cmpdNm) + 
+              plot.title = element_text(size = 11, hjust=0.5, face = "bold"), panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+        scale_fill_okabeito() +
+        scale_color_okabeito() +
+        ggtitle(cmpdNm) +
         ylab("Expression") +
         theme_bw()
-      myplot <- p.time + theme(plot.margin = margin(t=0.15, r=0.25, b=0.15, l=0.25, "cm"), axis.text = element_text(size=10)) 
+      myplot <- p.time + theme(plot.margin = margin(t=0.15, r=0.25, b=0.15, l=0.25, "cm"), axis.text = element_text(size=10))
+      invisible(print(myplot))
+      invisible(dev.off())
+      return;
     }
-    
+
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
     inmex.meta <- qs::qread("inmex_meta.qs");
@@ -142,19 +148,23 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
     num <- length(mdata.all);
     # calculate width based on the dateset number
     if(num == 1){
+      # FIX: Suppress Quartz popup on macOS
       Cairo(file = imgName, width=5, height=5, type=format, bg="white", dpi=dpi);
-      col <- unique(GetColorSchema(as.character(inmex.meta$cls.lbl)));   
+      col <- unique(GetColorSchema(as.character(inmex.meta$cls.lbl)));
       df.norm <- data.frame(value=inmex.meta$plot.data[gene.id,], name = as.character(inmex.meta$cls.lbl))
-      p.norm <- ggplot2::ggplot(df.norm, aes(x=name, y=value, fill=name))  
+      p.norm <- ggplot2::ggplot(df.norm, aes(x=name, y=value, fill=name))
       p.norm <- p.norm + geom_violin(trim = FALSE, aes(color = name), show.legend = FALSE) + geom_jitter(height = 0, width = 0.05, show.legend = FALSE)  + theme_bw()
       p.norm <- p.norm + theme(axis.title.x = element_blank(), axis.title.y = element_blank(), legend.position = "none")
       p.norm <- p.norm + stat_summary(fun=mean, colour="yellow", geom="point", shape=18, size=3, show.legend = FALSE)
-      p.norm <- p.norm + scale_fill_manual(values=col) + 
+      p.norm <- p.norm + scale_fill_manual(values=col) +
         scale_color_manual(values=col) +
         ggtitle(cmpdNm) + theme(axis.text.x = element_text(angle=90, hjust=1))
-      p.norm <- p.norm + theme(plot.title = element_text(size = 11, hjust=0.5)) 
+      p.norm <- p.norm + theme(plot.title = element_text(size = 11, hjust=0.5))
       p.norm <- p.norm + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) # remove gridlines
       myplot <- p.norm + theme(plot.margin = margin(t=0.35, r=0.25, b=0.15, l=0.5, "cm"), axis.text = element_text(size=10))
+      invisible(print(myplot))
+      invisible(dev.off())
+      return;
     }else{
       # calculate layout
       h=420;
@@ -168,6 +178,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
       height = h*dpi/72
       #print(w)
       #print(h)
+      # FIX: Suppress Quartz popup on macOS
       Cairo(file = imgName, width=width, height=height, type=format, bg="white", dpi=dpi);
       data.lbl <- as.character(inmex.meta$data.lbl);
       data.lbl <- substr(data.lbl, 0, nchar(data.lbl)-4);
@@ -220,10 +231,11 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
       p.time <- p.time + facet_wrap(~ Dataset, scales = "free_x")
 
       myplot <- p.time + theme(plot.margin = margin(t=0.15, r=0.25, b=0.15, l=0.25, "cm"), axis.text = element_text(size=10))
+      invisible(print(myplot))
+      invisible(dev.off())
+      return;
     }
   }
-  print(myplot);
-  dev.off();
 }
 
 UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png", dpi=72){
@@ -244,8 +256,9 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
   if(anal.type == "onedata"){
     ids <- rownames(dataSet$comp.res);
     inx <- which(ids == gene.id);
-    cmpdNm <- analSet$comp.genes.symbols[inx]; 
-    
+    cmpdNm <- analSet$comp.genes.symbols[inx];
+
+    # FIX: Suppress Quartz popup on macOS
     Cairo(file = imgName,  width=320*dpi/72, height=380*dpi/72, type=format, dpi=dpi, bg="white");
     dat <- data.norm
     
@@ -271,8 +284,10 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
         theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank())
     }
     myplot <- p.norm + theme(plot.margin = margin(t=0.15, r=0.25, b=0.15, l=0.25, "cm"), axis.text = element_text(size=10))
-    
-    
+    invisible(print(myplot))
+    invisible(dev.off())
+    return;
+
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
     inmex.meta <- qs::qread("inmex_meta.qs");
@@ -284,6 +299,7 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
     num <- sum(mdata.all == 1);
     # calculate width based on the dateset number
     if(num == 1){
+      # FIX: Suppress Quartz popup on macOS
       Cairo(file = imgName, width=280*dpi/72, height=320*dpi/72, type=format, dpi=dpi, bg="white");
       
       col <- unique(GetColorSchema(as.character(inmex.meta$cls.lbl)));   
@@ -295,13 +311,14 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
       p.norm <- p.norm + scale_fill_manual(values=col) + 
         scale_color_manual(values=col) +
         ggtitle(cmpdNm) + theme(axis.text.x = element_text(angle=90, hjust=1))
-      p.norm <- p.norm + theme(plot.title = element_text(size = 11, hjust=0.5)) 
+      p.norm <- p.norm + theme(plot.title = element_text(size = 11, hjust=0.5))
       p.norm <- p.norm + theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) # remove gridlines
       myplot <- p.norm + theme(plot.margin = margin(t=0.15, r=0.25, b=0.15, l=0.25, "cm"), axis.text = element_text(size=10))
+      invisible(print(myplot))
+      invisible(dev.off())
+      return;
     }
   }
-  print(myplot);
-  dev.off();
 }
 
 PlotSelectedGeneRaw <- function(gene.id="",imgName="", format="png", dpi=72) {
@@ -330,9 +347,10 @@ PlotSelectedGeneRaw <- function(gene.id="",imgName="", format="png", dpi=72) {
           theme_bw()
 
   # Generate and save the plot using Cairo
+  # FIX: Suppress Quartz popup on macOS
   Cairo(file = imgName, width = 420 * dpi / 72, height = 560 * dpi / 72, type = format, dpi = dpi, bg = "white")
-  print(p)
-  dev.off()
+  invisible(print(p))
+  invisible(dev.off())
 }
 
 

@@ -41,7 +41,8 @@ CovariateScatter.Anal <- function(dataName,
                                   block = "NA", 
                                   thresh=0.05,
                                   pval.selection="fdr",
-                                  contrast.cls = "anova"
+                                  contrast.cls = "anova",
+                                  useBatchCorrected=TRUE
                                   ){
 
   dataSet <- readDataset(dataName);
@@ -77,7 +78,7 @@ CovariateScatter.Anal <- function(dataName,
       return(-1)
    }
 
-  dataSet <- .multiCovariateRegression(dataSet,analysis.var, ref,contrast.cls, blocking.factor=block,adj.vec, F, T);
+  dataSet <- .multiCovariateRegression(dataSet,analysis.var, ref,contrast.cls, blocking.factor=block,adj.vec, F, T, useBatchCorrected);
 
   rest <- dataSet$comp.res;
   res.noadj <- dataSet$res.noadj;

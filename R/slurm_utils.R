@@ -5,21 +5,22 @@ WriteSampleTable <- function(ftpDir, userDir, sampleTable){
   
   tmp = unlist(strsplit(str, ", "));
   nSamples = length(tmp) / 9;
-  group = c();
-  baseNamesSim = c();
-  baseNames = c();
-  fReadFiles = c();
-  rReadFiles = c();
   paired = sum(tmp %in% "paired=true") > 0;
-  
-  for(i in 1:nSamples){
-    group[i] = gsub("group=", "", tmp[(i - 1) * 9 + 1]);
-    baseNamesSim[i] = gsub("pseudoName=", "", tmp[(i - 1) * 9 + 2]);
-    baseNames[i] = file.path(userDir, baseNamesSim[i]);
-    fReadFiles[i] = file.path(ftpDir, gsub("forwardReadFile=", "", tmp[(i - 1) * 9 + 3]));
-    if(paired){
-      rReadFiles[i] = file.path(ftpDir, gsub("reverseReadFile=", "", tmp[(i - 1) * 9 + 4]));
-    }
+
+  # OPTIMIZED: Vectorized operations to eliminate O(n²) memory allocations
+  # Pre-compute indices once
+  indices <- (seq_len(nSamples) - 1) * 9
+
+  # Vectorized string operations (no loop!)
+  group <- gsub("group=", "", tmp[indices + 1])
+  baseNamesSim <- gsub("pseudoName=", "", tmp[indices + 2])
+  baseNames <- file.path(userDir, baseNamesSim)
+  fReadFiles <- file.path(ftpDir, gsub("forwardReadFile=", "", tmp[indices + 3]))
+
+  if(paired){
+    rReadFiles <- file.path(ftpDir, gsub("reverseReadFile=", "", tmp[indices + 4]))
+  } else {
+    rReadFiles <- c()
   }
   
   if(paired){
@@ -94,9 +95,25 @@ SubmitJobS2f <- function(userDir, email, database, mismatch, minlength, minscore
   }
   
   if(isSlurm){
-    conf_inf <- "#!/bin/bash\n#\n#SBATCH --job-name=Seq2fun_Processing\n#\n#SBATCH --ntasks=1\n#SBATCH --time=14400:00\n#SBATCH --mem-per-cpu=5000\n#SBATCH --cpus-per-task=4\n"
-    conf_inf <- paste0(conf_inf, "#SBATCH --mail-user=", email, "\n#SBATCH --mail-type=BEGIN\n#SBATCH --mail-type=END\n#SBATCH --mail-type=FAIL\n#SBATCH --mail-type=REQUEUE\n#SBATCH --mail-type=ALL\n");
-    conf_inf <- paste0(conf_inf, "#SBATCH --output=", file.path(userDir, "slurm_logout.txt\n"));
+    # OPTIMIZED: Single paste() call instead of repeated paste0() to eliminate O(n²) string copying
+    conf_inf <- paste(
+      "#!/bin/bash",
+      "#",
+      "#SBATCH --job-name=Seq2fun_Processing",
+      "#",
+      "#SBATCH --ntasks=1",
+      "#SBATCH --time=14400:00",
+      "#SBATCH --mem-per-cpu=5000",
+      "#SBATCH --cpus-per-task=4",
+      paste0("#SBATCH --mail-user=", email),
+      "#SBATCH --mail-type=BEGIN",
+      "#SBATCH --mail-type=END",
+      "#SBATCH --mail-type=FAIL",
+      "#SBATCH --mail-type=REQUEUE",
+      "#SBATCH --mail-type=ALL",
+      paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+      sep = "\n"
+    )
     
     str <- paste(seq2funPath,
                  "--longlog --sampletable",
@@ -370,9 +387,25 @@ SubmitJobSlm <- function(userDir, email, database, des, readEnds, shellscriptDir
   }
   
   ## Prepare Configuration script for slurm running
-  conf_inf <- "#!/bin/bash\n#\n#SBATCH --job-name=Salmon_Processing\n#\n#SBATCH --ntasks=1\n#SBATCH --time=14400:00\n#SBATCH --mem-per-cpu=5000\n#SBATCH --cpus-per-task=4\n";
-  conf_inf <- paste0(conf_inf, "#SBATCH --mail-user=", email, "\n#SBATCH --mail-type=BEGIN\n#SBATCH --mail-type=END\n#SBATCH --mail-type=FAIL\n#SBATCH --mail-type=REQUEUE\n#SBATCH --mail-type=ALL\n");
-  conf_inf <- paste0(conf_inf, "#SBATCH --output=", file.path(userDir, "slurm_logout.txt\n"));
+  # OPTIMIZED: Single paste() call instead of repeated paste0() to eliminate O(n²) string copying
+  conf_inf <- paste(
+    "#!/bin/bash",
+    "#",
+    "#SBATCH --job-name=Salmon_Processing",
+    "#",
+    "#SBATCH --ntasks=1",
+    "#SBATCH --time=14400:00",
+    "#SBATCH --mem-per-cpu=5000",
+    "#SBATCH --cpus-per-task=4",
+    paste0("#SBATCH --mail-user=", email),
+    "#SBATCH --mail-type=BEGIN",
+    "#SBATCH --mail-type=END",
+    "#SBATCH --mail-type=FAIL",
+    "#SBATCH --mail-type=REQUEUE",
+    "#SBATCH --mail-type=ALL",
+    paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+    sep = "\n"
+  )
   
   if(readEnds == "pe"){
     str <- paste("cat",
@@ -535,9 +568,25 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
   }
   if(isSlurm){
     ## Prepare Configuration script for slurm running
-    conf_inf <- "#!/bin/bash\n#\n#SBATCH --job-name=Salmon_Processing\n#\n#SBATCH --ntasks=1\n#SBATCH --time=14400:00\n#SBATCH --mem-per-cpu=5000\n#SBATCH --cpus-per-task=4\n";
-    conf_inf <- paste0(conf_inf, "#SBATCH --mail-user=", email, "\n#SBATCH --mail-type=BEGIN\n#SBATCH --mail-type=END\n#SBATCH --mail-type=FAIL\n#SBATCH --mail-type=REQUEUE\n#SBATCH --mail-type=ALL\n");
-    conf_inf <- paste0(conf_inf, "#SBATCH --output=", file.path(userDir, "slurm_logout.txt\n"));
+    # OPTIMIZED: Single paste() call instead of repeated paste0() to eliminate O(n²) string copying
+    conf_inf <- paste(
+      "#!/bin/bash",
+      "#",
+      "#SBATCH --job-name=Salmon_Processing",
+      "#",
+      "#SBATCH --ntasks=1",
+      "#SBATCH --time=14400:00",
+      "#SBATCH --mem-per-cpu=5000",
+      "#SBATCH --cpus-per-task=4",
+      paste0("#SBATCH --mail-user=", email),
+      "#SBATCH --mail-type=BEGIN",
+      "#SBATCH --mail-type=END",
+      "#SBATCH --mail-type=FAIL",
+      "#SBATCH --mail-type=REQUEUE",
+      "#SBATCH --mail-type=ALL",
+      paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+      sep = "\n"
+    )
     
     if(readEnds == "pe"){
       str <- paste("cat",

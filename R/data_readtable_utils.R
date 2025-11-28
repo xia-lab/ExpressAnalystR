@@ -47,7 +47,7 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
         col.num <- 10;
    }
 
-   write.csv(datOrig[1:row.num, 1:col.num], file="raw_dataview.csv");  
+   write.csv(sanitizeSmallNumbers(datOrig[1:row.num, 1:col.num]), file="raw_dataview.csv");  
 
   meta.info <- .readMetaData(metafileName,dataSet$data_orig,metaContain);
   
@@ -139,7 +139,8 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
   }
   
   # save processed data for download user option
-  fast.write(data.proc, file="data_original.csv");
+  data.proc <- sanitizeSmallNumbers(data.proc);
+  fast.write(sanitizeSmallNumbers(data.proc), file="data_original.csv");
   qs::qsave(data.proc, "data.raw.qs");
   dataSet$data.norm  <- data.proc;
   metaInx = which(rownames(dataSet$meta.info) %in% colnames(data.proc))
@@ -572,6 +573,9 @@ ReadMetaData <- function(metafilename){
       datOrig <- datOrig[,-idx[-1]]
     }
     
+    # trim whitespace from sample names before matching
+    mydata$`#NAME` <- trimws(as.character(mydata$`#NAME`))
+    colnames(datOrig) <- trimws(colnames(datOrig))
     idx = which( !mydata$`#NAME` %in%colnames(datOrig) )
     if(length(idx)>1){
       if(length(idx)==1){
@@ -584,6 +588,12 @@ ReadMetaData <- function(metafilename){
       mydata <- mydata[-idx,]
     }
     mydata <-  mydata[match(mydata$`#NAME`,colnames(datOrig)[-1]),]
+    # Replace common Excel error tokens with NA so downstream checks keep the samples
+    errTokens <- c("#VALUE!", "#DIV/0!", "#N/A", "#NULL!", "#NUM!", "#REF!")
+    for(token in errTokens) {
+      mydata[mydata == token] <- NA
+    }
+    mydata[mydata == ""] <- NA
     mydata[is.na(mydata)] <- "NA";
     # look for #NAME, store in a list
     sam.inx <- grep("^#NAME", colnames(mydata)[1]);
@@ -635,6 +645,8 @@ ReadMetaData <- function(metafilename){
     
   }
   
+  # expose sanitized metadata for debugging
+  fast.write(meta.info, file = "metadata_processed.csv", row.names = TRUE)
   disc.inx <- GetDiscreteInx(meta.info);
   if(sum(disc.inx) == length(disc.inx)){
     na.msg <- c(na.msg,"All metadata columns are OK!")

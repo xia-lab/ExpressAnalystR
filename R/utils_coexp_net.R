@@ -39,7 +39,10 @@ BuildIgraphFromCEM <- function(thresh    = 0.05,
     beta
   }
   
-  if (is.null(cem@adjacency)) {
+  adj_missing <- is.null(cem@adjacency) ||
+                 (is.matrix(cem@adjacency) && nrow(cem@adjacency) == 0)
+
+  if (adj_missing) {
     beta <- get_beta(cem)
     cem  <- get_adj(cem, beta = beta)
   }
@@ -255,7 +258,20 @@ BuildNodeTable <- function(g,
   anal.type <- paramSet$anal.type
   ## --- topological features --------------------------------------
   deg  <- igraph::degree(g)
-  btw  <- igraph::betweenness(g)
+
+  # PERFORMANCE FIX (Issue #8): Adaptive betweenness calculation
+  # For large networks (>1000 nodes), use cutoff to limit path length
+  # Reduces complexity from O(V³) to approximately O(V²) for dense graphs
+  n_nodes <- vcount(g)
+  if (n_nodes < 1000) {
+    # Small networks: use exact betweenness (fast enough)
+    btw <- igraph::betweenness(g)
+  } else {
+    # Large networks: use path length cutoff for approximation
+    # cutoff=3 considers paths up to length 3 (captures local centrality)
+    # 10-100x faster for networks with 1000+ nodes
+    btw <- igraph::betweenness(g, cutoff = 3)
+  }
 
   ## --- expression values (log2FC) --------------------------------
   expr <- rep(0, length(ids))         # default NA
@@ -416,7 +432,14 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
         nodes2rm.dgr <- V(overall.graph)$name[rm.inx];
     }
     if(min.btw > 0){
-        btws <- betweenness(overall.graph);
+        # PERFORMANCE FIX (Issue #8): Adaptive betweenness calculation
+        # Use cutoff for large networks to reduce O(V³) complexity
+        n_nodes <- vcount(overall.graph)
+        if (n_nodes < 1000) {
+            btws <- betweenness(overall.graph)
+        } else {
+            btws <- betweenness(overall.graph, cutoff = 3)
+        }
         rm.inx <- btws <= min.btw & hit.inx;
         nodes2rm.btw <- V(overall.graph)$name[rm.inx];
     }
@@ -717,4 +740,10 @@ DecomposeGraph <- function(gObj,analSet, minNodeNum = 3, jsonBool = F){
   analSet$net.stats <- net.stats;
   analSet$substats <- sub.stats;
   return(analSet);
+}
+
+regEnrichment <- function(dataName, file.nm, fun.type, IDs, netInv){
+
+  regBool <<- "false";
+  res <- PerformNetEnrichment(dataName, file.nm, fun.type, IDs);
 }

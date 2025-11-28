@@ -1,3 +1,53 @@
+# Helper function to suppress ALL graphics device popups on macOS
+.suppress_quartz <- function(expr) {
+  # Save current state
+  old_device <- getOption("device")
+  old_bitmapType <- getOption("bitmapType")
+
+  # Override device options to prevent Quartz
+  options(device = function(...) pdf(file = NULL))
+  if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+    options(bitmapType = "cairo")
+  }
+
+  # Close any stray devices
+  while (dev.cur() > 1) try(dev.off(), silent = TRUE)
+
+  # Ensure cleanup happens
+  on.exit({
+    while (dev.cur() > 1) try(dev.off(), silent = TRUE)
+    options(device = old_device, bitmapType = old_bitmapType)
+  })
+
+  # Execute the expression
+  eval(expr, envir = parent.frame())
+}
+
+.trim_cem_object_for_save <- function(cem) {
+  # Reset slots that are not used downstream so the saved object stays small.
+  slot(cem, "fit_indices") <- data.frame()
+  slot(cem, "selected_genes") <- character(0)
+  slot(cem, "enrichment") <- list()
+  slot(cem, "ora") <- data.frame()
+  slot(cem, "interactions") <- list()
+  slot(cem, "interaction_plot") <- list()
+  slot(cem, "profile_plot") <- list()
+  slot(cem, "enrichment_plot") <- list()
+  slot(cem, "mean_k_plot") <- list()
+  slot(cem, "barplot_ora") <- list()
+  slot(cem, "mean_var_plot") <- ggplot2::ggplot()
+  slot(cem, "hist_plot") <- ggplot2::ggplot()
+  slot(cem, "qq_plot") <- ggplot2::ggplot()
+  slot(cem, "sample_tree_plot") <- gtable::gtable(
+    widths = grid::unit(0, "cm"),
+    heights = grid::unit(0, "cm"))
+  slot(cem, "mod_colors") <- character(0)
+  slot(cem, "input_params") <- list()
+  slot(cem, "calls") <- list()
+  slot(cem, "adjacency") <- matrix(numeric(0), 0, 0)
+  cem
+}
+
 my.build.cemi.net <- function(dataName,
                               filter      = TRUE,
                               min_ngen    = 30,
@@ -36,16 +86,20 @@ my.build.cemi.net <- function(dataName,
 
 print("buildingceminet");
 
-    cem <- cemitool(expr         = expr_mat,
-                    annot        = annot_df,
-                    filter       = filter,
-                    min_ngen     = min_ngen,
-                    cor_method   = match.arg(cor_method),
-                    class_column = classCol,      # <-- tell CEMiTool!
-                    verbose      = verbose,
-                    plot         = TRUE)
+    # FIX: Suppress Quartz popup on macOS - completely disable plotting during cemitool
+    # We'll generate plots separately using the other functions
+    cem <- cemitool(expr              = expr_mat,
+                    annot             = annot_df,
+                    filter            = filter,
+                    min_ngen          = min_ngen,
+                    cor_method        = match.arg(cor_method),
+                    class_column      = classCol,
+                    verbose           = verbose,
+                    plot              = FALSE,           # Disable all plotting
+                    plot_diagnostics  = FALSE)
 
     ## 3 · save & return -----------------------------------------------
+    cem <- .trim_cem_object_for_save(cem)
     qs::qsave(cem, "cem.qs")
 
   mod <- attr(cem, "module")
@@ -75,6 +129,17 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
   library(Cairo); library(WGCNA)
 
+  # FIX: Suppress Quartz popup on macOS - override device at function start
+  old_device <- getOption("device")
+  old_bitmapType <- getOption("bitmapType")
+  options(device = function(...) pdf(file = NULL))
+  if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+    options(bitmapType = "cairo")
+  }
+  on.exit({
+    options(device = old_device, bitmapType = old_bitmapType)
+  }, add = TRUE)
+
   cem <- qs::qread("cem.qs")
   if (!inherits(cem, "CEMiTool"))
     stop("'cem.qs' does not contain a valid CEMiTool object.")
@@ -95,8 +160,14 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
                      dimnames = list(leaves, NULL))
 
     if (dpi == 72) dpi <- 96
-    Cairo(file, width = 1000, height = 600, dpi = dpi,
-          bg = "white", type = format)
+    width_in <- 10
+    height_in <- 6
+
+    # FIX: Suppress Quartz popup on macOS - close any existing devices first
+    while (dev.cur() > 1) dev.off()
+
+    Cairo(file, width = width_in, height = height_in, dpi = dpi,
+          bg = "white", type = format, units = "in")
 
     oldMar <- par("mar"); par(mar = oldMar + c(0, 0, 0, 4))
     plotDendroAndColors(
@@ -119,7 +190,9 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
            cex    = 0.8,
            bty    = "n")
 
-    par(oldMar); dev.off()
+    # FIX: Suppress Quartz popup on macOS
+    par(oldMar)
+    invisible(dev.off())
   }
 
   # ── MODULE dendrogram ────────────────────────────────────────────
@@ -190,6 +263,17 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 
     library(CEMiTool); library(WGCNA); library(Cairo)
 
+    # FIX: Suppress Quartz popup on macOS - override device at function start
+    old_device <- getOption("device")
+    old_bitmapType <- getOption("bitmapType")
+    options(device = function(...) pdf(file = NULL))
+    if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+      options(bitmapType = "cairo")
+    }
+    on.exit({
+      options(device = old_device, bitmapType = old_bitmapType)
+    }, add = TRUE)
+
     cem <- qs::qread("cem.qs")
     stopifnot(inherits(cem, "CEMiTool"))
 
@@ -238,14 +322,17 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     width_in  <- width_px  / dpi
     height_in <- height_px / dpi
 
+    # FIX: Suppress Quartz popup on macOS - close any existing devices first
+    while (dev.cur() > 1) dev.off()
 
     if (tolower(format) == "png") {
       Cairo(file   = outFile,
-            width  = width_px,
-            height = height_px,
+            width  = width_in,
+            height = height_in,
             dpi    = dpi,
             bg     = "white",
-            type   = "png")
+            type   = "png",
+            units  = "in")
     } else {
       Cairo(file   = outFile,
             width  = width_in,
@@ -270,11 +357,12 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
                    zlim            = c(-1, 1),
                    main            = paste("Module ×", colLabel, "Levels"))
 
-    dev.off()
+    # FIX: Suppress Quartz popup on macOS
+    invisible(dev.off())
     message("Heat-map written to: ", outFile)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_traitheat <- outFile;
-    saveSet(imgSet, "imgSet"):
+    saveSet(imgSet, "imgSet");
     1
 
   }, error = function(e) {
@@ -287,6 +375,17 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
                                      dpi = 72,
                                      format = "png") {
   library(Cairo); library(CEMiTool)
+
+  # FIX: Suppress Quartz popup on macOS - override device at function start
+  old_device <- getOption("device")
+  old_bitmapType <- getOption("bitmapType")
+  options(device = function(...) pdf(file = NULL))
+  if (.Platform$OS.type == "unix" && Sys.info()["sysname"] == "Darwin") {
+    options(bitmapType = "cairo")
+  }
+  on.exit({
+    options(device = old_device, bitmapType = old_bitmapType)
+  }, add = TRUE)
 
   cem <- qs::qread("cem.qs")
   stopifnot(inherits(cem, "CEMiTool"))
@@ -312,13 +411,18 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
 
   # Save
   file <- sprintf("%sdpi%d.%s", imgName, dpi, format)
-  if (dpi == 72) dpi <- 96
-  Cairo(file, width = 1000, height = 600, dpi = dpi, bg = "white", type = format)
-  print(g)    # ggplot draw
-  dev.off()
+    if (dpi == 72) dpi <- 96
+  width_in <- 10
+  height_in <- 6
+
+    # FIX: Suppress Quartz popup on macOS - close any existing devices first
+    while (dev.cur() > 1) dev.off()
+
+    Cairo(file, width = width_in, height = height_in, dpi = dpi, bg = "white", type = format, units = "in")
+  invisible(print(g))    # ggplot draw
+  invisible(dev.off())
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_scalefree <- file;
-    saveSet(imgSet, "imgSet"):
+    saveSet(imgSet, "imgSet");
   return(1);
 }
-

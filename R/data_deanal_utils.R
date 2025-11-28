@@ -81,7 +81,6 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
-
   if (dataSet$de.method == "deseq2") {
     dataSet <- prepareContrast(dataSet, anal.type, par1, par2, nested.opt);
     .prepare.deseq(dataSet, anal.type, par1, par2 , nested.opt);
@@ -180,9 +179,15 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     }
 
     # ---- Run DESeq2 ----
-    dds <- DESeqDataSetFromMatrix(countData = round(data.anot),
+    count_mat <- data.anot
+    if (any(!is.finite(count_mat))) {
+      count_mat[!is.finite(count_mat)] <- 0
+    }
+    dds <- DESeqDataSetFromMatrix(countData = round(count_mat),
                                   colData   = colData,
                                   design    = design)
+    # ensure DESeq2 operations use a fixed seed for reproducible DE gene lists
+    set.seed(123)
     dds <- DESeq(dds, betaPrior = FALSE)
     qs::qsave(dds, "deseq.res.obj.rds")
 
@@ -438,95 +443,133 @@ dataSet$comp.res.list      <- result.list
                                     robustTrend = FALSE,
                                     verbose     = TRUE)
 {
-  require(limma)
-  require(multcomp)
-  
-  ## ── 1. expression matrix & dose factor ──────────────────────
+
   expr <- if (length(dataSet$rmidx) > 0)
     dataSet$data.norm[, -dataSet$rmidx, drop = FALSE] else
       dataSet$data.norm
-  
+
   cls_vals <- if (length(dataSet$rmidx) > 0)
     dataSet$cls[-dataSet$rmidx] else
       dataSet$cls
-  
-  ## attempt numeric sorting
+
   unique_cls <- unique(cls_vals)
   dose_order <- suppressWarnings(as.numeric(as.character(unique_cls)))
-  
+
   if (all(!is.na(dose_order))) {
     ord_levels <- unique_cls[order(dose_order)]
   } else {
     ord_levels <- sort(unique_cls)
   }
-  
+
   grp <- factor(cls_vals, levels = ord_levels, ordered = TRUE)
   grp <- droplevels(grp)
-  
-  if (nlevels(grp) < 3)
-    stop("Williams trend test requires ≥ 3 ordered doses.")
-  
-  design <- model.matrix(~0 + grp)
-  colnames(design) <- levels(grp)
-  
-  will.mat <- multcomp::contrMat(table(grp), "Williams")
-  will.mat <- t(will.mat)
-  rownames(will.mat) <- levels(grp)
-  colnames(will.mat) <- paste0("C", seq_len(ncol(will.mat)))
-  
-  if (!identical(rownames(will.mat), colnames(design)))
-    stop("Contrast rows and design columns do not match!")
-  
-  if (verbose) {
-    cat("DEBUG ↴\n",
-        "Dose levels : ", paste(levels(grp), collapse = ", "), "\n",
-        "design :", nrow(design), "×", ncol(design), "\n",
-        "will   :", nrow(will.mat), "×", ncol(will.mat), "\n\n")
-  }
-  
-  fit      <- limma::lmFit(expr, design)
-  fit.will <- limma::eBayes(
-    limma::contrasts.fit(fit, will.mat),
-    trend  = robustTrend,
-    robust = robustTrend)
-  
-  t.mat <- fit.will$t
-  flip  <- ifelse(will.mat[1, ] < 0, -1, 1)
-  t.mat <- sweep(t.mat, 2, flip, `*`)
-  min.t <- apply(t.mat, 1, function(x) min(x, na.rm = TRUE))
 
-  P.Value   <- 2 * pt(-abs(min.t), df = fit.will$df.total)
+  if (nlevels(grp) < 3L)
+    stop("Williams trend test requires ≥ 3 ordered doses.")
+
+  grp_levels <- levels(grp)
+  grp_index  <- lapply(grp_levels, function(lv) which(grp == lv))
+  n_per_grp  <- vapply(grp_index, length, integer(1))
+
+  total_n  <- sum(n_per_grp)
+  df_resid <- total_n - length(grp_levels)
+  if (df_resid <= 0)
+    stop("Williams trend test requires replication (df <= 0).")
+
+  gene_ids   <- rownames(expr)
+  gene_count <- nrow(expr)
+
+  group_means <- matrix(NA_real_, nrow = gene_count,
+                        ncol = length(grp_levels),
+                        dimnames = list(gene_ids, grp_levels))
+  SSE <- numeric(gene_count)
+
+  for (i in seq_along(grp_levels)) {
+    idx <- grp_index[[i]]
+    mat <- expr[, idx, drop = FALSE]
+    gm  <- rowMeans(mat)
+    group_means[, i] <- gm
+
+    if (length(idx) > 1L) {
+      centered <- sweep(mat, 1, gm, "-", check.margin = FALSE)
+      SSE <- SSE + rowSums(centered^2)
+    }
+  }
+
+  MSE <- SSE / df_resid
+
+  control_mean <- group_means[, 1, drop = TRUE]
+  dose_means   <- group_means[, -1, drop = FALSE]
+  pair_logFC   <- sweep(dose_means, 1, control_mean, "-")
+  colnames(pair_logFC) <- paste0("Dose_", grp_levels[1],
+                                 ".Dose_", grp_levels[-1])
+
+  ave_expr <- rowMeans(expr)
+
+  combo_idx <- lapply(seq_len(length(grp_levels) - 1L),
+                      function(k) seq(from = length(grp_levels) - k + 1L,
+                                      to   = length(grp_levels)))
+  combo_n  <- vapply(combo_idx, function(idx) sum(n_per_grp[idx]), numeric(1))
+
+  diff_mat <- matrix(NA_real_, nrow = gene_count,
+                     ncol = length(combo_idx))
+  for (j in seq_along(combo_idx)) {
+    idx      <- combo_idx[[j]]
+    weights  <- n_per_grp[idx] / sum(n_per_grp[idx])
+    submeans <- group_means[, idx, drop = FALSE]
+    weighted <- sweep(submeans, 2, weights, `*`)
+    diff_mat[, j] <- rowSums(weighted) - control_mean
+  }
+
+  sqrt_terms <- sqrt(1 / n_per_grp[1] + 1 / combo_n)
+  denom_mat  <- outer(sqrt(MSE), sqrt_terms, `*`)
+  t_mat      <- diff_mat / denom_mat
+
+  zero_mask <- denom_mat == 0
+  if (any(zero_mask, na.rm = TRUE)) {
+    t_mat[zero_mask & diff_mat > 0]  <- Inf
+    t_mat[zero_mask & diff_mat < 0]  <- -Inf
+    t_mat[zero_mask & diff_mat == 0] <- 0
+  }
+
+  t_pos <- apply(t_mat, 1, max, na.rm = TRUE)
+  t_neg <- apply(t_mat, 1, min, na.rm = TRUE)
+  t_pos[is.infinite(t_pos) & t_pos < 0] <- NA_real_
+  t_neg[is.infinite(t_neg) & t_neg > 0] <- NA_real_
+
+  both_na <- is.na(t_pos) & is.na(t_neg)
+  abs_pos <- abs(t_pos); abs_pos[is.na(abs_pos)] <- -Inf
+  abs_neg <- abs(t_neg); abs_neg[is.na(abs_neg)] <- -Inf
+  use_pos <- abs_pos >= abs_neg
+  t_stat  <- ifelse(use_pos, t_pos, t_neg)
+  t_stat[both_na] <- NA_real_
+
+  P.Value   <- 2 * pt(-abs(t_stat), df = df_resid)
   adj.P.Val <- p.adjust(P.Value, "fdr")
-  
-  lev     <- levels(grp)
-  control <- lev[1]
-  pair.mat <- sapply(lev[-1], function(lv) {
-    v <- setNames(rep(0, length(lev)), lev)
-    v[lv]      <-  1
-    v[control] <- -1
-    v
-  })
-  colnames(pair.mat) <- paste0("Dose_", control , ".Dose_", lev[-1])
-  
-  pair.fit   <- limma::contrasts.fit(fit, pair.mat)
-  pair.logFC <- pair.fit$coefficients
-  
-  ## ── 7. Assemble results ────────────────────────────────────
+
   topFeatures <- data.frame(
-    pair.logFC,
-    t         = min.t,
+    pair_logFC,
+    AveExpr   = ave_expr,
+    t         = t_stat,
     P.Value   = P.Value,
     adj.P.Val = adj.P.Val,
     check.names = FALSE)
 
-topFeatures$adj.P.Val <- as.numeric(topFeatures$adj.P.Val)
-
-ord <- order(topFeatures$adj.P.Val, na.last = TRUE)
-topFeatures <- topFeatures[ord, , drop = FALSE]  
+  ord <- order(topFeatures$adj.P.Val, na.last = TRUE)
+  topFeatures <- topFeatures[ord, , drop = FALSE]
 
   dataSet$comp.res <- topFeatures
-  dataSet$comp.res.list <- make_comp_res_list(topFeatures, stat.cols = c("t",
-                                             "P.Value", "adj.P.Val"))
+  dataSet$comp.res.list <- make_comp_res_list(
+    topFeatures,
+    stat.cols = c("AveExpr", "t", "P.Value", "adj.P.Val"))
+  dataSet$de.method <- "wtt"
+
+  if (verbose) {
+    cat("Williams trend test (BMDExpress-style):",
+        nrow(topFeatures), "features processed;",
+        "df =", df_resid, "\n")
+  }
+
   return(dataSet)
 }
 
@@ -651,7 +694,8 @@ MultiCovariateRegression <- function(fileName,
                                      contrast = "anova",  # comparison class from analysis.var (only if categorical)
                                      blocking.factor = NULL, 
                                      robustTrend = F, 
-                                     internal=F){ # whether returns 0/1 or dataset object
+                                     internal=F,
+                                     useBatchCorrected=TRUE){ # whether returns 0/1 or dataset object
 
   dataSet <- readDataset(fileName);
   if(!exists('adj.vec')){ ## covariate to adjust for
@@ -663,7 +707,7 @@ MultiCovariateRegression <- function(fileName,
       adj.vec <- "NA"
     }
   }
-  interim <- .multiCovariateRegression(dataSet, analysis.var, ref, contrast, blocking.factor, adj.vec, robustTrend, F)
+  interim <- .multiCovariateRegression(dataSet, analysis.var, ref, contrast, blocking.factor, adj.vec, robustTrend, F, useBatchCorrected)
   if(is.list(interim)){
     res <- 1;
   }else{
@@ -680,7 +724,8 @@ MultiCovariateRegression <- function(fileName,
                                      blocking.factor = NULL, 
                                      adj.factors="NA",# metadata variables to adjust for
                                      robustTrend = F, 
-                                     internal=F){ # whether returns 0/1 or dataset object, T for metaanal covariate
+                                     internal=F, # whether returns 0/1 or dataset object, T for metaanal covariate
+                                     useBatchCorrected=TRUE){
   # load libraries
   library(limma);
   library(dplyr);
@@ -690,13 +735,21 @@ MultiCovariateRegression <- function(fileName,
   dataSet$rmidx <- NULL;
 
   # for embedded inside tools (ExpressAnalyst etc)
+  paramSet <- readSet(paramSet, "paramSet");
+  useMeta <- !is.null(paramSet$performedBatch) && isTRUE(paramSet$performedBatch);
   if(internal){
-  inmex.meta<-qs::qread("inmex_meta.qs");
-  #only get shared features
-  #feature_table <- dataSet$data.norm[rownames(dataSet$data.norm) %in% rownames(inmex.meta$data), ];
-  feature_table <- inmex.meta$data[,colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
+    if(useMeta){
+    print("batchadjustedcov");
+    inmex.meta <- qs::qread("inmex_meta.qs");
+    }else{
+    print("notbatchadjusted");
+
+    inmex.meta <- qs::qread("inmex.meta.orig.qs");
+
+    }
+    feature_table <- inmex.meta$data[, colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
   }else{
-  feature_table <- dataSet$data.norm;
+    feature_table <- dataSet$data.norm;
   }
   covariates <- dataSet$meta.info;
 
@@ -736,6 +789,7 @@ MultiCovariateRegression <- function(fileName,
     saveSet(msgSet, "msgSet");
     return(0)
   }
+  
   
   # get analysis type
   analysis.type = ifelse(dataSet$disc.inx[analysis.var],"disc","cont")
@@ -943,74 +997,92 @@ parse_contrast_groups <- function(contrast_str) {
 
   return(topFeatures)
 }
+
 prepareEdgeRContrast <- function(dataSet,
                                  anal.type  = "reference",
                                  par1       = NULL,
                                  par2       = NULL,
                                  nested.opt = "intonly") {
-
   msgSet <- readSet(msgSet, "msgSet")
   set.seed(1337)
-
-  ## ------------------------------------------------------------------ ##
-  ## 1 · Clean & store group factor                                     ##
-  ## ------------------------------------------------------------------ ##
-  cls            <- factor(dataSet$cls)
-  levels(cls)    <- make.names(levels(cls))   # ensure valid variable names
-  dataSet$cls    <- cls
-  grp.nms        <- levels(cls)
-
-  dataSet$comp.type <- anal.type
-  dataSet$par1      <- par1   # (handy for UI / reporting)
-
   require(limma)
 
-  ## ------------------------------------------------------------------ ##
-  ## 2 · Create design matrix (no intercept; columns = group levels)    ##
-  ## ------------------------------------------------------------------ ##
-  design <- model.matrix(~ 0 + cls)
-  colnames(design) <- grp.nms  # make the column names match levels exactly
+  cls_raw      <- factor(dataSet$cls)
+  raw_levels   <- levels(cls_raw)
+  syn_levels   <- make.names(raw_levels)
 
-  ## ------------------------------------------------------------------ ##
-  ## 3 · Build list of contrast expressions                             ##
-  ## ------------------------------------------------------------------ ##
+  cls_syn      <- factor(cls_raw, levels = raw_levels, labels = syn_levels)
+
+  dataSet$cls_raw   <- cls_raw
+  dataSet$cls       <- cls_syn               # <- modeling uses sanitized
+  dataSet$grp.nms   <- syn_levels
+  dataSet$grp.nms_raw <- raw_levels
+  dataSet$comp.type <- anal.type
+  dataSet$par1      <- par1
+
+  design <- model.matrix(~ 0 + cls_syn)
+  colnames(design) <- syn_levels
+
+  # helper: map a UI label (raw or syn) into sanitized
+  to_syn <- function(x) {
+    if (is.null(x)) return(NULL)
+    x <- trimws(as.character(x))
+    if (!nzchar(x)) return(NULL)
+    if (x %in% raw_levels) return(make.names(x))
+    x
+  }
+
+  # parse "A vs. B" (accept raw or syn on either side)
+  parse_vs <- function(x) {
+    if (is.null(x)) return(c(NA_character_, NA_character_))
+    parts <- strsplit(x, "\\s*vs\\.?\\s*", perl = TRUE)[[1]]
+    if (length(parts) != 2) return(c(NA_character_, NA_character_))
+    c(to_syn(parts[1]), to_syn(parts[2]))
+  }
+
+  ## build contrasts using sanitized tokens
   if (anal.type == "reference") {
+    ref_syn <- to_syn(par1)
+    if (is.null(ref_syn) || !(ref_syn %in% syn_levels)) {
+      stop("`par1` must specify a valid reference level. You gave '",
+           if (is.null(par1)) "NULL" else par1,
+           "'. Valid (raw): ", paste(raw_levels, collapse = ", "))
+    }
+    others <- setdiff(syn_levels, ref_syn)
+    conts  <- setNames(lapply(others, \(g) paste0(g, " - ", ref_syn)),
+                       paste0(others, "_vs_", ref_syn))
 
-    ref <- par1
-    if (is.null(ref) || !ref %in% grp.nms)
-      stop("`par1` must specify a valid reference level.")
-    others <- setdiff(grp.nms, ref)
-    conts  <- setNames(lapply(others, \(g) paste0(g, " - ", ref)),
-                       paste0(others, "_vs_", ref))
+  } else if (anal.type == "default") {
+    combs <- combn(syn_levels, 2, simplify = FALSE)
+    conts <- setNames(lapply(combs, \(x) paste0(x[1], " - ", x[2])),
+                      sapply(combs, \(x) paste0(x[1], "_vs_", x[2])))
 
-  } else if (anal.type == "default") {               # all pairwise
-    combs  <- combn(grp.nms, 2, simplify = FALSE)
-    conts  <- setNames(lapply(combs, \(x) paste0(x[1], " - ", x[2])),
-                       sapply(combs, \(x) paste0(x[1], "_vs_", x[2])))
+  } else if (anal.type == "time") {
+    tm <- syn_levels
+    conts <- setNames(lapply(seq_len(length(tm) - 1L),
+                             \(i) paste0(tm[i + 1L], " - ", tm[i])),
+                      paste0(tm[-1], "_vs_", tm[-length(tm)]))
 
-  } else if (anal.type == "time") {                  # consecutive time‑points
-    tm     <- grp.nms
-    conts  <- setNames(lapply(seq_len(length(tm) - 1),
-                              \(i) paste0(tm[i + 1], " - ", tm[i])),
-                       paste0(tm[-1], "_vs_", tm[-length(tm)]))
-
-  } else if (anal.type == "custom") {                # “A vs. B”
-    grp <- strsplit(par1, " vs. ")[[1]]
-    if (length(grp) != 2) stop("`par1` must be like 'A vs. B'")
+  } else if (anal.type == "custom") {
+    grp <- parse_vs(par1)
+    if (anyNA(grp) || !all(grp %in% syn_levels)) {
+      stop("`par1` must be 'A vs. B'. Valid (raw): ",
+           paste(raw_levels, collapse = ", "))
+    }
     conts <- setNames(list(paste0(grp[2], " - ", grp[1])),
                       paste0(grp[2], "_vs_", grp[1]))
 
-  } else if (anal.type == "nested") {                # interaction designs
-    g1 <- strsplit(par1, " vs. ")[[1]]
-    g2 <- strsplit(par2, " vs. ")[[1]]
-    if (length(g1) != 2 || length(g2) != 2)
-      stop("`par1` and `par2` must each be like 'A vs. B'")
-
-    if (nested.opt == "intonly") {
-      expr <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
-      nm   <- paste0(g1[1], g1[2], "_vs_", g2[1], g2[2], "_interaction")
+  } else if (anal.type == "nested") {
+    g1 <- parse_vs(par1); g2 <- parse_vs(par2)
+    if (anyNA(g1) || anyNA(g2) || !all(c(g1, g2) %in% syn_levels)) {
+      stop("`par1` and `par2` must be 'A vs. B'. Valid (raw): ",
+           paste(raw_levels, collapse = ", "))
+    }
+    if (identical(nested.opt, "intonly")) {
+      expr  <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
+      nm    <- paste0(g1[1], g1[2], "_vs_", g2[1], g2[2], "_interaction")
       conts <- setNames(list(expr), nm)
-    } else {  # main effects + interaction
+    } else {
       expr1 <- paste0(g1[2], " - ", g1[1])
       expr2 <- paste0(g2[2], " - ", g2[1])
       expr3 <- paste0("(", g1[2], " - ", g1[1], ") - (", g2[2], " - ", g2[1], ")")
@@ -1023,22 +1095,14 @@ prepareEdgeRContrast <- function(dataSet,
     stop("Unsupported `anal.type`: ", anal.type)
   }
 
-  ## ------------------------------------------------------------------ ##
-  ## 4 · Convert contrast expressions to a matrix                       ##
-  ## ------------------------------------------------------------------ ##
-  contrast.matrix <- do.call(makeContrasts,
-                             c(conts, list(levels = design)))
+  contrast.matrix <- do.call(makeContrasts, c(conts, list(levels = design)))
 
-  ## ------------------------------------------------------------------ ##
-  ## 5 · Attach to dataSet                                              ##
-  ## ------------------------------------------------------------------ ##
   dataSet$design          <- design
   dataSet$contrast.matrix <- contrast.matrix
   dataSet$contrast.names  <- colnames(contrast.matrix)
   dataSet$contrast.type   <- anal.type
-  dataSet$grp.nms         <- grp.nms
   dataSet$filename        <- paste0("edgeR_", anal.type, "_", dataSet$de.method)
 
   RegisterData(dataSet)
-  return(dataSet)
+  dataSet
 }

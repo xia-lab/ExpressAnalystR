@@ -105,6 +105,13 @@ GlobalCutOff <- list(
     BHth = 0.05
 )
 
+.safe_qsave <- function(obj, path){
+    if(file.exists(path)){
+        file.remove(path);
+    }
+    qs::qsave(obj, path);
+}
+
 # read meta-dataset previously processed
 
 #'Read merged gene expression table
@@ -379,9 +386,7 @@ PlotCochranQ <- function(imgNm){
 PerformBatchCorrection <- function(){
     .prepare.batch();
     .perform.computing();
-    paramSet <- readSet(paramSet, "paramSet");
-    paramSet$performedBatch <- T;
-    saveSet(paramSet, "paramSet");
+    .finalizeBatchCorrection();
     return(dataSets);
 }
 
@@ -401,3 +406,84 @@ PerformBatchCorrection <- function(){
     return(1);
 }
 
+#' Restore raw metadata (undo ComBat)
+#' @description Reloads the original metadata that was stored before batch correction.
+#' @return 1 if success, 0 otherwise.
+#' @export
+#' @license MIT License
+RestoreMetaData <- function(){
+    if(!file.exists("inmex.meta.orig.qs")){
+        return(0);
+    }
+    inmex.meta.orig <- qs::qread("inmex.meta.orig.qs");
+    .safe_qsave(inmex.meta.orig, "inmex_meta.qs");
+    message("[MetaQC] RestoreMetaData: restoring datasets from original matrix");
+    .update.datasets.from.meta(inmex.meta.orig);
+    paramSet <- readSet(paramSet, "paramSet");
+    paramSet$performedBatch <- FALSE;
+    saveSet(paramSet, "paramSet");
+    #CheckMetaDataIntegrity();
+    return(1);
+}
+
+.update.datasets.from.meta <- function(meta.obj){
+    if(is.null(meta.obj) || is.null(meta.obj$data) || is.null(meta.obj$data.lbl)){
+        return(0);
+    }
+
+    sel.nms <- unique(meta.obj$data.lbl);
+    for(dataName in sel.nms){
+        idx <- which(meta.obj$data.lbl == dataName);
+        if(length(idx) == 0){
+            next;
+        }
+
+        dataSet <- readDataset(dataName);
+        if(is.null(dataSet)){
+            next;
+        }
+
+        adj <- meta.obj$data[, idx, drop=FALSE];
+        old.cols <- colnames(dataSet$data.norm);
+
+        if(length(old.cols) == 0){
+            # keep original column names from adjusted matrix
+        } else if(all(old.cols %in% colnames(adj))){
+            adj <- adj[, old.cols, drop=FALSE];
+        } else if(ncol(adj) == length(old.cols)){
+            colnames(adj) <- old.cols;
+        } else {
+            mtch <- match(old.cols, colnames(adj));
+            if(all(!is.na(mtch))){
+                adj <- adj[, mtch, drop=FALSE];
+                colnames(adj) <- old.cols;
+            } else {
+                warning(paste("Sample name mismatch when updating dataset:", dataName));
+                limit <- min(length(old.cols), ncol(adj));
+                adj <- adj[, seq_len(limit), drop=FALSE];
+                colnames(adj) <- old.cols[seq_len(limit)];
+            }
+        }
+
+        dataSet$data.norm <- adj;
+        if(!is.null(dataSet$data)){
+            dataSet$data <- adj;
+        }
+        message(paste("[MetaQC] Updated dataset", dataName, "with", ncol(adj), "samples"));
+        RegisterData(dataSet);
+    }
+    return(1);
+}
+
+.finalizeBatchCorrection <- function(){
+    if(!exists("dataSets")){
+        dataSets <<- list();
+    }
+    inmex.meta <- qs::qread("inmex_meta.qs");
+    message("[MetaQC] FinalizeBatchCorrection: updating datasets from merged matrix");
+    .update.datasets.from.meta(inmex.meta);
+    paramSet <- readSet(paramSet, "paramSet");
+    paramSet$performedBatch <- TRUE;
+    saveSet(paramSet, "paramSet");
+    return(dataSets);
+}

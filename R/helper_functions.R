@@ -121,7 +121,6 @@ GetInitLib <- function(){
 GetMetaDatasets<- function(){
   paramSet <- readSet(paramSet, "paramSet");
   mdata.all <- paramSet$mdata.all;
-  print(paramSet);
   sel.nms <- names(mdata.all)[mdata.all==1];
   return(sel.nms);
 }
@@ -301,7 +300,6 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
 
     RegisterData(dataSet)
     qs::qsave(res, "express.de.res.qs")
-
     return(head(signif(as.matrix(res), 5),1000))
 }
 

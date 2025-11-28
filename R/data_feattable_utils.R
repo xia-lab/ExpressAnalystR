@@ -51,9 +51,19 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
     resTable <- dataSet$comp.res;
    } else if (dataSet$de.method=="limma" || dataSet$de.method=="wtt" ){
-    hit.inx <- which(colnames(resTable) == "AveExpr");
+    hit.inx <- match("AveExpr", colnames(resTable));
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
     resTable <- dataSet$comp.res;
+
+    if (is.na(hit.inx) && dataSet$de.method == "wtt") {
+      ave.expr <- rowMeans(
+        dataSet$data.norm[rownames(resTable), , drop = FALSE],
+        na.rm = TRUE)
+      resTable$AveExpr <- ave.expr
+      hit.inx <- match("AveExpr", colnames(resTable))
+      dataSet$comp.res <- resTable
+      dataSet$comp.res.list[[inx]] <- resTable
+    }
   } else {
     hit.inx <- which(colnames(resTable) == "logCPM");
     dataSet$comp.res <- dataSet$comp.res.list[[inx]];
@@ -75,8 +85,19 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   
   resTable<-resTable[hit.inx.p,];
   
-  maxFC.inx <- hit.inx - 1;
-  logfc.mat <- resTable[,1:maxFC.inx, drop=F];
+  if (is.na(hit.inx) || hit.inx < 2) {
+    maxFC.inx <- 1
+  } else {
+    maxFC.inx <- hit.inx - 1
+  }
+
+  if (ncol(resTable) == 0) {
+    logfc.mat <- matrix(0, nrow = nrow(resTable), ncol = 1,
+                        dimnames = list(rownames(resTable), "logFC"))
+  } else {
+    cols_to_take <- seq_len(min(maxFC.inx, ncol(resTable)))
+    logfc.mat <- resTable[, cols_to_take, drop = FALSE];
+  }
   if(paramSet$oneDataAnalType == "dose"){
     pos.mat <- abs(logfc.mat);
     fc.vec <- apply(pos.mat, 1, max);   # for > comparisons - in this case, use the largest logFC among all comparisons
@@ -361,5 +382,5 @@ dataSet$comp.res <- rbind(resTable, other)
   dataSet$comp.res.filename <- filename;
   res <- RegisterData(dataSet);
   saveSet(paramSet, "paramSet");
-  return(c(filename, de.Num, geneList, total, up, down, non.de.Num));
+  return(c(output_file, de.Num, geneList, total, up, down, non.de.Num));
 }
