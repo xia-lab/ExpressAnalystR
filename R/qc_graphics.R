@@ -547,11 +547,13 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
   ylim <- GetExtendRange(pca.res$PC2)
   
   if (length(dataSet$meta.info) == 2) {
+    # OPTIMIZED: Get column names once
+    meta_colnames <- colnames(dataSet$meta.info)
     Factor1 <- as.vector(dataSet$meta.info[, 1])
-    factorNm1 <- colnames(dataSet$meta.info)[1]
+    factorNm1 <- meta_colnames[1]
     pca.res[, factorNm1] <- Factor1
     Factor2 <- as.vector(dataSet$meta.info[, 2])
-    factorNm2 <- colnames(dataSet$meta.info)[2]
+    factorNm2 <- meta_colnames[2]
     pca.res[, factorNm2] <- Factor2
     pca.rest <- reshape::melt(pca.res, measure.vars = c(factorNm1, factorNm2))
     colnames(pca.rest)[4] <- "Conditions"

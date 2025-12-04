@@ -182,10 +182,8 @@ CovariateScatter.Anal <- function(dataName,
 
   both.list$thresh <- thresh;
   jsonNm <- gsub(paste0(".", imgFormat), ".json", imgName);
-  jsonObj <- rjson::toJSON(both.list);
-  sink(jsonNm);
-  cat(jsonObj);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(both.list, jsonNm, auto_unbox = TRUE, pretty = FALSE);
     
   nonSig <- nrow(dataSet$comp.res) - sig.num;
 

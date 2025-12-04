@@ -96,11 +96,8 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     )
   }
   
-  require(RJSONIO);
-  json.obj <- toJSON(pod);
-  sink(fileNm);
-  cat(json.obj);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of RJSONIO + sink/cat
+  jsonlite::write_json(pod, fileNm, auto_unbox = TRUE, pretty = FALSE);
 
   RegisterData(dataSet)
   return(1);

@@ -234,10 +234,12 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
     dataSet$enrich_ids = rownames(data.annotated)
     dataSet$id.type <- "none";
   }
-  
+
   if(idtype != "NA"){
-    if(length(unique(enIDs))/length(gene.vec) < 0.3){
-      msg <- paste("Less than ", round( length(unique(enIDs))/length(gene.vec) * 100, 2), "% features were mapped");
+    # OPTIMIZED: Calculate mapping ratio once instead of twice
+    mapping_ratio <- length(unique(enIDs))/length(gene.vec)
+    if(mapping_ratio < 0.3){
+      msg <- paste("Less than ", round(mapping_ratio * 100, 2), "% features were mapped");
       msgSet$current.msg <- msg;
       saveSet(msgSet, "msgSet");
       return(0)
