@@ -254,9 +254,8 @@ SetListNms <- function(dataSet){
 PrepareJsonFromR <- function(fileNm, type, jsonString, dataSetString){
     # rjson bug use RJSONIO
     dataSet <- RJSONIO::fromJSON(dataSetString);
-    sink(fileNm);
-    cat(jsonString);
-    sink();
+    # OPTIMIZED: Use writeLines instead of sink/cat for string output
+    writeLines(jsonString, fileNm);
     return(1)
 }
 
@@ -291,11 +290,14 @@ PrepareJsonFromR <- function(fileNm, type, jsonString, dataSetString){
             my.vec <- names(mdata.all);
             com.ids <- NULL;
             list.vec <- list()
+            # OPTIMIZED: Collect matrices in list instead of rbind in loop
+            prot_mat_list <- vector("list", length(my.vec));
+
             for(i in 1:length(my.vec)){
                 datSet <- readDataset(my.vec[i]);
                 if(is.null(com.ids)){
                   com.ids <- datSet$GeneAnotDB[,"gene_id"];
-                  prot.mat <- datSet$prot.mat
+                  prot_mat_list[[i]] <- datSet$prot.mat;
                   list.vec[[i]] <- com.ids
                 }else{
                   if(selectedNetDataset == "intersect"){
@@ -304,14 +306,17 @@ PrepareJsonFromR <- function(fileNm, type, jsonString, dataSetString){
                   }else{
                     com.ids <- union(com.ids, datSet$GeneAnotDB[,"gene_id"]);
                   }
-                    prot.mat <- rbind(prot.mat, as.matrix(datSet$prot.mat[rownames(datSet$prot.mat) %in% com.ids,]))
+                  prot_mat_list[[i]] <- as.matrix(datSet$prot.mat[rownames(datSet$prot.mat) %in% com.ids,]);
                 }
            }
+
             if(selectedNetDataset == "intersect"){
-            com.ids <- Reduce(intersect, list.vec)
-            prot.mat <- as.matrix(datSet$prot.mat[rownames(datSet$prot.mat) %in% com.ids,])
+              com.ids <- Reduce(intersect, list.vec)
+              prot.mat <- as.matrix(datSet$prot.mat[rownames(datSet$prot.mat) %in% com.ids,])
             }else{
-            com.ids <- unique(as.character(com.ids[!is.na(com.ids)])); # make sure it is interpreted as name not index
+              # OPTIMIZED: Combine all matrices once
+              prot.mat <- do.call(rbind, prot_mat_list);
+              com.ids <- unique(as.character(com.ids[!is.na(com.ids)])); # make sure it is interpreted as name not index
             }
 
             com.symbols <- doEntrez2SymbolMapping(com.ids, paramSet$data.org, paramSet$data.idType);

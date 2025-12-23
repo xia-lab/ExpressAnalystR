@@ -185,10 +185,8 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
   data.norm <- dataSet$data.norm
   colnames(data.norm) <- NULL
   lst <- list(colnames(dataSet$data.norm),data.norm, dataSet$meta.info, dataSet$comp.res, rownames(data.norm), org=paramSet$data.org)
-  json.obj <- rjson::toJSON(lst);
-  sink("ExpressAnalyst_matrix.json");
-  cat(json.obj);
-  sink();
+  # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
+  jsonlite::write_json(lst, "ExpressAnalyst_matrix.json", auto_unbox = TRUE, pretty = FALSE);
 
         if (dataSet$de.method %in% c("deseq2", "edger", "limma", "wtt")) {
 
@@ -373,7 +371,41 @@ dataSet$comp.res <- rbind(resTable, other)
 
   output_file <- paste0(dataName, "_logFC_",format(as.numeric(fc.lvl), digits = 2, nsmall = 0, trim = TRUE, scientific = FALSE),
                         "_Significant_Genes.csv")
-    write.csv(dataSet$comp.res,
+    ## keep exported table self-contained with identifiers and annotation
+    export_tbl <- dataSet$comp.res
+    gene_ids   <- rownames(export_tbl)
+    gene_id_col <- gene_ids
+    symbol_col <- rep(NA_character_, length(gene_ids))
+    name_col   <- rep(NA_character_, length(gene_ids))
+
+    if (dataSet$annotated) {
+      anot <- tryCatch(
+        doEntrezIDAnot(gene_id_col, paramSet$data.org, paramSet$data.idType),
+        error = function(e) data.frame(symbol = symbol_col, name = name_col)
+      )
+      symbol_col <- anot$symbol
+      name_col   <- anot$name
+    } else if (file.exists("annotation.qs")) {
+      anot.id     <- qs::qread("annotation.qs")
+      mapped_ids  <- anot.id[gene_ids]
+      gene_id_col <- mapped_ids
+      anot <- tryCatch(
+        doEntrezIDAnot(mapped_ids, paramSet$data.org, paramSet$data.idType),
+        error = function(e) data.frame(symbol = symbol_col, name = name_col)
+      )
+      symbol_col <- anot$symbol
+      name_col   <- anot$name
+    }
+
+    export_tbl <- data.frame(
+      GeneID = gene_id_col,
+      Symbol = symbol_col,
+      Name   = name_col,
+      export_tbl,
+      check.names = FALSE
+    )
+
+    write.csv(export_tbl,
               file = output_file, row.names = FALSE)
 
   analSet$sig.gene.count <- de.Num;

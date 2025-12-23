@@ -122,10 +122,8 @@ CheckMetaDataIntegrity <- function(){
     smps.nms <- colnames(common.matrix)
     if(length(unique(smps.nms)) != length(smps.nms)){
       data.nb <- length(unique(data.lbl));
-      data.vec <- vector()
-      for(i in 1:data.nb){
-        data.vec[i] <- paste0("d", i);
-      }
+      # OPTIMIZED: Vectorized instead of loop
+      data.vec <- paste0("d", seq_len(data.nb));
       levels(data.lbl) <- data.vec;
       colnames(common.matrix) <- make.unique(paste(data.vec, smps.nms, sep="_"));
       

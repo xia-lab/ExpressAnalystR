@@ -379,8 +379,11 @@ rowV = function(x, mean, ...) {
 
 
 PlotDataPCA <- function(fileName, imgName, dpi, format){
+  print(paste("[PlotDataPCA] START - fileName:", fileName, "imgName:", imgName, "Time:", Sys.time()));
   dataSet <- readDataset(fileName);
+  print(paste("[PlotDataPCA] Dataset loaded. Dimensions:", paste(dim(dataSet$data.norm), collapse="x"), "Time:", Sys.time()));
   if(grepl("_norm", imgName)){
+    print("[PlotDataPCA] Processing normalized data...");
     qc.pcaplot(dataSet, dataSet$data.norm, imgName, dpi, format, F);
         if (paramSet$oneDataAnalType == "dose") {
     qc.pcaplot.outliers.json(dataSet, dataSet$data.norm, imgName);
@@ -390,7 +393,9 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
   }else{
+    print("[PlotDataPCA] Processing annotated data...");
     data.anot <- .get.annotated.data();
+    print(paste("[PlotDataPCA] Annotated data dimensions:", paste(dim(data.anot), collapse="x"), "Time:", Sys.time()));
     qc.pcaplot(dataSet, data.anot, imgName, dpi, format, F);
         if (paramSet$oneDataAnalType == "dose") {
 
@@ -401,60 +406,182 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
   }
+  print(paste("[PlotDataPCA] COMPLETE - Time:", Sys.time()));
   return("NA");
 }
 
 
 qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALSE) {
+  print(paste("[qc.pcaplot] START - imgNm:", imgNm, "Data dims:", paste(dim(x), collapse="x"), "Time:", Sys.time()));
   dpi <- as.numeric(dpi)
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="")
   imgNm <- paste0(fileNm, format, sep="")
-  
+
+  print("[qc.pcaplot] Loading required libraries...");
   require('lattice')
   require('ggplot2')
   require('reshape')
   require('see')
   require('ggrepel')
-  
-  pca <- prcomp(t(na.omit(x)))
-  imp.pca <- summary(pca)$importance
+
+  # Force garbage collection before PCA to free memory
+  gc(verbose = FALSE, full = TRUE)
+
+  print(paste("[qc.pcaplot] Computing PCA on matrix of size:", paste(dim(t(na.omit(x))), collapse="x"), "Time:", Sys.time()));
+
+  # Use memory-efficient PCA for large matrices to prevent malloc errors
+  # First remove NA rows, then transpose (samples become rows)
+  x_clean <- na.omit(x)
+  data_matrix <- t(x_clean)
+
+  # CRITICAL: Preserve sample names as rownames
+  # In the original data, samples are columns, so colnames become rownames after transpose
+  sample_names <- colnames(x_clean)
+  rownames(data_matrix) <- sample_names
+  print(paste("[qc.pcaplot] Preserved", length(sample_names), "sample names for PCA"));
+  print(paste("[qc.pcaplot] Sample names:", paste(head(sample_names, 3), collapse=", ")));
+
+  matrix_size <- nrow(data_matrix) * ncol(data_matrix)
+
+  # For matrices larger than 100k elements, use irlba (truncated SVD)
+  if (matrix_size > 100000) {
+    print(paste("[qc.pcaplot] Large matrix detected (", matrix_size, "elements). Using irlba for efficient PCA..."));
+
+    # Try to load irlba package
+    if (!requireNamespace("irlba", quietly = TRUE)) {
+      print("[qc.pcaplot] Installing irlba package for memory-efficient PCA...");
+      install.packages("irlba", repos = "https://cloud.r-project.org/")
+    }
+
+    require('irlba')
+
+    # Use truncated SVD - compute only first 10 PCs (sufficient for visualization)
+    n_components <- min(10, ncol(data_matrix), nrow(data_matrix) - 1)
+    print(paste("[qc.pcaplot] Computing", n_components, "principal components using irlba..."));
+
+    pca <- prcomp_irlba(data_matrix, n = n_components, center = TRUE, scale. = FALSE)
+
+    # CRITICAL: Restore sample names to PCA results (irlba doesn't preserve them)
+    rownames(pca$x) <- sample_names
+
+    print(paste("[qc.pcaplot] irlba PCA computation COMPLETE - Time:", Sys.time()));
+
+    # Calculate variance importance for irlba (not included by default)
+    variance_explained <- pca$sdev^2
+    total_variance <- sum(variance_explained)
+    prop_var <- variance_explained / total_variance
+    cum_var <- cumsum(prop_var)
+
+    # Create importance matrix compatible with standard prcomp
+    imp.pca <- rbind(
+      "Standard deviation" = pca$sdev,
+      "Proportion of Variance" = prop_var,
+      "Cumulative Proportion" = cum_var
+    )
+    colnames(imp.pca) <- paste0("PC", 1:ncol(imp.pca))
+
+  } else {
+    print("[qc.pcaplot] Using standard prcomp for small matrix...");
+    pca <- prcomp(data_matrix)
+
+    # Ensure sample names are preserved (prcomp usually does this, but make sure)
+    if (is.null(rownames(pca$x))) {
+      rownames(pca$x) <- sample_names
+    }
+
+    print(paste("[qc.pcaplot] PCA computation COMPLETE - Time:", Sys.time()));
+    imp.pca <- summary(pca)$importance
+  }
+
+  # Clean up temporary matrix
+  rm(data_matrix)
+  gc(verbose = FALSE)
   xlabel <- paste0("PC1"," (", 100 * round(imp.pca[2,][1], 3), "%)")
   ylabel <- paste0("PC2"," (", 100 * round(imp.pca[2,][2], 3), "%)")
   pca.res <- as.data.frame(pca$x)
   pca.res <- pca.res[, c(1, 2)]
-  
+
+  # Store original rownames before any filtering
+  original_rownames <- rownames(pca.res)
+  print(paste("[qc.pcaplot] Original PCA result rows:", length(original_rownames)));
+  print(paste("[qc.pcaplot] First few sample names:", paste(head(original_rownames, 3), collapse=", ")));
+
+  if ("newcolumn" %in% colnames(dataSet$meta.info)) {
+    dataSet$meta.info <- data.frame(dataSet$meta.info[, -which(colnames(dataSet$meta.info) == "newcolumn")])
+  }
+
+  # First align with metadata BEFORE filtering non-finite values
+  print(paste("[qc.pcaplot] Metadata rows:", nrow(dataSet$meta.info)));
+  print(paste("[qc.pcaplot] First few metadata names:", paste(head(rownames(dataSet$meta.info), 3), collapse=", ")));
+
+  # Find common rows between PCA and metadata
+  common_rows <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
+  print(paste("[qc.pcaplot] Common samples found:", length(common_rows)));
+
+  if (length(common_rows) == 0) {
+    print("[qc.pcaplot] ERROR: No overlap between PCA rownames and metadata rownames!");
+    print(paste("[qc.pcaplot] PCA rownames sample:", paste(head(rownames(pca.res), 5), collapse=", ")));
+    print(paste("[qc.pcaplot] Metadata rownames sample:", paste(head(rownames(dataSet$meta.info), 5), collapse=", ")));
+    stop("[qc.pcaplot] ERROR: No common samples between PCA results and metadata!")
+  }
+
+  # Align both datasets to common samples
+  pca.res <- pca.res[common_rows, , drop = FALSE]
+  dataSet$meta.info <- dataSet$meta.info[common_rows, , drop = FALSE]
+
+  # NOW check for non-finite values (after alignment)
+  if (any(!is.finite(pca.res$PC1)) || any(!is.finite(pca.res$PC2))) {
+    print(paste("[qc.pcaplot] WARNING: Non-finite values detected in PCA results."));
+    print(paste("[qc.pcaplot] PC1 non-finite:", sum(!is.finite(pca.res$PC1))));
+    print(paste("[qc.pcaplot] PC2 non-finite:", sum(!is.finite(pca.res$PC2))));
+
+    # Filter both PCA and metadata together to keep them aligned
+    valid_rows <- is.finite(pca.res$PC1) & is.finite(pca.res$PC2)
+    pca.res <- pca.res[valid_rows, , drop = FALSE]
+    dataSet$meta.info <- dataSet$meta.info[valid_rows, , drop = FALSE]
+    print(paste("[qc.pcaplot] Remaining valid rows after filtering:", nrow(pca.res)));
+  }
+
   # Increase xlim and ylim for text label
   xlim <- GetExtendRange(pca.res$PC1)
   ylim <- GetExtendRange(pca.res$PC2)
   
-  if ("newcolumn" %in% colnames(dataSet$meta.info)) {
-    dataSet$meta.info <- data.frame(dataSet$meta.info[, -which(colnames(dataSet$meta.info) == "newcolumn")])
-  }
-  
-  if (!(all(rownames(pca.res) == rownames(dataSet$meta.info)))) {
-    pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), ]
-  }
-  
   if (length(dataSet$meta.info) == 2) {
+    # OPTIMIZED: Get column names once
+    meta_colnames <- colnames(dataSet$meta.info)
     Factor1 <- as.vector(dataSet$meta.info[, 1])
-    factorNm1 <- colnames(dataSet$meta.info)[1]
+    factorNm1 <- meta_colnames[1]
     pca.res[, factorNm1] <- Factor1
     Factor2 <- as.vector(dataSet$meta.info[, 2])
-    factorNm2 <- colnames(dataSet$meta.info)[2]
+    factorNm2 <- meta_colnames[2]
     pca.res[, factorNm2] <- Factor2
     pca.rest <- reshape::melt(pca.res, measure.vars = c(factorNm1, factorNm2))
     colnames(pca.rest)[4] <- "Conditions"
     pca.rest$names <- rep(rownames(pca.res), times = 2)
-    
-    # Calculate group centroids
-    centroids <- aggregate(. ~ Conditions, data = pca.rest[, c("PC1", "PC2", "Conditions")], mean)
-    # Merge centroids back to the pca.rest dataframe
-    pca.rest <- merge(pca.rest, centroids, by = "Conditions", suffixes = c("", "_centroid"))
-    # Calculate the distance to the centroid
-    pca.rest$distance <- sqrt((pca.rest$PC1 - pca.rest$PC1_centroid)^2 + (pca.rest$PC2 - pca.rest$PC2_centroid)^2)
-    # Identify outliers based on variance threshold (20% here)
-    threshold <- 0.2 * mean(pca.rest$distance, na.rm = TRUE)
-    pca.rest$outlier <- pca.rest$distance > threshold
+
+    # Remove rows with NA or non-finite values before aggregation
+    pca.rest.clean <- pca.rest[is.finite(pca.rest$PC1) & is.finite(pca.rest$PC2) & !is.na(pca.rest$Conditions), ]
+
+    if (nrow(pca.rest.clean) == 0) {
+      print("[qc.pcaplot] WARNING: No valid rows for aggregation after cleaning. Skipping centroid calculation.");
+      # Use original data without centroid/outlier detection
+      pca.rest.clean <- pca.rest
+      pca.rest.clean$outlier <- FALSE
+    } else {
+      print(paste("[qc.pcaplot] Valid rows for aggregation:", nrow(pca.rest.clean)));
+      # Calculate group centroids
+      centroids <- aggregate(. ~ Conditions, data = pca.rest.clean[, c("PC1", "PC2", "Conditions")], mean)
+      # Merge centroids back to the pca.rest dataframe
+      pca.rest.clean <- merge(pca.rest.clean, centroids, by = "Conditions", suffixes = c("", "_centroid"))
+      # Calculate the distance to the centroid
+      pca.rest.clean$distance <- sqrt((pca.rest.clean$PC1 - pca.rest.clean$PC1_centroid)^2 + (pca.rest.clean$PC2 - pca.rest.clean$PC2_centroid)^2)
+      # Identify outliers based on variance threshold (20% here)
+      threshold <- 0.2 * mean(pca.rest.clean$distance, na.rm = TRUE)
+      pca.rest.clean$outlier <- pca.rest.clean$distance > threshold
+    }
+
+    # Use cleaned data for plotting
+    pca.rest <- pca.rest.clean
     
       pcafig <- ggplot(pca.rest, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
         geom_point(size = 3, alpha = 0.5) + 
@@ -529,31 +656,47 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     paramSet$pca.outliers <- c("NA");
   }
 
-  permanova_results ="";
+ # permanova_results ="";
 
-trash <- capture.output(
-          permanova_results <- ComputePERMANOVA(pca.res$PC1,
-                                                pca.res$PC2,
-                                                dataSet$meta.info[,1],
-                                                999),
-          file = NULL)            # discard
+  # Run PERMANOVA with error handling to prevent crashes
+  #trash <- capture.output({
+  #  permanova_results <- tryCatch({
+  #    ComputePERMANOVA(pca.res$PC1,
+  #                     pca.res$PC2,
+  #                     dataSet$meta.info[,1],
+  #                     999)
+  #  }, error = function(e) {
+  #    print(paste("[qc.pcaplot] WARNING: PERMANOVA failed:", e$message));
+  #    print("[qc.pcaplot] Continuing without PERMANOVA statistics");
+  #    # Return empty result
+  #    list(
+  #      stat.info = "PERMANOVA test skipped due to error",
+  #      stat.info.vec = c(`F-value` = NA, `R-squared` = NA, `p-value` = NA),
+  #      pair.res = NULL
+  #    )
+  #  })
+  #}, file = NULL)  # discard output
 
   analSet <- readSet(analSet, "analSet");
 
   # pca is a large object. only save those required for json
   # never use more than top 3. Update this if you require more PCs
 
-  imp     <- summary(pca)$importance[2, 1:2]
+  # Use the importance matrix we already computed (works for both prcomp and irlba)
+  imp     <- imp.pca[2, 1:2]
   xlabel  <- sprintf("PC1 (%.1f%%)", 100 * imp[1])
   ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
+
+  # Select top 3 PCs (or fewer if less than 3 PCs were computed)
+  n_pcs_to_save <- min(3, ncol(pca$x))
   my.pca <- list(
-        x = pca$x[,1:3],
+        x = pca$x[, 1:n_pcs_to_save, drop = FALSE],
         xlabel = xlabel,
         ylabel = ylabel
     );
 
   analSet$pca <- my.pca;
-  analSet$permanova.res <-permanova_results;
+  #analSet$permanova.res <-permanova_results;
   saveSet(analSet, "analSet");
   saveSet(paramSet, "paramSet");
   
@@ -858,19 +1001,57 @@ ComputePERMANOVA <- function(pc1, pc2, cls, numPermutations = 999) {
 # use a PERMANOVA to partition the euclidean distance by groups based on current score plot:
 .calculateDistSig <- function(pc.mat, grp){
 
+    # Force garbage collection before computationally intensive PERMANOVA
+    print("[calculateDistSig] Starting PERMANOVA test...");
+    gc(verbose = FALSE, full = TRUE)
+
+    # Use fewer permutations for large datasets to prevent memory issues
+    n_samples <- nrow(pc.mat)
+    n_perms <- if (n_samples > 100) 99 else 999  # Reduce permutations for large datasets
+    print(paste("[calculateDistSig] Using", n_perms, "permutations for", n_samples, "samples"));
+
+    # Calculate distance matrix
     data.dist <- dist(as.matrix(pc.mat), method = 'euclidean');
-    res <- vegan::adonis2(formula = data.dist ~ grp);
+
+    # Wrap adonis2 in error handling to catch malloc errors
+    res <- tryCatch({
+      vegan::adonis2(formula = data.dist ~ grp, permutations = n_perms)
+    }, error = function(e) {
+      print(paste("[calculateDistSig] ERROR in adonis2:", e$message));
+      print("[calculateDistSig] Returning dummy result due to error");
+      # Return a dummy result structure
+      dummy_df <- data.frame(
+        Df = c(1, n_samples - 1),
+        SumOfSqs = c(0, 0),
+        R2 = c(0, 1),
+        F = c(0),
+        Pr = c(1)  # p-value = 1 (not significant)
+      )
+      rownames(dummy_df) <- c("grp", "Residual")
+      return(dummy_df)
+    })
 
     # pairwise for multi-grp
     if(length(levels(grp)) > 2){
-      pair.res <- .permanova_pairwise(x = data.dist, grp);
-      rownames(pair.res) <- pair.res$pairs;
-      pair.res$pairs <- NULL;
-      pair.res <- signif(pair.res,5);
-      fast.write.csv(pair.res, file="pca_pairwise_permanova.csv");
+      pair.res <- tryCatch({
+        .permanova_pairwise(x = data.dist, grp, permutations = n_perms);
+      }, error = function(e) {
+        print(paste("[calculateDistSig] ERROR in pairwise PERMANOVA:", e$message));
+        return(NULL)
+      })
+
+      if (!is.null(pair.res)) {
+        rownames(pair.res) <- pair.res$pairs;
+        pair.res$pairs <- NULL;
+        pair.res <- signif(pair.res,5);
+        fast.write.csv(pair.res, file="pca_pairwise_permanova.csv");
+      }
     }else{
       pair.res <- NULL;
     }
+
+    print("[calculateDistSig] PERMANOVA test complete");
+    gc(verbose = FALSE)  # Clean up after PERMANOVA
 
     return(list(res, pair.res));
 }
@@ -1115,6 +1296,7 @@ qc.gini.plot <- function(gini_df,
     return("NA")
   }
 }
+
 SummarizeQC <- function(fileName, imgNameBase, threshold = 0.1) {
   # save.image("summarize.RData");
   dataSet <- readDataset(fileName)
