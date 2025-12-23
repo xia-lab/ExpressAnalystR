@@ -490,18 +490,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     # Identify outliers based on variance threshold (20% here)
     threshold <- 0.2 * mean(pca.res$distance, na.rm = TRUE)
     pca.res$outlier <- pca.res$distance > threshold
-
-    # only mark multi-sample outliers when each sample comes from a distinct dose group
-    dose_idx <- which(tolower(colnames(dataSet$meta.info)) == "dose")
-    if (length(dose_idx) > 0) {
-      dose_vals <- as.character(dataSet$meta.info[, dose_idx[1]])
-      outlier_idx <- which(pca.res$outlier)
-      if (length(outlier_idx) > 1) {
-        if (length(unique(dose_vals[outlier_idx])) != length(outlier_idx)) {
-          pca.res$outlier[outlier_idx] <- FALSE
-        }
-      }
-    }
     
       pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions)) +
         geom_point(size = 3, alpha = 0.5) + 
@@ -1943,14 +1931,14 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   vehicle_note <- if (any("is_vehicle" == colnames(meta)) && veh_kept < min_vehicles)
     sprintf("Warning: only %d vehicle samples kept (< %d).", veh_kept, min_vehicles) else NULL
 
-  status_lab <- ifelse(df$exclude, "Outlier",
+  status_lab <- ifelse(df$exclude, "Excluded",
                        ifelse(df$axis_class == "moderate", "Moderate", "Kept"))
   df$.__status__ <- status_lab
 
   status_styles <- list(
     Kept     = list(line = list(color = "white", width = 0.5), size = 8,  opacity = 0.9),
     Moderate = list(line = list(color = "orange", width = 2),  size = 9,  opacity = 1.0),
-    Outlier = list(line = list(color = "red",    width = 3),  size = 10, opacity = 1.0)
+    Excluded = list(line = list(color = "red",    width = 3),  size = 10, opacity = 1.0)
   )
 
   mk_trace <- function(subdf, name, color) {
@@ -1999,7 +1987,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   traces <- list()
   for (g in unique_grps) {
     gdf <- df[df$group == g, , drop = FALSE]
-    for (st in c("Kept","Moderate","Outlier")) {
+    for (st in c("Kept","Moderate","Excluded")) {
       sdf <- gdf[gdf$.__status__ == st, , drop = FALSE]
       if (nrow(sdf) == 0) next
       tr <- mk_trace(sdf, g, col.map[[g]])

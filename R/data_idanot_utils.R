@@ -57,16 +57,17 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     
     anot.id <- .doAnnotation(feature.vec, idType, paramSet);
     anot.id <- unname(anot.id);
+    print(head(anot.id));
     if(idType %in% c("s2f", "generic", "ko")){
-      symbol.map <- .doGeneIDMapping(anot.id, idType, paramSet, "matrix");
+      symbol.map <- .doGeneIDMapping(feature.vec, idType, paramSet, "matrix");
     }else{
-      symbol.map <- .doGeneIDMapping(anot.id, "entrez", paramSet, "matrix");
+      symbol.map <- .doGeneIDMapping(feature.vec, "entrez", paramSet, "matrix");
     }
     symbol.map <- symbol.map[which(symbol.map$gene_id %in% anot.id),];
     
     saveDataQs(symbol.map, "symbol.map.qs", paramSet$anal.type, dataName);
     
-    qs::qsave(anot.id, "annotation.qs");
+    qs::qsave(symbol.map, "annotation.qs");
     
     hit.inx <- !is.na(anot.id);
     matched.len <- sum(hit.inx);
@@ -273,13 +274,12 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
     db.map <- queryGeneDB("entrez", org);
     feature.vec <- db.map[, "gene_id"];
     idType <- "entrez";
-    print(".doGeneIDMapping, empty feature.vec, get whole table");
   }
   
   col.nm <- "";
   db.nm <- "";
   
-  if (org == "zhangshugang" || org == "cro" || org == "dimmitis"|| org == "hpolygyrus") {
+  if (org == "zhangshugang" || org == "cro" || org == "hpolygyrus") {
       q.mat <- do.call(rbind, strsplit(feature.vec, "\\."));
       feature.vec <- q.mat[, 1];
   }
@@ -300,9 +300,10 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
     col.nm <- "accession";
     db.nm <- "entrez_cds";
   } else {
-    if (!(idType == "refseq" && org == "fcd") && !(idType == "string" && org == "cel")) {
-      q.mat <- do.call(rbind, strsplit(feature.vec, "\\."));
-      feature.vec <- q.mat[, 1];
+    if (!(idType == "refseq" && org == "fcd") &&
+        !(idType == "string" && org == "cel") &&
+        !(org == "dimmitis")) {
+      feature.vec <- sub("\\.[^.]+$", "", feature.vec);
     }
     col.nm <- "accession";
     if (idType == "tair") {
