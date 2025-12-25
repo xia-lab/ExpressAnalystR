@@ -359,14 +359,14 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 
     # FIX: Suppress Quartz popup on macOS
     invisible(dev.off())
-    message("Heat-map written to: ", outFile)
+    #message("Heat-map written to: ", outFile)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_traitheat <- outFile;
     saveSet(imgSet, "imgSet");
     1
 
   }, error = function(e) {
-    message("PlotCEMiTreatmentHeatmap: ", e$message)
+    #message("PlotCEMiTreatmentHeatmap: ", e$message)
     0
   })
 }

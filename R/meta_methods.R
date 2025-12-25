@@ -207,11 +207,11 @@ SanityAttachMeta(sel.nms, paramSet, msgSet);
   if(!file.exists("inmex.meta.orig.qs")){
     qs::qsave(inmex.meta.orig, "inmex.meta.orig.qs");
   }
-  message("[MetaQC] Saved merged meta (raw snapshot)");
+  #message("[MetaQC] Saved merged meta (raw snapshot)");
   if(!file.exists("inmex_meta.qs")){
   qs::qsave(inmex.meta, "inmex_meta.qs");
   }
-  message("[MetaQC] Saved merged meta (current)");
+  #message("[MetaQC] Saved merged meta (current)");
   paramSet$smps.vec <- colnames(common.matrix);
   # setup common stats gene number, smpl number, grp info
   msgSet$current.msg <- paste("Sample #:", ncol(inmex.meta$data),
@@ -1046,7 +1046,7 @@ SanityAttachMeta <- function(sel.nms, paramSet, msgSet) {
   ## 1) Early-exit if consolidated meta already exists
   ## -------------------------------------------------
   if (!is.null(paramSet$dataSet$cont.inx)) {
-    message("SanityAttachMeta(): consolidated metadata present — skipping.")
+    #message("SanityAttachMeta(): consolidated metadata present — skipping.")
     saveSet(paramSet, "paramSet")
     saveSet(msgSet,   "msgSet")
     return(invisible(TRUE))

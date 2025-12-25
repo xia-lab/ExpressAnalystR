@@ -234,10 +234,10 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
     all_significant_genes <- unique(final_table$GeneID)  # de-duplicate here
     de.Num.total          <- length(all_significant_genes)
 
-    message("Significant genes table exported to: ", output_file)
+    #message("Significant genes table exported to: ", output_file)
   } else {
     de.Num.total <- 0
-    message("No significant genes identified to export.")
+    #message("No significant genes identified to export.")
   }
 
   ## ---------- bookkeeping -----------------------------------------------
@@ -309,11 +309,11 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
       })
 
       write.csv(de_df, file = out_bin_file, row.names = FALSE)
-      message("Binary DE matrix written to: ", out_bin_file)
+      #message("Binary DE matrix written to: ", out_bin_file)
     } else {
       # write an empty shell (optional)
       write.csv(data.frame(GeneID = character(0)), file = out_bin_file, row.names = FALSE)
-      message("No genes passed any comparison; wrote empty binary matrix to: ", out_bin_file)
+      #message("No genes passed any comparison; wrote empty binary matrix to: ", out_bin_file)
     }
 }
 dataSet$comp.res.list <- lapply(dataSet$comp.res.list, function(tbl) {
@@ -426,7 +426,7 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
   comp_list <- dataSet$comp.res.list
   if (is.null(comp_list) || length(comp_list) == 0) {
     msg <- "No comparison results available for export."
-    message(msg)
+    #message(msg)
     return("")
   }
 
@@ -505,7 +505,7 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
 
   if (length(out_files) == 0) {
     msg <- "No significant genes identified for any comparison."
-    message(msg)
+    #message(msg)
     return("")
   }
 
@@ -513,6 +513,6 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
     file.remove(zip_name)
   }
   utils::zip(zipfile = zip_name, files = out_files)
-  message("All-comparisons zip exported to: ", zip_name)
+  #message("All-comparisons zip exported to: ", zip_name)
   return(zip_name)
 }

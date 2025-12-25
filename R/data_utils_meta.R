@@ -417,7 +417,7 @@ RestoreMetaData <- function(){
     }
     inmex.meta.orig <- qs::qread("inmex.meta.orig.qs");
     .safe_qsave(inmex.meta.orig, "inmex_meta.qs");
-    message("[MetaQC] RestoreMetaData: restoring datasets from original matrix");
+    #message("[MetaQC] RestoreMetaData: restoring datasets from original matrix");
     .update.datasets.from.meta(inmex.meta.orig);
     paramSet <- readSet(paramSet, "paramSet");
     paramSet$performedBatch <- FALSE;
@@ -469,7 +469,7 @@ RestoreMetaData <- function(){
         if(!is.null(dataSet$data)){
             dataSet$data <- adj;
         }
-        message(paste("[MetaQC] Updated dataset", dataName, "with", ncol(adj), "samples"));
+        #message(paste("[MetaQC] Updated dataset", dataName, "with", ncol(adj), "samples"));
         RegisterData(dataSet);
     }
     return(1);
@@ -480,7 +480,7 @@ RestoreMetaData <- function(){
         dataSets <<- list();
     }
     inmex.meta <- qs::qread("inmex_meta.qs");
-    message("[MetaQC] FinalizeBatchCorrection: updating datasets from merged matrix");
+    #message("[MetaQC] FinalizeBatchCorrection: updating datasets from merged matrix");
     .update.datasets.from.meta(inmex.meta);
     paramSet <- readSet(paramSet, "paramSet");
     paramSet$performedBatch <- TRUE;
