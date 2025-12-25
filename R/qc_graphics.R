@@ -137,14 +137,40 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
 
     # Single merge operation
     df1 <- merge(df, conv, by="ind")
-    df2 <- reshape::melt(df1, measure.vars=c(factorNm1,factorNm2))
-    colnames(df2)[4] <- "Conditions"
-    
-    g = ggplot(df2, aes(x=values)) + 
-      geom_line(aes(color=Conditions, group=ind), stat="density", alpha=0.6) + 
-      facet_grid(. ~ variable) +
-      theme_bw()
-    
+
+    # Create separate plots for each factor
+    d1 <- ggplot(df1, aes(x=values)) +
+      geom_line(aes(color=.data[[factorNm1]], group=ind), stat="density", alpha=0.6) +
+      labs(color = factorNm1) +
+      theme_bw() +
+      theme(
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        legend.position = "bottom"
+      )
+
+    d2 <- ggplot(df1, aes(x=values)) +
+      geom_line(aes(color=.data[[factorNm2]], group=ind), stat="density", alpha=0.6) +
+      labs(color = factorNm2) +
+      theme_bw() +
+      theme(
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        legend.position = "bottom"
+      )
+
+    if (requireNamespace("patchwork", quietly = TRUE)) {
+      g <- patchwork::wrap_plots(d1, d2, ncol = 2)
+    } else if (requireNamespace("cowplot", quietly = TRUE)) {
+      g <- cowplot::plot_grid(d1, d2, ncol = 2)
+    } else {
+      stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side density plots with separate legends.")
+    }
+
     width <- 12
     height <- 5
   }else{
@@ -219,30 +245,84 @@ PlotLibSizeView<-function(fileName, imgNm,dpi=72, format="png"){
     conv <- data.frame(ind=sampleNms, Factor2=Factor2)
     colnames(conv) <- c("ind", factor2Nm)
     df1 <- merge(df1, conv, by="ind")
-    df2 <- reshape::melt(df1, measure.vars=c(factor1Nm,factor2Nm))
-    colnames(df2)[4] <- "Conditions"
-    if(length(df2$ind)>20){
 
-      g <- ggplot(df2, aes(x = Conditions, y = count, fill=Conditions, label= ind))+
-        geom_dotplot(binaxis = 'y', stackdir = 'center',position = position_dodge(), dotsize=0.7) + 
-        geom_text() + 
-        ylab("Sum") + 
-        facet_grid(. ~ variable) +
-        theme_bw()
+    # Create separate plots for each factor
+    if(length(df1$ind)>20){
+      l1 <- ggplot(df1, aes(x = .data[[factor1Nm]], y = count, fill=.data[[factor1Nm]], label=ind))+
+        geom_dotplot(binaxis = 'y', stackdir = 'center',position = position_dodge(), dotsize=0.7) +
+        geom_text() +
+        ylab("Sum") +
+        xlab(factor1Nm) +
+        labs(fill = factor1Nm) +
+        theme_bw() +
+        theme(
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14),
+          legend.position = "bottom"
+        )
 
-      plotData <- ggplot_build(g)
-      g$layers[[2]] = NULL;
+      plotData <- ggplot_build(l1)
+      l1$layers[[2]] = NULL;
+
+      l2 <- ggplot(df1, aes(x = .data[[factor2Nm]], y = count, fill=.data[[factor2Nm]], label=ind))+
+        geom_dotplot(binaxis = 'y', stackdir = 'center',position = position_dodge(), dotsize=0.7) +
+        geom_text() +
+        ylab("Sum") +
+        xlab(factor2Nm) +
+        labs(fill = factor2Nm) +
+        theme_bw() +
+        theme(
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14),
+          legend.position = "bottom"
+        )
+
+      plotData <- ggplot_build(l2)
+      l2$layers[[2]] = NULL;
     }else{
+      l1 <- ggplot(df1, aes(x = .data[[factor1Nm]], y = count, fill=.data[[factor1Nm]], label=ind))+
+        geom_dotplot(binaxis = 'y', stackdir = 'center', position = position_dodge(), dotsize=0.7) +
+        geom_text_repel(force=5) +
+        ylab("Sum") +
+        xlab(factor1Nm) +
+        labs(fill = factor1Nm) +
+        theme_bw() +
+        theme(
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14),
+          legend.position = "bottom"
+        )
 
-      g <- ggplot(df2, aes(x = Conditions, y = count, fill=Conditions, label=ind))+
-        geom_dotplot(binaxis = 'y', stackdir = 'center', position = position_dodge(), dotsize=0.7) + 
-        geom_text_repel(force=5) + 
-        ylab("Sum") + 
-        facet_grid(. ~ variable) +
-        theme_bw()
-
-      plotData <- ggplot_build(g)
+      l2 <- ggplot(df1, aes(x = .data[[factor2Nm]], y = count, fill=.data[[factor2Nm]], label=ind))+
+        geom_dotplot(binaxis = 'y', stackdir = 'center', position = position_dodge(), dotsize=0.7) +
+        geom_text_repel(force=5) +
+        ylab("Sum") +
+        xlab(factor2Nm) +
+        labs(fill = factor2Nm) +
+        theme_bw() +
+        theme(
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14),
+          legend.position = "bottom"
+        )
     }
+
+    if (requireNamespace("patchwork", quietly = TRUE)) {
+      g <- patchwork::wrap_plots(l1, l2, ncol = 2)
+    } else if (requireNamespace("cowplot", quietly = TRUE)) {
+      g <- cowplot::plot_grid(l1, l2, ncol = 2)
+    } else {
+      stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side library size plots with separate legends.")
+    }
+
     width <- 12
     height <- 6
     
@@ -569,12 +649,13 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
       scale_color_manual(values = pal1) +
       guides(color = guide_legend(title = factorNm1)) +
       theme(
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        legend.text = element_text(size = 14),
-        legend.title = element_text(size = 16)
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        legend.position = "bottom"
       )
-    
+
     p2 <- ggplot(p2_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
       geom_point(size = 3, alpha = 0.6) +
       xlim(xlim) +
@@ -585,10 +666,11 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
       scale_color_manual(values = pal2) +
       guides(color = guide_legend(title = factorNm2)) +
       theme(
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        legend.text = element_text(size = 14),
-        legend.title = element_text(size = 16)
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        legend.position = "bottom"
       )
     
     if (requireNamespace("patchwork", quietly = TRUE)) {
@@ -598,7 +680,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     } else {
       stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side PCA plots with separate legends.")
     }
-    width <- 14
+    width <- 12
     height <- 6
   } else {
     Factor <- dataSet$meta.info[, 1]
@@ -616,18 +698,18 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     pca.res$outlier <- pca.res$distance > threshold
     
       pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions)) +
-        geom_point(size = 3, alpha = 0.6) + 
-        xlim(xlim) + 
-        ylim(ylim) + 
-        xlab(xlabel) + 
+        geom_point(size = 3, alpha = 0.6) +
+        xlim(xlim) +
+        ylim(ylim) +
+        xlab(xlabel) +
         ylab(ylabel) +
         theme_bw() +
         theme(
-          axis.text = element_text(size = 14),
-          axis.title = element_text(size = 16),
-          plot.title = element_text(size = 18, face = "bold"),
-          legend.text = element_text(size = 14),
-          legend.title = element_text(size = 16)
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          plot.title = element_text(size = 16, face = "bold"),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14)
         )
     
     width <- 8
