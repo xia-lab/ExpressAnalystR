@@ -115,6 +115,12 @@ GetDiscMetas <- function(dataName=""){
     paramSet <- readSet(paramSet, "paramSet")
     dataSet <- paramSet$dataSet;
   }
+
+  # Handle missing metadata
+  if(is.null(dataSet$meta.info) || is.null(dataSet$disc.inx)){
+    return(character(0));
+  }
+
   if(length(keepVec)>0){
     keepidx <- which(keepVec %in% colnames(dataSet$meta.info))
     keepidx <- intersect(keepidx,which(dataSet$disc.inx))
@@ -123,6 +129,12 @@ GetDiscMetas <- function(dataName=""){
   }
   colnms<- colnames(dataSet$meta.info)[keepidx]
   #print(colnms)
+
+  # Return empty character vector if no discrete metadata columns found
+  if(is.null(colnms) || length(colnms) == 0){
+    return(character(0));
+  }
+
   return(filterDatasetColumn(colnms));
 }
 
@@ -133,7 +145,20 @@ GetMetaDataCol <- function(dataName="",colnm){
     paramSet <- readSet(paramSet, "paramSet")
     dataSet <- paramSet$dataSet;
   }
+
+  # Handle missing metadata or column
+  if(is.null(dataSet$meta.info)){
+    return(character(0));
+  }
+
+  if(!(colnm %in% colnames(dataSet$meta.info))){
+    return(character(0));
+  }
+
   cls = levels(dataSet$meta.info[,colnm]);
+  if(is.null(cls) || length(cls) == 0){
+    return(character(0));
+  }
   return(cls[cls!="NA"]);
 }
 

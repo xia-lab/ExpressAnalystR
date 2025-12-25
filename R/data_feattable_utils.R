@@ -418,3 +418,101 @@ dataSet$comp.res <- rbind(resTable, other)
   saveSet(paramSet, "paramSet");
   return(c(output_file, de.Num, geneList, total, up, down, non.de.Num));
 }
+
+ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR = "true") {
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet <- readDataset(dataName)
+
+  comp_list <- dataSet$comp.res.list
+  if (is.null(comp_list) || length(comp_list) == 0) {
+    msg <- "No comparison results available for export."
+    message(msg)
+    return("")
+  }
+
+  comp_names <- names(comp_list)
+  if (is.null(comp_names)) {
+    comp_names <- paste0("Comparison_", seq_along(comp_list))
+  }
+
+  use_fdr <- (FDR == "true") || isTRUE(FDR)
+  fmt_fc <- format(as.numeric(fc.lvl), digits = 2, nsmall = 0, trim = TRUE, scientific = FALSE)
+  zip_name <- paste0(dataName, "_logFC_", fmt_fc, "_All_Comparisons.zip")
+
+  safe_name <- function(x) gsub("[^A-Za-z0-9._-]+", "_", x)
+
+  out_files <- character(0)
+  for (i in seq_along(comp_list)) {
+    resTable <- comp_list[[i]]
+    if (is.null(resTable) || nrow(resTable) == 0) {
+      next
+    }
+    resTable <- resTable[!is.na(resTable[, 1]), , drop = FALSE]
+
+    if (use_fdr) {
+      pcol <- if ("adj.P.Val" %in% names(resTable)) "adj.P.Val"
+              else if ("padj" %in% names(resTable)) "padj"
+              else "P.Value"
+    } else {
+      pcol <- if ("P.Value" %in% names(resTable)) "P.Value"
+              else if ("padj" %in% names(resTable)) "padj"
+              else "P.Value"
+    }
+
+    lfc_col <- if ("logFC" %in% names(resTable)) "logFC"
+               else if ("log2FoldChange" %in% names(resTable)) "log2FoldChange"
+               else NULL
+
+    sig <- resTable
+
+    gene_ids <- rownames(sig)
+    gene_id_col <- gene_ids
+    symbol_col <- rep(NA_character_, length(gene_ids))
+    name_col <- rep(NA_character_, length(gene_ids))
+
+    if (dataSet$annotated) {
+      anot <- tryCatch(
+        doEntrezIDAnot(gene_id_col, paramSet$data.org, paramSet$data.idType),
+        error = function(e) data.frame(symbol = symbol_col, name = name_col)
+      )
+      symbol_col <- anot$symbol
+      name_col <- anot$name
+    } else if (file.exists("annotation.qs")) {
+      anot.id <- qs::qread("annotation.qs")
+      mapped_ids <- anot.id[gene_ids]
+      gene_id_col <- mapped_ids
+      anot <- tryCatch(
+        doEntrezIDAnot(mapped_ids, paramSet$data.org, paramSet$data.idType),
+        error = function(e) data.frame(symbol = symbol_col, name = name_col)
+      )
+      symbol_col <- anot$symbol
+      name_col <- anot$name
+    }
+
+    export_tbl <- data.frame(
+      GeneID = gene_id_col,
+      Symbol = symbol_col,
+      Name = name_col,
+      sig,
+      check.names = FALSE
+    )
+
+    comp_name <- safe_name(comp_names[[i]])
+    out_name <- paste0(dataName, "_", comp_name, "_logFC_", fmt_fc, "_Significant_Genes.csv")
+    write.csv(export_tbl, file = out_name, row.names = FALSE)
+    out_files <- c(out_files, out_name)
+  }
+
+  if (length(out_files) == 0) {
+    msg <- "No significant genes identified for any comparison."
+    message(msg)
+    return("")
+  }
+
+  if (file.exists(zip_name)) {
+    file.remove(zip_name)
+  }
+  utils::zip(zipfile = zip_name, files = out_files)
+  message("All-comparisons zip exported to: ", zip_name)
+  return(zip_name)
+}

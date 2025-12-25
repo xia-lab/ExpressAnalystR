@@ -23,10 +23,29 @@
 #'
 SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
   dataSet <- readDataset(dataName);
+  save.image("selected.RData");
+  print(head(dataSet$meta.info));
+  # Initialize default values to ensure dataSet is always in valid state
+  dataSet$fst.cls <- factor(character(0))
+  dataSet$sec.cls <- "NA"
+  dataSet$analysisVar <- "NA"
+  dataSet$secondVar <- "NA"
+  dataSet$cls <- factor(character(0))
+  dataSet$block <- NULL
+  dataSet$rmidx <- NULL
+
   if(meta0 == "NA"){
-    RegisterData(dataSet, 0);
+    return(RegisterData(dataSet, 0));
   }else{
-    rmidx <- which(dataSet$meta.info.[, meta0]=="NA")
+    # Check if metadata exists
+    if(is.null(dataSet$meta.info) || !(meta0 %in% colnames(dataSet$meta.info))){
+      AddErrMsg(paste("Metadata column", meta0, "not found!"));
+      # Save dataSet with safe defaults before returning error
+      RegisterData(dataSet, 0);
+      return(0);
+    }
+
+    rmidx <- which(dataSet$meta.info[, meta0]=="NA")
     if(meta1 != "NA"){
         rmidx <- c(rmidx,which(dataSet$meta.info[, meta1]=="NA"))
     }
@@ -41,6 +60,16 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
         meta<- dataSet$meta.info
     }
     cls <- meta[, meta0];
+
+    # Validate that we have at least 2 levels for analysis
+    unique_levels <- levels(cls)[levels(cls)!="NA"]
+    if(length(unique_levels) < 2){
+      AddErrMsg(paste("Metadata column", meta0, "must have at least 2 groups for analysis! Found:", length(unique_levels)));
+      # Save dataSet with safe defaults before returning error
+      RegisterData(dataSet, 0);
+      return(0);
+    }
+
     dataSet$fst.cls <- cls; # for PCA plotting
     block <- NULL;
     dataSet$sec.cls <- "NA";
@@ -52,11 +81,11 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
       }
       dataSet$sec.cls <- meta[, meta1]; # for pca coloring
     }
-    dataSet$analysisVar <- meta0 
+    dataSet$analysisVar <- meta0
     dataSet$secondVar <- meta1
     dataSet$cls <- cls; # record main cls;
     dataSet$block <- block;
-    RegisterData(dataSet, levels(cls)[levels(cls)!="NA"]);
+    return(RegisterData(dataSet, unique_levels));
   }
 }
 
@@ -246,7 +275,16 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
   dataSet$comp.type <- anal.type;
   grp.nms <- levels(cls);
   analysisVar <- dataSet$analysisVar
-  if(dataSet$cont.inx[analysisVar] |  any(grepl("(^[0-9]+).*", grp.nms))){
+  print(paste("analysisVar:", analysisVar));
+  # Check if analysisVar exists in cont.inx and is TRUE, otherwise FALSE
+  is_continuous <- FALSE
+  if(!is.null(analysisVar) && analysisVar != "NA" && !is.null(dataSet$cont.inx)){
+    if(analysisVar %in% names(dataSet$cont.inx)){
+      is_continuous <- dataSet$cont.inx[analysisVar]
+    }
+  }
+
+  if(is_continuous |  any(grepl("(^[0-9]+).*", grp.nms))){
     if(grepl( "vs",par1)){
       par1 <- strsplit(par1, " vs. ")[[1]]
       par1 <- paste0(analysisVar,"_",par1[1]," vs. ",analysisVar,"_",par1[2])
@@ -789,12 +827,17 @@ MultiCovariateRegression <- function(fileName,
     saveSet(msgSet, "msgSet");
     return(0)
   }
-  
-  
-  # get analysis type
-  analysis.type = ifelse(dataSet$disc.inx[analysis.var],"disc","cont")
-  if(is.na(analysis.type)){
-    msgSet$current.msg <- "Analysis var not found in our database!";
+
+
+
+  # get analysis type - safely check if analysis.var exists in disc.inx
+  analysis.type <- NA
+  if(!is.null(dataSet$disc.inx) && analysis.var %in% names(dataSet$disc.inx)){
+    analysis.type <- ifelse(dataSet$disc.inx[analysis.var], "disc", "cont")
+  }
+
+  if(is.na(analysis.type) || length(analysis.type) == 0){
+    msgSet$current.msg <- paste("Analysis variable", analysis.var, "not found in metadata index!");
     saveSet(msgSet, "msgSet");
     return(0)
   }
@@ -816,7 +859,9 @@ MultiCovariateRegression <- function(fileName,
     }
     
     for(col in 1:ncol(covariates)){
-      if(dataSet$cont.inx[colnames(covariates)[col]]){
+      col_name <- colnames(covariates)[col]
+      # Check if column exists in cont.inx before accessing
+      if(!is.null(dataSet$cont.inx) && col_name %in% names(dataSet$cont.inx) && dataSet$cont.inx[col_name]){
         covariates[,col] <- as.numeric(as.character(covariates[,col]))
       }
     }
@@ -869,13 +914,25 @@ MultiCovariateRegression <- function(fileName,
     dataSet$contrast.matrix <- contrast.matrix;
     dataSet$par1 <-  myargs[[1]];
     dataSet$grp.nms <- ifelse(any(grepl("(^[0-9]+).*", grp.nms)), paste0(analysis.var,"_",grp.nms),grp.nms);
-  } else { 
-    
+  } else {
+
     # build design matrix
-    types <- dataSet$cont.inx[vars];
+    # Safely get cont.inx values for vars, defaulting to FALSE if not found
+    types <- logical(length(vars))
+    names(types) <- vars
+    if(!is.null(dataSet$cont.inx)){
+      for(i in seq_along(vars)){
+        if(vars[i] %in% names(dataSet$cont.inx)){
+          types[i] <- dataSet$cont.inx[vars[i]]
+        }
+      }
+    }
+
     contIdx <- as.numeric(which(types))
-    covariates[,contIdx] <- unlist(lapply(covariates[,contIdx], function(x) as.numeric(as.character((x)))));
-    
+    if(length(contIdx) > 0){
+      covariates[,contIdx] <- unlist(lapply(covariates[,contIdx], function(x) as.numeric(as.character((x)))));
+    }
+
     if (all(types)) {
       design <- model.matrix(formula(paste0("~", paste0(" + ", vars, collapse = ""))), data = covariates);
     } else {

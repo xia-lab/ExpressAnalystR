@@ -146,7 +146,7 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
       theme_bw()
     
     width <- 12
-    height <- 6
+    height <- 5
   }else{
     Conditions <- dataSet$meta.info[,1];
     conv <- data.frame(ind=sampleNms, Conditions=Conditions, stringsAsFactors = FALSE, check.names = FALSE)
@@ -412,22 +412,23 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 
 
 qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALSE) {
-  print(paste("[qc.pcaplot] START - imgNm:", imgNm, "Data dims:", paste(dim(x), collapse="x"), "Time:", Sys.time()));
   dpi <- as.numeric(dpi)
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="")
   imgNm <- paste0(fileNm, format, sep="")
 
-  print("[qc.pcaplot] Loading required libraries...");
   require('lattice')
   require('ggplot2')
   require('reshape')
   require('see')
   require('ggrepel')
+  
+  get_divergent_palette <- function(n) {
+    n <- max(1, n)
+    grDevices::hcl.colors(n, "Dark 3")
+  }
 
   # Force garbage collection before PCA to free memory
   gc(verbose = FALSE, full = TRUE)
-
-  print(paste("[qc.pcaplot] Computing PCA on matrix of size:", paste(dim(t(na.omit(x))), collapse="x"), "Time:", Sys.time()));
 
   # Use memory-efficient PCA for large matrices to prevent malloc errors
   # First remove NA rows, then transpose (samples become rows)
@@ -438,18 +439,12 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
   # In the original data, samples are columns, so colnames become rownames after transpose
   sample_names <- colnames(x_clean)
   rownames(data_matrix) <- sample_names
-  print(paste("[qc.pcaplot] Preserved", length(sample_names), "sample names for PCA"));
-  print(paste("[qc.pcaplot] Sample names:", paste(head(sample_names, 3), collapse=", ")));
-
   matrix_size <- nrow(data_matrix) * ncol(data_matrix)
 
   # For matrices larger than 100k elements, use irlba (truncated SVD)
   if (matrix_size > 100000) {
-    print(paste("[qc.pcaplot] Large matrix detected (", matrix_size, "elements). Using irlba for efficient PCA..."));
-
     # Try to load irlba package
     if (!requireNamespace("irlba", quietly = TRUE)) {
-      print("[qc.pcaplot] Installing irlba package for memory-efficient PCA...");
       install.packages("irlba", repos = "https://cloud.r-project.org/")
     }
 
@@ -457,14 +452,10 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
 
     # Use truncated SVD - compute only first 10 PCs (sufficient for visualization)
     n_components <- min(10, ncol(data_matrix), nrow(data_matrix) - 1)
-    print(paste("[qc.pcaplot] Computing", n_components, "principal components using irlba..."));
-
     pca <- prcomp_irlba(data_matrix, n = n_components, center = TRUE, scale. = FALSE)
 
     # CRITICAL: Restore sample names to PCA results (irlba doesn't preserve them)
     rownames(pca$x) <- sample_names
-
-    print(paste("[qc.pcaplot] irlba PCA computation COMPLETE - Time:", Sys.time()));
 
     # Calculate variance importance for irlba (not included by default)
     variance_explained <- pca$sdev^2
@@ -481,7 +472,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     colnames(imp.pca) <- paste0("PC", 1:ncol(imp.pca))
 
   } else {
-    print("[qc.pcaplot] Using standard prcomp for small matrix...");
     pca <- prcomp(data_matrix)
 
     # Ensure sample names are preserved (prcomp usually does this, but make sure)
@@ -489,7 +479,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
       rownames(pca$x) <- sample_names
     }
 
-    print(paste("[qc.pcaplot] PCA computation COMPLETE - Time:", Sys.time()));
     imp.pca <- summary(pca)$importance
   }
 
@@ -503,25 +492,14 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
 
   # Store original rownames before any filtering
   original_rownames <- rownames(pca.res)
-  print(paste("[qc.pcaplot] Original PCA result rows:", length(original_rownames)));
-  print(paste("[qc.pcaplot] First few sample names:", paste(head(original_rownames, 3), collapse=", ")));
-
   if ("newcolumn" %in% colnames(dataSet$meta.info)) {
     dataSet$meta.info <- data.frame(dataSet$meta.info[, -which(colnames(dataSet$meta.info) == "newcolumn")])
   }
 
   # First align with metadata BEFORE filtering non-finite values
-  print(paste("[qc.pcaplot] Metadata rows:", nrow(dataSet$meta.info)));
-  print(paste("[qc.pcaplot] First few metadata names:", paste(head(rownames(dataSet$meta.info), 3), collapse=", ")));
-
   # Find common rows between PCA and metadata
   common_rows <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
-  print(paste("[qc.pcaplot] Common samples found:", length(common_rows)));
-
   if (length(common_rows) == 0) {
-    print("[qc.pcaplot] ERROR: No overlap between PCA rownames and metadata rownames!");
-    print(paste("[qc.pcaplot] PCA rownames sample:", paste(head(rownames(pca.res), 5), collapse=", ")));
-    print(paste("[qc.pcaplot] Metadata rownames sample:", paste(head(rownames(dataSet$meta.info), 5), collapse=", ")));
     stop("[qc.pcaplot] ERROR: No common samples between PCA results and metadata!")
   }
 
@@ -531,15 +509,10 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
 
   # NOW check for non-finite values (after alignment)
   if (any(!is.finite(pca.res$PC1)) || any(!is.finite(pca.res$PC2))) {
-    print(paste("[qc.pcaplot] WARNING: Non-finite values detected in PCA results."));
-    print(paste("[qc.pcaplot] PC1 non-finite:", sum(!is.finite(pca.res$PC1))));
-    print(paste("[qc.pcaplot] PC2 non-finite:", sum(!is.finite(pca.res$PC2))));
-
     # Filter both PCA and metadata together to keep them aligned
     valid_rows <- is.finite(pca.res$PC1) & is.finite(pca.res$PC2)
     pca.res <- pca.res[valid_rows, , drop = FALSE]
     dataSet$meta.info <- dataSet$meta.info[valid_rows, , drop = FALSE]
-    print(paste("[qc.pcaplot] Remaining valid rows after filtering:", nrow(pca.res)));
   }
 
   # Increase xlim and ylim for text label
@@ -563,12 +536,10 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     pca.rest.clean <- pca.rest[is.finite(pca.rest$PC1) & is.finite(pca.rest$PC2) & !is.na(pca.rest$Conditions), ]
 
     if (nrow(pca.rest.clean) == 0) {
-      print("[qc.pcaplot] WARNING: No valid rows for aggregation after cleaning. Skipping centroid calculation.");
       # Use original data without centroid/outlier detection
       pca.rest.clean <- pca.rest
       pca.rest.clean$outlier <- FALSE
     } else {
-      print(paste("[qc.pcaplot] Valid rows for aggregation:", nrow(pca.rest.clean)));
       # Calculate group centroids
       centroids <- aggregate(. ~ Conditions, data = pca.rest.clean[, c("PC1", "PC2", "Conditions")], mean)
       # Merge centroids back to the pca.rest dataframe
@@ -583,25 +554,51 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     # Use cleaned data for plotting
     pca.rest <- pca.rest.clean
     
-      pcafig <- ggplot(pca.rest, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
-        geom_point(size = 3, alpha = 0.5) + 
-        xlim(xlim) + 
-        ylim(ylim) + 
-        xlab(xlabel) + 
-        ylab(ylabel) + 
-        facet_grid(. ~ variable) +
-        theme_bw() +
-        scale_color_okabeito() +
-        scale_fill_okabeito() +
-        theme(
-          axis.text = element_text(size = 14),
-          axis.title = element_text(size = 16),
-          plot.title = element_text(size = 18, face = "bold"),
-          legend.text = element_text(size = 14),
-          legend.title = element_text(size = 16)
-        )
-   
-    width <- 12
+    p1_df <- pca.rest[pca.rest$variable == factorNm1, , drop = FALSE]
+    p2_df <- pca.rest[pca.rest$variable == factorNm2, , drop = FALSE]
+    pal1 <- get_divergent_palette(length(unique(p1_df$Conditions)))
+    pal2 <- get_divergent_palette(length(unique(p2_df$Conditions)))
+    
+    p1 <- ggplot(p1_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
+      geom_point(size = 3, alpha = 0.6) +
+      xlim(xlim) +
+      ylim(ylim) +
+      xlab(xlabel) +
+      ylab(ylabel) +
+      theme_bw() +
+      scale_color_manual(values = pal1) +
+      guides(color = guide_legend(title = factorNm1)) +
+      theme(
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)
+      )
+    
+    p2 <- ggplot(p2_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
+      geom_point(size = 3, alpha = 0.6) +
+      xlim(xlim) +
+      ylim(ylim) +
+      xlab(xlabel) +
+      ylab(ylabel) +
+      theme_bw() +
+      scale_color_manual(values = pal2) +
+      guides(color = guide_legend(title = factorNm2)) +
+      theme(
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)
+      )
+    
+    if (requireNamespace("patchwork", quietly = TRUE)) {
+      pcafig <- patchwork::wrap_plots(p1, p2, ncol = 2)
+    } else if (requireNamespace("cowplot", quietly = TRUE)) {
+      pcafig <- cowplot::plot_grid(p1, p2, ncol = 2)
+    } else {
+      stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side PCA plots with separate legends.")
+    }
+    width <- 14
     height <- 6
   } else {
     Factor <- dataSet$meta.info[, 1]
@@ -619,7 +616,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     pca.res$outlier <- pca.res$distance > threshold
     
       pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions)) +
-        geom_point(size = 3, alpha = 0.5) + 
+        geom_point(size = 3, alpha = 0.6) + 
         xlim(xlim) + 
         ylim(ylim) + 
         xlab(xlabel) + 
@@ -635,15 +632,8 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     
     width <- 8
     height <- 6
-    if(grepl("norm", imgNm)){
-        if (paramSet$oneDataAnalType == "dose") {
-          pal <- colorRampPalette(c("#2196F3", "#DE690D"))
-          col.pal <- pal(length(unique(pca.res$Conditions)))
-          pcafig <- pcafig + scale_fill_manual(values = col.pal) + scale_color_manual(values = col.pal)
-        } else {
-          pcafig <- pcafig + scale_fill_okabeito() + scale_color_okabeito()
-        }
-    }
+    pal <- get_divergent_palette(length(unique(pca.res$Conditions)))
+    pcafig <- pcafig + scale_fill_manual(values = pal) + scale_color_manual(values = pal)
   }
   
 
@@ -711,8 +701,19 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
   if(dpi == 72){
   dpi <- dpi *1.34
   }
+  imgSet <- readSet(imgSet, "imgSet")
+  if (grepl("norm", imgNm)) {
+    imgSet$qc_norm_pca <- imgNm
+  } else {
+    imgSet$qc_pca <- imgNm
+  }
+  saveSet(imgSet, "imgSet")
     Cairo(file = imgNm, width=width, height=height, type=format, bg="white", unit="in", dpi=dpi)
-    print(pcafig)
+    if (length(dataSet$meta.info) == 2) {
+      print(pcafig)
+    } else {
+      print(pcafig)
+    }
     dev.off()
     return("NA")
   }

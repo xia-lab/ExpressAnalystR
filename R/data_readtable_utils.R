@@ -555,6 +555,53 @@ ReadMetaData <- function(metafilename){
     meta.info <- data.frame(meta.info);
     rownames(meta.info) = colnames(datOrig)[-1]
   }else{ # metadata input as an individual table
+    # Check if metadata file is provided - if not, try to find embedded #CLASS markers
+    if(is.null(metafileName) || metafileName == "" || metafileName == "NA"){
+      print("[.readMetaData] No metadata file provided, checking for embedded #CLASS markers in data file");
+
+      # Try to find #CLASS markers in the data file
+      cls.inx <- grep("^#CLASS", datOrig[,1]);
+      if(length(cls.inx) > 0){
+        print(paste0("[.readMetaData] Found ", length(cls.inx), " #CLASS marker(s) in data file, extracting metadata"));
+        meta.info <- list();
+
+        for(i in 1:length(cls.inx)){
+          inx <- cls.inx[i];
+          cls.nm <- substring(datOrig[inx, 1],2); # discard the first char #
+          if(nchar(cls.nm) > 6){
+            cls.nm <- substring(cls.nm, 7); # remove class
+          }
+          if(grepl("[[:blank:]]", cls.nm)){
+            cls.nm<- gsub("\\s+","_", cls.nm);
+            msg <- c(msg, " Blank spaces in group names are replaced with underscore '_'! ");
+          }
+          cls.lbls <- setNames(as.character(datOrig[inx, -1]),colnames(datOrig)[-1]);
+          # test NA
+          na.inx <- is.na(cls.lbls);
+          cls.lbls[na.inx] <- "NA";
+          cls.lbls <- ClearFactorStrings(cls.lbls);
+          meta.info[[cls.nm]] <- cls.lbls;
+        }
+
+        meta.info <- data.frame(meta.info);
+        rownames(meta.info) = colnames(datOrig)[-1]
+
+        # Return early with embedded metadata
+        disc.inx <- GetDiscreteInx(meta.info);
+        names(disc.inx) <- colnames(meta.info);
+        msgSet$current.msg <- msg;
+        saveSet(msgSet, "msgSet");
+        return(list(meta.info=meta.info, mismatch.msg=match.msg, disc.inx=disc.inx));
+
+      }else{
+        # No metadata file AND no #CLASS markers found
+        print("[.readMetaData] No #CLASS markers found in data file");
+        msgSet$current.msg <- "No metadata file provided and no #CLASS markers found in data file!";
+        saveSet(msgSet, "msgSet");
+        return(NULL);
+      }
+    }
+
     mydata <- try(data.table::fread(metafileName, header=TRUE, check.names=FALSE, data.table=FALSE));
     if(class(mydata) == "try-error"){
       msgSet$current.msg <- "Failed to read the metadata table! Please check your data format.";
