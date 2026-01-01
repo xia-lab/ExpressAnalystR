@@ -542,18 +542,40 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
   anal.type <- paramSet$anal.type;
   data.org <- paramSet$data.org;
   
-  ids <- unlist(strsplit(IDs, "; "));
+  ids <- trimws(unlist(strsplit(IDs, ";")));
+  ids <- ids[ids != ""]
   cmpdNm <- gsub(" ", "_",  cmpdNm);
   cmpdNm <- gsub("/", "_",  cmpdNm);
   
   if(anal.type == "onedata"){
     dataSet <- readDataset(dataName);
     gene.map <- readDataQs("symbol.map.qs", paramSet$anal.type, dataName);
-    subset <- dataSet$data.norm[which(doIdMappingGeneric(rownames(dataSet$data.norm), gene.map, "gene_id", "symbol") %in% ids),]
+    print(head(gene.map));
+    if(!"symbol" %in% colnames(gene.map)){
+      if("accession" %in% colnames(gene.map)){
+        gene.map$symbol <- gene.map$accession;
+      }else if("orig" %in% colnames(gene.map)){
+        gene.map$symbol <- gene.map$orig;
+      }
+    }
+    mapped.syms <- doIdMappingGeneric(rownames(dataSet$data.norm), gene.map, "gene_id", "symbol");
+    subset <- dataSet$data.norm[which(mapped.syms %in% ids),]
     if(length(subset)<1){
       subset <- dataSet$data.norm[which(rownames(dataSet$data.norm) %in% ids),]
     }
-    
+    if(length(subset)<1){
+      sym.col <- if("symbol" %in% colnames(gene.map)) {
+        "symbol"
+      } else if("accession" %in% colnames(gene.map)) {
+        "accession"
+      } else {
+        "orig"
+      }
+      ids.gene <- doIdMappingGeneric(ids, gene.map, sym.col, "gene_id");
+      ids.gene <- ids.gene[!is.na(ids.gene)]
+      subset <- dataSet$data.norm[which(rownames(dataSet$data.norm) %in% ids.gene),]
+    }
+ 
     inx <- order(dataSet$meta.info[,1]);
     subset <- subset[,inx];
     
@@ -568,12 +590,36 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
       gene.map <- readDataQs("symbol.map.qs", paramSet$anal.type, paramSet$selDataNm);
       dat <- dataSet$data.norm;
     }
-    subset <- dat[which(doIdMappingGeneric(rownames(dat), gene.map, "gene_id", "symbol") %in% ids),]
+    if(!"symbol" %in% colnames(gene.map)){
+      if("accession" %in% colnames(gene.map)){
+        gene.map$symbol <- gene.map$accession;
+      }else if("orig" %in% colnames(gene.map)){
+        gene.map$symbol <- gene.map$orig;
+      }
+    }
+    mapped.syms <- doIdMappingGeneric(rownames(dat), gene.map, "gene_id", "symbol");
+    subset <- dat[which(mapped.syms %in% ids),]
     if(length(subset)<1){
       subset <- dat[which(rownames(dat) %in% ids),]
     }
+    if(length(subset)<1){
+      sym.col <- if("symbol" %in% colnames(gene.map)) {
+        "symbol"
+      } else if("accession" %in% colnames(gene.map)) {
+        "accession"
+      } else {
+        "orig"
+      }
+      ids.gene <- doIdMappingGeneric(ids, gene.map, sym.col, "gene_id");
+      ids.gene <- ids.gene[!is.na(ids.gene)]
+      subset <- dat[which(rownames(dat) %in% ids.gene),]
+    }
+ 
     inx <- order(inmex$cls.lbl);
     subset <- subset[,inx];
+  }
+  if(nrow(subset) < 2){
+    return("NA");
   }
   dat <- t(scale(t(subset)));
   
