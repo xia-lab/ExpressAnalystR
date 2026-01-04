@@ -3,16 +3,39 @@
 my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", analSet){
   enr.mat <- qs:::qread("enr.mat.qs");
 
+  # Filter by adjusted p-value (FDR) < 0.05 and limit to max 50 pathways
+  # If fewer than 20 are significant (or none), show top 20 by FDR
+  if("FDR" %in% colnames(enr.mat)){
+    sig.inx <- enr.mat[,"FDR"] < 0.05;
+    n.sig <- sum(sig.inx);
+
+    if(n.sig >= 20){
+      # At least 20 significant pathways exist
+      enr.mat <- enr.mat[sig.inx, , drop=FALSE];
+
+      # Limit to top 50 pathways (sorted by FDR)
+      if(nrow(enr.mat) > 50){
+        ord.inx <- order(enr.mat[,"FDR"]);
+        enr.mat <- enr.mat[ord.inx[1:50], , drop=FALSE];
+      }
+    } else {
+      # Fewer than 20 significant pathways (or none), show top 20 by FDR
+      ord.inx <- order(enr.mat[,"FDR"]);
+      max.show <- min(20, nrow(enr.mat));
+      enr.mat <- enr.mat[ord.inx[1:max.show], , drop=FALSE];
+    }
+  }
+
   hits <-  enr.mat[,"Hits"];
   pvals <- enr.mat[,"Pval"];
-  
+
   pvalue <- pvals;
   id <- names(pvalue);
-  
+
   paramSet <- readSet(paramSet, "paramSet");
   anal.type <- paramSet$anal.type;
-  
-  if(is.null(enr.mat)){
+
+  if(is.null(enr.mat) || nrow(enr.mat) == 0){
     return(0);
   }
   
@@ -21,6 +44,7 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
 
   current.geneset <- qs::qread("current_geneset.qs");
   hits.query <- qs::qread("hits_query.qs")
+  # Filter hits.query to match the filtered pathways (FDR < 0.05, max 50)
   hits.query <- hits.query[rownames(enr.mat)];
   geneSets <- hits.query;
   n <- nrow(enr.mat);
@@ -77,11 +101,20 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   if (all(cnt2 == cnt2[1])){
     V(g)$size <- rep(16, length(cnt2))
   }else{
-    V(g)$size <- my.rescale(log(cnt2+1, base=10), 8, 32);
+    V(g)$size <- my.rescale(log(cnt2+1, base=10), 8, 24);
   }
   
-  # layout
-  pos.xy <- layout_nicely(g);
+  # layout using Fruchterman-Reingold with balanced parameters
+  # Compact overall layout with good within-component separation
+  n_nodes <- vcount(g);
+  layout_area <- n_nodes * 5;  # Smaller area for compact layout
+  # Higher repulserad for better node separation, but with grid/minx/miny to prevent drift
+  pos.xy <- layout_with_fr(g,
+                           niter=1500,
+                           area=layout_area,
+                           repulserad=n_nodes^2.8,  # Higher for more node separation
+                           start.temp=n_nodes/2,
+                           grid="nogrid");  # Prevent drift with no grid constraint
   
   # now create the json object
   nodes <- vector(mode="list");
@@ -171,8 +204,17 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   node.dgr2 <- as.numeric(degree(bg));
   V(bg)$size <- my.rescale(log(node.dgr2, base=10), 8, 24); 
   
-  # layout
-  pos.xy <- layout_nicely(bg);
+  # layout using Fruchterman-Reingold with balanced parameters
+  # Compact overall layout with good within-component separation
+  n_nodes_bg <- vcount(bg);
+  layout_area_bg <- n_nodes_bg * 5;  # Smaller area for compact layout
+  # Higher repulserad for better node separation, but with grid/minx/miny to prevent drift
+  pos.xy <- layout_with_fr(bg,
+                           niter=1500,
+                           area=layout_area_bg,
+                           repulserad=n_nodes_bg^2.8,  # Higher for more node separation
+                           start.temp=n_nodes_bg/2,
+                           grid="nogrid");  # Prevent drift with no grid constraint
   
   # now create the json object
   bnodes <- vector(mode="list");
