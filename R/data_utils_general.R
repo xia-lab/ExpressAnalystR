@@ -455,13 +455,29 @@ doScatterJson <- function(dataName, filenm){
 #'@param mSetObj Input the name of the created mSetObj (see InitDataObjects)
 #'@param cmd Commands 
 #'@export
+
 RecordRCommand <- function(cmd){
-  cmdSet <- readSet(cmdSet, "cmdSet"); 
-  cmdSet$cmdVec <- c(cmdSet$cmdVec, cmd);
-  saveSet(cmdSet, "cmdSet");
+  # 1. Optimize Memory/Disk I/O: 
+  # Only read from disk if the global object doesn't exist in memory yet.
+  if(!exists("cmdSet")){
+    if(file.exists("cmdSet.qs")){
+      cmdSet <<- qs::qread("cmdSet.qs");
+    } else {
+      cmdSet <<- list(cmdVec = character(0));
+    }
+  }
+  
+  # 2. Update the vector in memory
+  cmdSet$cmdVec <<- c(cmdSet$cmdVec, cmd);
+  
+  # 3. Persist Binary State (cmdSet.qs)
+  # We use qsave directly to avoid overhead, or you can keep using saveSet if it does extra logic
+  qs::qsave(cmdSet, "cmdSet.qs");
+  
   return(1);
 }
 
+# R history file for read - created when download
 SaveRCommands <- function(){
   cmdSet <- readSet(cmdSet, "cmdSet"); 
   cmds <- paste(cmdSet$cmdVec, collapse="\n");
