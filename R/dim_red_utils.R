@@ -374,6 +374,15 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
   inx = rownames(pos.xyz) %in% names;
   coords = as.matrix(pos.xyz[inx,c(1:3)])
   mesh = list()
+  strip_json_classes <- function(x){
+    if(is.list(x)){
+      if(!is.null(class(x)) && any(class(x) %in% c("mesh3d", "scene3d", "shapelist3d", "shape3d", "triangle3d", "line3d", "point3d"))){
+        class(x) <- NULL;
+      }
+      return(lapply(x, strip_json_classes));
+    }
+    return(x);
+  }
   if(type == "alpha"){
     require(alphashape3d)
     require(rgl)
@@ -391,6 +400,7 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
     mesh = sc$objects;
   }
   # OPTIMIZED: Use jsonlite::write_json instead of RJSONIO + sink/cat
+  mesh <- strip_json_classes(mesh);
   jsonlite::write_json(mesh, filenm, auto_unbox = TRUE, pretty = FALSE);
   return(filenm);
 }
