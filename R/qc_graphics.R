@@ -459,11 +459,11 @@ rowV = function(x, mean, ...) {
 
 
 PlotDataPCA <- function(fileName, imgName, dpi, format){
-  print(paste("[PlotDataPCA] START - fileName:", fileName, "imgName:", imgName, "Time:", Sys.time()));
+  #print(paste("[PlotDataPCA] START - fileName:", fileName, "imgName:", imgName, "Time:", Sys.time()));
   dataSet <- readDataset(fileName);
-  print(paste("[PlotDataPCA] Dataset loaded. Dimensions:", paste(dim(dataSet$data.norm), collapse="x"), "Time:", Sys.time()));
+  #print(paste("[PlotDataPCA] Dataset loaded. Dimensions:", paste(dim(dataSet$data.norm), collapse="x"), "Time:", Sys.time()));
   if(grepl("_norm", imgName)){
-    print("[PlotDataPCA] Processing normalized data...");
+    #print("[PlotDataPCA] Processing normalized data...");
     qc.pcaplot(dataSet, dataSet$data.norm, imgName, dpi, format, F);
         if (paramSet$oneDataAnalType == "dose") {
     qc.pcaplot.outliers.json(dataSet, dataSet$data.norm, imgName);
@@ -473,9 +473,9 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
   }else{
-    print("[PlotDataPCA] Processing annotated data...");
+    #print("[PlotDataPCA] Processing annotated data...");
     data.anot <- .get.annotated.data();
-    print(paste("[PlotDataPCA] Annotated data dimensions:", paste(dim(data.anot), collapse="x"), "Time:", Sys.time()));
+    #print(paste("[PlotDataPCA] Annotated data dimensions:", paste(dim(data.anot), collapse="x"), "Time:", Sys.time()));
     qc.pcaplot(dataSet, data.anot, imgName, dpi, format, F);
         if (paramSet$oneDataAnalType == "dose") {
 
@@ -486,7 +486,7 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
   }
-  print(paste("[PlotDataPCA] COMPLETE - Time:", Sys.time()));
+  #print(paste("[PlotDataPCA] COMPLETE - Time:", Sys.time()));
   return("NA");
 }
 
