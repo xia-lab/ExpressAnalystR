@@ -107,14 +107,8 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   # layout using Fruchterman-Reingold with balanced parameters
   # Compact overall layout with good within-component separation
   n_nodes <- vcount(g);
-  layout_area <- n_nodes * 5;  # Smaller area for compact layout
-  # Higher repulserad for better node separation, but with grid/minx/miny to prevent drift
-  pos.xy <- layout_with_fr(g,
-                           niter=1500,
-                           area=layout_area,
-                           repulserad=n_nodes^2.8,  # Higher for more node separation
-                           start.temp=n_nodes/2,
-                           grid="nogrid");  # Prevent drift with no grid constraint
+  # Updated for igraph >= 0.8.0: removed deprecated parameters (area, repulserad, start.temp, grid)
+  pos.xy <- layout_with_fr(g, niter=500)
   
   # now create the json object
   nodes <- vector(mode="list");
@@ -207,14 +201,8 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   # layout using Fruchterman-Reingold with balanced parameters
   # Compact overall layout with good within-component separation
   n_nodes_bg <- vcount(bg);
-  layout_area_bg <- n_nodes_bg * 5;  # Smaller area for compact layout
-  # Higher repulserad for better node separation, but with grid/minx/miny to prevent drift
-  pos.xy <- layout_with_fr(bg,
-                           niter=1500,
-                           area=layout_area_bg,
-                           repulserad=n_nodes_bg^2.8,  # Higher for more node separation
-                           start.temp=n_nodes_bg/2,
-                           grid="nogrid");  # Prevent drift with no grid constraint
+  # Updated for igraph >= 0.8.0: removed deprecated parameters (area, repulserad, start.temp, grid)
+  pos.xy <- layout_with_fr(bg, niter=500)
   
   # now create the json object
   bnodes <- vector(mode="list");
