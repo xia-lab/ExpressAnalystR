@@ -14,7 +14,6 @@ GetSigGeneCountTotal <- function(){
   return(analSet$sig.gene.count.total);
 }
 
-
 CheckRawDataAlreadyNormalized <- function(dataName=""){
   dataSet <- readDataset(dataName);
   #data <- dataSet$data.anot;
@@ -190,10 +189,13 @@ GetDatasetNamesString <- function(){
 
 ##Single matrix
 GetSampleNumber <-function(){
-  data.orig <- qs::qread("data.raw.qs");
-  return(ncol(data.orig));
+  paramSet <- readSet(paramSet, "paramSet");
+  if(is.null(paramSet$smpl.num)){
+    return(0);
+  }else{
+    return(paramSet$smpl.num);
+  }
 }
-
 
 GetFilesToBeSaved <-function(naviString){
   paramSet <- readSet(paramSet, "paramSet");
