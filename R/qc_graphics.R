@@ -459,12 +459,10 @@ rowV = function(x, mean, ...) {
 
 
 PlotDataPCA <- function(fileName, imgName, dpi, format){
-  print(paste("[PlotDataPCA] START - fileName:", fileName, "imgName:", imgName, "Time:", Sys.time()));
   dataSet <- readDataset(fileName);
-  print(paste("[PlotDataPCA] Dataset loaded. Dimensions:", paste(dim(dataSet$data.norm), collapse="x"), "Time:", Sys.time()));
   if(grepl("_norm", imgName)){
-    print("[PlotDataPCA] Processing normalized data...");
-    qc.pcaplot(dataSet, dataSet$data.norm, imgName, dpi, format, F);
+    # qc.pcaplot modifies dataSet$meta.info by filtering, so we capture the return value
+    dataSet <- qc.pcaplot(dataSet, dataSet$data.norm, imgName, dpi, format, F);
         if (paramSet$oneDataAnalType == "dose") {
     qc.pcaplot.outliers.json(dataSet, dataSet$data.norm, imgName);
 }else{
@@ -473,10 +471,9 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
   }else{
-    print("[PlotDataPCA] Processing annotated data...");
     data.anot <- .get.annotated.data();
-    print(paste("[PlotDataPCA] Annotated data dimensions:", paste(dim(data.anot), collapse="x"), "Time:", Sys.time()));
-    qc.pcaplot(dataSet, data.anot, imgName, dpi, format, F);
+    # qc.pcaplot modifies dataSet$meta.info by filtering, so we capture the return value
+    dataSet <- qc.pcaplot(dataSet, data.anot, imgName, dpi, format, F);
         if (paramSet$oneDataAnalType == "dose") {
 
    qc.pcaplot.outliers.json(dataSet, data.anot, imgName);
@@ -486,7 +483,6 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
   }
-  print(paste("[PlotDataPCA] COMPLETE - Time:", Sys.time()));
   return("NA");
 }
 
@@ -622,8 +618,17 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     } else {
       # Calculate group centroids
       centroids <- aggregate(. ~ Conditions, data = pca.rest.clean[, c("PC1", "PC2", "Conditions")], mean)
+
+      # Save names column before merge (merge will reorder/modify data)
+      names_col <- pca.rest.clean$names
+
       # Merge centroids back to the pca.rest dataframe
       pca.rest.clean <- merge(pca.rest.clean, centroids, by = "Conditions", suffixes = c("", "_centroid"))
+
+      # CRITICAL: Restore rownames using the names column after merge
+      # The merge operation changes row order and drops rownames
+      rownames(pca.rest.clean) <- paste0(pca.rest.clean$names, "_", seq_len(nrow(pca.rest.clean)))
+
       # Calculate the distance to the centroid
       pca.rest.clean$distance <- sqrt((pca.rest.clean$PC1 - pca.rest.clean$PC1_centroid)^2 + (pca.rest.clean$PC2 - pca.rest.clean$PC2_centroid)^2)
       # Identify outliers based on variance threshold (20% here)
@@ -686,11 +691,18 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     Factor <- dataSet$meta.info[, 1]
     pca.res$Conditions <- Factor
     pca.res$names <- rownames(pca.res)
-    
+
+    # Save original rownames before merge (merge drops rownames!)
+    original_sample_names <- rownames(pca.res)
+
     # Calculate group centroids
     centroids <- aggregate(. ~ Conditions, data = pca.res[, c("PC1", "PC2", "Conditions")], mean)
     # Merge centroids back to the pca.res dataframe
     pca.res <- merge(pca.res, centroids, by = "Conditions", suffixes = c("", "_centroid"))
+
+    # CRITICAL: Restore original rownames after merge (they were lost!)
+    rownames(pca.res) <- pca.res$names
+
     # Calculate the distance to the centroid
     pca.res$distance <- sqrt((pca.res$PC1 - pca.res$PC1_centroid)^2 + (pca.res$PC2 - pca.res$PC2_centroid)^2)
     # Identify outliers based on variance threshold (20% here)
@@ -760,9 +772,21 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
   ylabel  <- sprintf("PC2 (%.1f%%)", 100 * imp[2])
 
   # Select top 3 PCs (or fewer if less than 3 PCs were computed)
+  # CRITICAL: Save the FILTERED pca results (matching the filtered metadata)
+  # pca.res already contains filtered PC1 and PC2, we need to filter pca$x the same way
   n_pcs_to_save <- min(3, ncol(pca$x))
+
+  # Get the samples that remain after filtering (these are in pca.res)
+  filtered_samples <- rownames(pca.res)
+
+  # Subset pca$x to only include the filtered samples
+  # Safely subset - check both dimensions
+  actual_n_pcs <- min(n_pcs_to_save, ncol(pca$x), length(filtered_samples) - 1)  # PCA can have at most n-1 components
+
+  filtered_pca_x <- pca$x[filtered_samples, 1:actual_n_pcs, drop = FALSE]
+
   my.pca <- list(
-        x = pca$x[, 1:n_pcs_to_save, drop = FALSE],
+        x = filtered_pca_x,  # Use filtered PCA results, not original
         xlabel = xlabel,
         ylabel = ylabel
     );
@@ -778,7 +802,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     w <- if (length(dataSet$meta.info)==2) 1000 else 800
     ggp_build <- layout( ggplotly(pcafig), autosize=FALSE, width=w, height=600, margin=m )
 
-    return(ggp_build)
+    return(dataSet)  # Return modified dataSet even in interactive mode
   } else {
   if(dpi == 72){
   dpi <- dpi *1.34
@@ -797,7 +821,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
       print(pcafig)
     }
     dev.off()
-    return("NA")
+    return(dataSet)  # Return modified dataSet with filtered metadata
   }
 }
 
@@ -1193,10 +1217,19 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
 
   pca.res <- as.data.frame(pca$x)[, 1:2, drop = FALSE]
   colnames(pca.res) <- c("PC1", "PC2")
-  pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), , drop = FALSE]
+
+  # Find common samples between PCA and metadata (matching PNG generation logic)
+  common_samples <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
+  if (length(common_samples) == 0) {
+    stop("[qc.pcaplot.json] ERROR: No common samples between PCA results and metadata!")
+  }
+
+  # Align both PCA and metadata to common samples (instead of using match which can create NAs)
+  pca.res <- pca.res[common_samples, , drop = FALSE]
+  meta.info.aligned <- dataSet$meta.info[common_samples, , drop = FALSE]
 
   # metadata1 → color (group)
-  pca.res$group  <- as.character(dataSet$meta.info[[1]])
+  pca.res$group  <- as.character(meta.info.aligned[[1]])
   pca.res$sample <- rownames(pca.res)
 
   # ---------- Detect 2nd metadata for shapes ----------
@@ -1204,8 +1237,8 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
   shape.levels <- character(0)
   shape.map <- NULL
 
-  if (ncol(dataSet$meta.info) >= 2) {
-    second <- dataSet$meta.info[[2]]
+  if (ncol(meta.info.aligned) >= 2) {
+    second <- meta.info.aligned[[2]]
     # treat non-numeric as discrete for shapes
     isDisc  <- !is.numeric(second)
     levs    <- unique(as.character(second))
@@ -1264,6 +1297,7 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
         legendgroup  = g,          # groups align in legend
         marker       = mkr,
         text         = if (nrow(df) <= 20) df$sample else NULL,
+        hovertext    = df$sample,  # Always include sample names in hover
         hoverinfo    = "text",
         textposition = "top center"
       )
@@ -1289,6 +1323,7 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
         legendgroup  = g,
         marker       = mkr,
         text         = if (nrow(df) <= 20) df$sample else NULL,
+        hovertext    = df$sample,  # Always include sample names in hover
         hoverinfo    = "text",
         textposition = "top center"
       )
@@ -2010,7 +2045,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   csvFile  <- paste0(imgNm, "_outliers.csv")
 
   require(plotly)
-  require(rjson)
+  require(jsonlite)  # Use jsonlite instead of rjson for proper array handling
 
   # ----- load PCA & align to meta -----
   analSet <- readSet(analSet, "analSet")
@@ -2020,10 +2055,18 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
 
   pca.res <- as.data.frame(pca$x)[, 1:2, drop = FALSE]
   colnames(pca.res) <- c("PC1","PC2")
-  pca.res <- pca.res[match(rownames(dataSet$meta.info), rownames(pca.res)), , drop = FALSE]
-  pca.res$sample_id <- rownames(pca.res)
 
-  meta <- dataSet$meta.info
+  # Find common samples between PCA and metadata (matching PNG generation logic)
+  common_samples <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
+  if (length(common_samples) == 0) {
+    stop("[qc.pcaplot.outliers.json] ERROR: No common samples between PCA results and metadata!")
+  }
+
+  # Align both PCA and metadata to common samples (instead of using match which can create NAs)
+  pca.res <- pca.res[common_samples, , drop = FALSE]
+  meta <- dataSet$meta.info[common_samples, , drop = FALSE]
+
+  pca.res$sample_id <- rownames(pca.res)
   stopifnot(nrow(meta) == nrow(pca.res))
   pca.res$group <- as.character(meta[[1]])
 
@@ -2206,58 +2249,80 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     Excluded = list(line = list(color = "red",    width = 3),  size = 10, opacity = 1.0)
   )
 
-  mk_trace <- function(subdf, name, color) {
-    st <- as.character(unique(subdf$.__status__))[1]
-    base_marker <- c(list(color = as.character(color)), status_styles[[st]])
-    mode_val <- if (st == "Kept") "markers" else "markers+text"
-    text_val <- if (st == "Kept") NULL else subdf$sample_id
-    leg_name <- if (st == "Kept") name else paste0(name, " • ", st)
-
-    if (doShape && "shape" %in% colnames(subdf)) {
-      spl <- split(subdf, subdf$shape)
-      out <- vector("list", length(spl)); i <- 0L
-      for (sh in names(spl)) {
-        i <- i + 1L
-        ss <- spl[[sh]]
-        mkr <- base_marker; mkr$symbol <- unname(shape.map[sh])
-        shaped_name <- if (st == "Kept") paste0(name, " • ", sh) else paste0(name, " • ", sh, " • ", st)
-        out[[i]] <- list(
-          x = ss$PC1, y = ss$PC2, type = "scatter",
-          mode = mode_val,
-          name = shaped_name,
-          showlegend = TRUE,
-          marker = mkr,
-          text = if (st == "Kept") NULL else ss$sample_id,
-          customdata = .make_customdata(ss),  # list-of-objects
-          hoverinfo = "text",
-          textposition = "top center"
-        )
-      }
-      return(out)
-    }
-
-    list(
-      x = subdf$PC1, y = subdf$PC2, type = "scatter",
-      mode = mode_val,
-      name = leg_name,
-      showlegend = TRUE,
-      marker = base_marker,
-      text = text_val,
-      customdata = .make_customdata(subdf),  # list-of-objects
-      hoverinfo = "text",
-      textposition = "top center"
-    )
-  }
-
+  # Create one trace per group, with per-sample marker styling for outliers
   traces <- list()
   for (g in unique_grps) {
     gdf <- df[df$group == g, , drop = FALSE]
-    for (st in c("Kept","Moderate","Excluded")) {
-      sdf <- gdf[gdf$.__status__ == st, , drop = FALSE]
-      if (nrow(sdf) == 0) next
-      tr <- mk_trace(sdf, g, col.map[[g]])
-      traces <- .append_trace(traces, tr)
+    if (nrow(gdf) == 0) next
+
+    # Build per-sample marker properties based on status
+    marker_colors <- rep(col.map[[g]], nrow(gdf))
+    marker_sizes <- rep(8, nrow(gdf))
+    marker_line_colors <- rep("white", nrow(gdf))
+    marker_line_widths <- rep(0.5, nrow(gdf))
+    marker_opacities <- rep(0.9, nrow(gdf))
+    text_labels <- rep("", nrow(gdf))
+
+    for (i in seq_len(nrow(gdf))) {
+      status <- gdf$.__status__[i]
+      if (status == "Moderate") {
+        marker_line_colors[i] <- "orange"
+        marker_line_widths[i] <- 2
+        marker_sizes[i] <- 9
+        marker_opacities[i] <- 1.0
+        text_labels[i] <- gdf$sample_id[i]
+      } else if (status == "Excluded") {
+        marker_line_colors[i] <- "red"
+        marker_line_widths[i] <- 3
+        marker_sizes[i] <- 10
+        marker_opacities[i] <- 1.0
+        text_labels[i] <- gdf$sample_id[i]
+      }
     }
+
+    # Build hover text with sample name, dose, status, and reason
+    hover_texts <- sapply(seq_len(nrow(gdf)), function(j) {
+      parts <- c(paste0("Sample: ", gdf$sample_id[j]))
+      if (!is.na(gdf$dose[j]) && gdf$dose[j] != "") parts <- c(parts, paste0("Dose: ", gdf$dose[j]))
+      if (!is.na(gdf$is_vehicle[j]) && gdf$is_vehicle[j]) parts <- c(parts, "Vehicle")
+      if (gdf$.__status__[j] != "Kept") parts <- c(parts, paste0("Status: ", gdf$.__status__[j]))
+      if (!is.na(gdf$reason[j]) && gdf$reason[j] != "") parts <- c(parts, paste0("Reason: ", gdf$reason[j]))
+      paste(parts, collapse = "<br>")
+    })
+
+    # Determine if we should show text labels (only for outliers)
+    has_outliers <- any(gdf$.__status__ != "Kept")
+    mode_val <- if (has_outliers) "markers+text" else "markers"
+
+    # Wrap single values to ensure they become arrays in JSON
+    x_val <- if (length(gdf$PC1) == 1) list(gdf$PC1) else gdf$PC1
+    y_val <- if (length(gdf$PC2) == 1) list(gdf$PC2) else gdf$PC2
+
+    # Build marker list - arrays should not be auto-unboxed
+    mkr <- list(
+      color = if (length(unique(marker_colors)) == 1) marker_colors[1] else I(marker_colors),
+      size = if (length(unique(marker_sizes)) == 1) marker_sizes[1] else I(marker_sizes),
+      opacity = if (length(unique(marker_opacities)) == 1) marker_opacities[1] else I(marker_opacities),
+      line = list(
+        color = if (length(unique(marker_line_colors)) == 1) marker_line_colors[1] else I(marker_line_colors),
+        width = if (length(unique(marker_line_widths)) == 1) marker_line_widths[1] else I(marker_line_widths)
+      )
+    )
+
+    traces[[length(traces) + 1]] <- list(
+      x = x_val,
+      y = y_val,
+      type = "scatter",
+      mode = mode_val,
+      name = g,
+      showlegend = TRUE,
+      marker = mkr,
+      text = if (all(text_labels == "")) NULL else I(text_labels),
+      hovertext = I(hover_texts),
+      customdata = .make_customdata(gdf),
+      hoverinfo = "text",
+      textposition = "top center"
+    )
   }
 
   if (doShape) {
@@ -2286,8 +2351,9 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   )
 
   plot_data <- list(data = traces, layout = layout)
-  json.obj  <- toJSON(plot_data)
-  sink(jsonFile); cat(json.obj); sink()
+  # Use jsonlite with auto_unbox=FALSE to ensure single-element vectors become arrays, not scalars
+  json.obj  <- jsonlite::toJSON(plot_data, auto_unbox = TRUE, digits = NA, na = "null")
+  writeLines(json.obj, jsonFile)
 
   out_cols <- c("sample_id","group","dose","is_vehicle","uniq_map",
                 "PC1","PC2","ax_PC1","ax_PC2","axis_class",
