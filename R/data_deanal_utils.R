@@ -181,8 +181,8 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
           contrast_name <- paste0(all_conditions[i], " vs ", all_conditions[j])
           contrast_list[[contrast_name]] <-
             c("condition",
-              all_conditions[j],   # NUMERATOR = second term
-              all_conditions[i])   # DENOMINATOR = first term
+              all_conditions[i],   # NUMERATOR = first term
+              all_conditions[j])   # DENOMINATOR = second term
         }
 
     } else if (anal.type == "reference") {
@@ -193,7 +193,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       for (cond in setdiff(all_conditions, ref)) {
         contrast_name <- paste0(ref, " vs ", cond)
         contrast_list[[contrast_name]] <-
-          c("condition", cond, ref)   # numerator = second term
+          c("condition", ref, cond)   # numerator = first term
       }
 
     } else if (anal.type == "custom") {
@@ -204,7 +204,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 
       contrast_name <- paste0(comps[1], " vs ", comps[2])
       contrast_list[[contrast_name]] <-
-        c("condition", comps[2], comps[1]) # numerator = second term
+        c("condition", comps[1], comps[2]) # numerator = first term
     }
 
     # ---- Run DESeq2 ----
@@ -1126,8 +1126,8 @@ prepareEdgeRContrast <- function(dataSet,
       stop("`par1` must be 'A vs. B'. Valid (raw): ",
            paste(raw_levels, collapse = ", "))
     }
-    conts <- setNames(list(paste0(grp[2], " - ", grp[1])),
-                      paste0(grp[2], "_vs_", grp[1]))
+    conts <- setNames(list(paste0(grp[1], " - ", grp[2])),
+                      paste0(grp[1], "_vs_", grp[2]))
 
   } else if (anal.type == "nested") {
     g1 <- parse_vs(par1); g2 <- parse_vs(par2)
@@ -1137,15 +1137,15 @@ prepareEdgeRContrast <- function(dataSet,
     }
     if (identical(nested.opt, "intonly")) {
       expr  <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
-      nm    <- paste0(g1[1], g1[2], "_vs_", g2[1], g2[2], "_interaction")
+      nm    <- paste0(g1[1], "_vs_", g1[2], "_minus_", g2[1], "_vs_", g2[2])
       conts <- setNames(list(expr), nm)
     } else {
-      expr1 <- paste0(g1[2], " - ", g1[1])
-      expr2 <- paste0(g2[2], " - ", g2[1])
-      expr3 <- paste0("(", g1[2], " - ", g1[1], ") - (", g2[2], " - ", g2[1], ")")
-      conts <- c(setNames(list(expr1), paste0(g1[2], "_vs_", g1[1])),
-                 setNames(list(expr2), paste0(g2[2], "_vs_", g2[1])),
-                 setNames(list(expr3), paste0("int_", g1[2], g1[1], "_vs_", g2[2], g2[1])))
+      expr1 <- paste0(g1[1], " - ", g1[2])
+      expr2 <- paste0(g2[1], " - ", g2[2])
+      expr3 <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
+      conts <- c(setNames(list(expr1), paste0(g1[1], "_vs_", g1[2])),
+                 setNames(list(expr2), paste0(g2[1], "_vs_", g2[2])),
+                 setNames(list(expr3), paste0("int_", g1[1], g1[2], "_vs_", g2[1], g2[2])))
     }
 
   } else {

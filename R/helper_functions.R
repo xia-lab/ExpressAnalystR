@@ -190,7 +190,11 @@ GetDatasetNamesString <- function(){
 ##Single matrix
 GetSampleNumber <-function(){
   paramSet <- readSet(paramSet, "paramSet");
-  return(paramSet$smpl.num);
+  if(is.null(paramSet$smpl.num)){
+    return(0);
+  }else{
+    return(paramSet$smpl.num);
+  }
 }
 
 GetFilesToBeSaved <-function(naviString){

@@ -236,7 +236,7 @@ PerformLayOut <- function(net.nm, algo, focus=""){
       pos.xy <- layout_with_fr(g);
     }
   }else if(algo == "FrR"){
-    pos.xy <- layout_with_fr(g, area=34*vc^2);
+    pos.xy <- layout_with_fr(g);
   }else if(algo == "random"){
     pos.xy <- layout_randomly (g);
   }else if(algo == "lgl"){
