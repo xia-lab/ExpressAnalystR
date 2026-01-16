@@ -102,6 +102,11 @@ MapListIds <- function(listNm, geneIDs, org, idType){
     totalseed.proteins[[i]] <- seed.proteins;
     list.num.vec[i] <- length(seed.proteins);
     dataSet$listNum <- length(dataSet$seeds.proteins);
+
+    # Store mapping summary for reports
+    dataSet$origNum <- nrow(gene.mat);  # Total IDs processed
+    dataSet$missNum <- nrow(gene.mat) - length(seed.proteins);  # IDs with no match
+
     #print(dataSet$listNum);
     fast.write.csv(dataSet$prot.mat, paste0(dataSet$name, ".csv"));
 
@@ -212,7 +217,13 @@ MapMultiListIds <- function(listNm, org, geneIDs, type){
     dataSet$sig.mat <- gene.mat;
     dataSet$prot.mat <- prot.mat;
     dataSet$seeds.proteins <- seed.proteins;
-    RegisterData(dataSet); 
+    dataSet$listNum <- length(seed.proteins);
+
+    # Store mapping summary for reports
+    dataSet$origNum <- nrow(gene.mat);  # Total IDs processed
+    dataSet$missNum <- nrow(gene.mat) - length(seed.proteins);  # IDs with no match
+
+    RegisterData(dataSet);
   }
 
   # Merge all mapping results into one data frame

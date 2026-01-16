@@ -1184,9 +1184,9 @@ makeReadable <- function(str){
                     "go_cc" = "GO:CC",
                     "panth" = "PANTHER Slim",
                     "motif_set" = "Motif",
-                    "onedata" = "Gene expression analysis",
-                    "genelist" = "Gene list analysis",
-                    "metadata" = "Gene expression meta-analysis",
+                    "onedata" = "Gene Expression Analysis",
+                    "genelist" = "Gene List Analysis",
+                    "metadata" = "Gene Expression Meta-analysis",
                     "raw" = "Raw RNA-seq data processing",
                  str)
 }
