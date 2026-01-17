@@ -802,7 +802,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
     w <- if (length(dataSet$meta.info)==2) 1000 else 800
     ggp_build <- layout( ggplotly(pcafig), autosize=FALSE, width=w, height=600, margin=m )
 
-    return(dataSet)  # Return modified dataSet even in interactive mode
+    invisible(dataSet)  # Return modified dataSet even in interactive mode
   } else {
   if(dpi == 72){
   dpi <- dpi *1.34
@@ -821,7 +821,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALS
       print(pcafig)
     }
     dev.off()
-    return(dataSet)  # Return modified dataSet with filtered metadata
+    invisible(dataSet)  # Return modified dataSet with filtered metadata
   }
 }
 

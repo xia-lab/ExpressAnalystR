@@ -919,11 +919,11 @@ readSet <- function(obj = NULL, set = "") {
   } else {
     if (is.null(obj)) {
       warning(sprintf("readSet: File '%s' not found and no default object supplied.", file_path))
-      return(NULL)
+      return(invisible(NULL))
     }
   }
 
-  return(obj)
+  invisible(obj)  # Suppress console output in R Markdown
 }
 
 load_qs <- function(url) {
@@ -935,7 +935,7 @@ readDataset <- function(dataName = "", quiet = FALSE) {
   #── 1 · quick sanity check ----------------------------------------------------
   if (length(dataName) == 0L || dataName == "") {
     if (!quiet) warning("readDataset: empty dataName")
-    return(NULL)
+    return(invisible(NULL))
   }
 
   #── 2 · choose source --------------------------------------------------------
@@ -951,15 +951,14 @@ readDataset <- function(dataName = "", quiet = FALSE) {
         qsfile <- replace_extension_with_qs(dataName)
         obj <- qs::qread(qsfile)
       }
-    
 
-    obj
+    invisible(obj)  # Suppress console output in R Markdown
 
   }, error = function(e) {                                  #── 3 · graceful fail
     if (!quiet)
       warning(sprintf("readDataset: cannot load '%s' – %s",
                       dataName, e$message), call. = FALSE)
-    NULL
+    invisible(NULL)
   })
 }
 
@@ -1184,9 +1183,9 @@ makeReadable <- function(str){
                     "go_cc" = "GO:CC",
                     "panth" = "PANTHER Slim",
                     "motif_set" = "Motif",
-                    "onedata" = "Gene expression analysis",
-                    "genelist" = "Gene list analysis",
-                    "metadata" = "Gene expression meta-analysis",
+                    "onedata" = "Gene Expression Analysis",
+                    "genelist" = "Gene List Analysis",
+                    "metadata" = "Gene Expression Meta-analysis",
                     "raw" = "Raw RNA-seq data processing",
                  str)
 }
