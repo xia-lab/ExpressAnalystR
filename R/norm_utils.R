@@ -591,24 +591,36 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
 }
 
 .finalize.express.batch <- function(dataName) {
+  print("BATCH CORRECTION FINALIZE: Starting finalization");
+
   # Read the result from microservice
   dat.in <- qs::qread("dat.in.qs");
-  dataSet <- dat.in$dataSet;
+  dataSet.corrected <- dat.in$dataSet;
   batchVar <- dat.in$batchVar;
   numBatches <- dat.in$numBatches;
 
   # Save the updated dataset back to file
   qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName);
-  qs::qsave(dataSet, qsfile);
+  qs::qsave(dataSet.corrected, qsfile);
 
   # Update the data.anot.qs with batch-corrected data
-  qs::qsave(dataSet$data.norm, file = "data.anot.qs");
+  qs::qsave(dataSet.corrected$data.norm, file = "data.anot.qs");
 
   # Update the proc data as well
-  qs::qsave(dataSet$data.norm, file = "data.proc.qs");
+  qs::qsave(dataSet.corrected$data.norm, file = "data.proc.qs");
+
+  # IMPORTANT: Update the active dataSet in the R session
+  dataSet <- readDataset(dataName);
+
+  dataSet$data.norm <- dataSet.corrected$data.norm;
+
+  RegisterData(dataSet);
 
   # Update message (NOW we can use readSet/saveSet, outside microservice)
   msgSet <- readSet(msgSet, "msgSet");
+  if (is.null(numBatches) || is.na(numBatches)) {
+    numBatches <- "unknown number of";
+  }
   msgSet$current.msg <- paste0("Batch correction applied using variable: ", batchVar,
                                ". Adjusted for ", numBatches, " batches.");
   saveSet(msgSet, "msgSet");
