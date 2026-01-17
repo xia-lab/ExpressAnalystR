@@ -521,3 +521,97 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   qs::qsave(di, "dat.in.qs")
   return(1L)
 }
+
+#' Perform batch correction using ComBat
+#' @description Apply batch correction to normalized data for single dataset
+#' @param dataName Name of the dataset
+#' @param batchVar Name of the metadata column representing batch variable
+#' @author Guangyan Zhou \email{guangyan.zhou@mail.mcgill.ca}
+#' McGill University, Canada
+#' License: MIT
+#' @export
+PerformExpressBatchCorrection <- function(dataName, batchVar) {
+  .prepare.express.batch(dataName, batchVar);
+  .perform.computing();
+  .finalize.express.batch(dataName);
+  return(1);
+}
+
+.prepare.express.batch <- function(dataName, batchVar) {
+  # Read dataset before microservice
+  qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName);
+  dataSet <- qs::qread(qsfile);
+
+  my.fun <- function() {
+    require('sva');
+
+    # Read dat.in which contains the dataset
+    dat.in <- qs::qread("dat.in.qs");
+    dataSet <- dat.in$dataSet;
+    batchVar <- dat.in$batchVar;
+
+    # Get the normalized data
+    data <- dataSet$data.norm;
+
+    # Get metadata from dataSet
+    meta.info <- dataSet$meta.info;
+
+    # Check if batch variable exists in metadata
+    if (!batchVar %in% colnames(meta.info)) {
+      stop(paste("Batch variable", batchVar, "not found in metadata"));
+    }
+
+    # Get batch vector
+    batch <- meta.info[[batchVar]];
+
+    # Check if batch has at least 2 levels
+    if (length(unique(batch)) < 2) {
+      stop("Batch variable must have at least 2 different levels");
+    }
+
+    # Create model matrix (null model, no covariates to preserve)
+    mod <- model.matrix(~1, data = data.frame(sample = colnames(data)));
+
+    # Apply ComBat
+    data.batch.corrected <- ComBat(dat = data, batch = batch, mod = mod,
+                                    par.prior = TRUE, prior.plots = FALSE);
+
+    # Save batch-corrected data back to dataSet
+    dataSet$data.norm <- data.batch.corrected;
+
+    # Save back to dat.in with message
+    dat.in$dataSet <- dataSet;
+    dat.in$numBatches <- length(unique(batch));
+    qs::qsave(dat.in, "dat.in.qs");
+  }
+
+  dat.in <- list(my.fun = my.fun, dataSet = dataSet, batchVar = batchVar);
+  qs::qsave(dat.in, file = "dat.in.qs");
+  return(1);
+}
+
+.finalize.express.batch <- function(dataName) {
+  # Read the result from microservice
+  dat.in <- qs::qread("dat.in.qs");
+  dataSet <- dat.in$dataSet;
+  batchVar <- dat.in$batchVar;
+  numBatches <- dat.in$numBatches;
+
+  # Save the updated dataset back to file
+  qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName);
+  qs::qsave(dataSet, qsfile);
+
+  # Update the data.anot.qs with batch-corrected data
+  qs::qsave(dataSet$data.norm, file = "data.anot.qs");
+
+  # Update the proc data as well
+  qs::qsave(dataSet$data.norm, file = "data.proc.qs");
+
+  # Update message (NOW we can use readSet/saveSet, outside microservice)
+  msgSet <- readSet(msgSet, "msgSet");
+  msgSet$current.msg <- paste0("Batch correction applied using variable: ", batchVar,
+                               ". Adjusted for ", numBatches, " batches.");
+  saveSet(msgSet, "msgSet");
+
+  return(1);
+}
