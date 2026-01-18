@@ -168,64 +168,80 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   sink("enrichment_result.json");
   cat(json.obj);
   sink();
-  #paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(jsonNm, "enrichment_result.csv"))
   paramSet$jsonNms["volcano"] <- fileNm;
 
-    # Generate volcano_data
-    volcano_data <- data.frame(
-        gene = gene.anot$symbol,                  # Gene names
-        log2FoldChange = fc.log,                  # Log fold change values
-        pValue = p.value,                         # Raw p-values
-        negLog10PValue = p.log,                   # -log10 p-value values
-        significant = ifelse(inx.up & inx.p, "upregulated", 
-                             ifelse(inx.down & inx.p, "downregulated", "nonsignificant")) # Determine significance
-    )
+  # Generate volcano data frame
+  volcano_data <- data.frame(
+    gene = gene.anot$symbol,
+    log2FoldChange = fc.log,
+    pValue = p.value,
+    negLog10PValue = p.log,
+    significant = ifelse(inx.up & inx.p, "upregulated",
+                         ifelse(inx.down & inx.p, "downregulated", "nonsignificant"))
+  )
 
+  volcano_data$hover_text <- with(volcano_data, paste("Gene:", gene,
+                                                      "<br>Log2 FC:", log2FoldChange,
+                                                      "<br>P-value:", pValue))
 
-  # Append hover_text after defining volcano_data
-  volcano_data$hover_text <- with(volcano_data, paste("Gene: ", gene, 
-                                                      "<br>Log2 FC: ", log2FoldChange, 
-                                                      "<br>P-value: ", pValue))
-    library(ggplot2)
-    library(plotly)
+  # Add labels for top 10 features on each side
+  volcano_data$label <- NA
+  labelNum <- 10
 
-    # Create a ggplot
-    gg_volcano <- ggplot(volcano_data, aes(x = log2FoldChange, y = negLog10PValue, 
-                                           color = significant, 
-                                           text = paste("Gene: ", gene, "<br>Log2 FC: ", log2FoldChange, 
-                                                        "<br>P-value: ", format(pValue, scientific = TRUE)))) +
-      geom_point(alpha = 0.6) +  # Adjust point transparency
-      scale_color_manual(values = c("upregulated" = "red", "downregulated" = "blue", "nonsignificant" = "grey")) +
-      labs(x = "Log2 Fold Change", 
-           y = "-Log10 P-value") +
-      theme_minimal()
+  up_idx <- which(volcano_data$significant == "upregulated")
+  if(length(up_idx) > 0) {
+    up_ordered <- up_idx[order(volcano_data$log2FoldChange[up_idx], decreasing = TRUE)]
+    top_up <- head(up_ordered, labelNum)
+    volcano_data$label[top_up] <- volcano_data$gene[top_up]
+  }
 
-    # Convert to ggplotly for interactive plot, including tooltips
-    pwidget <- ggplotly(gg_volcano, tooltip = "text")
+  down_idx <- which(volcano_data$significant == "downregulated")
+  if(length(down_idx) > 0) {
+    down_ordered <- down_idx[order(volcano_data$log2FoldChange[down_idx], decreasing = FALSE)]
+    top_down <- head(down_ordered, labelNum)
+    volcano_data$label[top_down] <- volcano_data$gene[top_down]
+  }
 
-    # Customize the layout to optimize hover interaction
-    pwidget <- pwidget %>% layout(hovermode = 'closest')
+  library(ggplot2)
+  library(plotly)
 
-    # Print the plot
-    pwidget
+  # Create base ggplot
+  gg_volcano <- ggplot(volcano_data, aes(x = log2FoldChange, y = negLog10PValue,
+                                         color = significant,
+                                         text = paste("Gene:", gene, "<br>Log2 FC:", log2FoldChange,
+                                                      "<br>P-value:", format(pValue, scientific = TRUE)))) +
+    geom_point(alpha = 0.6) +
+    scale_color_manual(values = c("upregulated" = "red", "downregulated" = "blue", "nonsignificant" = "grey")) +
+    geom_vline(xintercept = c(-fcthresh, fcthresh), linetype = "dashed", color = "darkgrey", linewidth = 0.5) +
+    geom_hline(yintercept = -log10(threshp), linetype = "dashed", color = "darkgrey", linewidth = 0.5) +
+    labs(x = "Log2 Fold Change", y = "-Log10 P-value") +
+    theme_bw() +
+    theme(legend.title = element_blank())
 
+  # Add labels for static plot
+  gg_volcano_labeled <- gg_volcano +
+    ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 20,
+                             box.padding = 0.5, point.padding = 0.3,
+                             segment.color = "grey50", show.legend = FALSE)
+
+  # Create interactive plotly (without labels)
+  pwidget <- ggplotly(gg_volcano, tooltip = "text") %>% layout(hovermode = 'closest')
+
+  # Save outputs
   imgSet <- readSet(imgSet, "imgSet");
-  widgetNm <- paste0(fileNm, ".rda");
-  imgSet$volcanoPlotly <- widgetNm;
-
-  save(pwidget, file = widgetNm);
-
+  imgSet$volcanoPlotly <- paste0(fileNm, ".rda");
   imgSet$volcanoPlot <- paste0(fileNm, ".png");
 
+  save(pwidget, file = imgSet$volcanoPlotly);
+
   Cairo::Cairo(file = imgSet$volcanoPlot, unit="px", dpi=dpi, width=1000, height=800, type=format, bg="white");
-  print(gg_volcano)
+  print(gg_volcano_labeled)
   dev.off()
 
   saveSet(imgSet, "imgSet");
   saveSet(paramSet, "paramSet");
   saveSet(analSet, "analSet");
-  print("Volcano OK");
-  
+
   return(1);
 }
 
