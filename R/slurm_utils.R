@@ -114,6 +114,19 @@ SubmitJobS2f <- function(userDir, email, database, mismatch, minlength, minscore
       paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
       sep = "\n"
     )
+
+    if(file.exists("/docker_marker")){
+      conf_inf <- paste(
+      "#!/bin/bash",
+      "#",
+      "#SBATCH --job-name=Seq2fun_Processing",
+      "#",
+      "#SBATCH --ntasks=1",
+      "#SBATCH --time=28800:00",
+      paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+      sep = "\n"
+    )
+    }
     
     str <- paste(seq2funPath,
                  "--longlog --sampletable",
@@ -406,6 +419,21 @@ SubmitJobSlm <- function(userDir, email, database, des, readEnds, shellscriptDir
     paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
     sep = "\n"
   )
+
+    
+    if(file.exists("/docker_marker")){
+        conf_inf <- paste(
+          "#!/bin/bash",
+          "#",
+          "#SBATCH --job-name=Salmon_Processing",
+          "#",
+          "#SBATCH --ntasks=1",
+          "#SBATCH --time=28800:00",
+          paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+          sep = "\n"
+        )
+    }
+
   
   if(readEnds == "pe"){
     str <- paste("cat",
@@ -588,6 +616,19 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
       sep = "\n"
     )
     
+    if(file.exists("/docker_marker")){
+    conf_inf <- paste(
+      "#!/bin/bash",
+      "#",
+      "#SBATCH --job-name=Salmon_Processing",
+      "#",
+      "#SBATCH --ntasks=1",
+      "#SBATCH --time=28800:00",
+      paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+      sep = "\n"
+    )
+    }
+
     if(readEnds == "pe"){
       str <- paste("cat",
                    file.path(userDir, "sampleTable.txt"),

@@ -2162,7 +2162,8 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
       out[[i]] <- list(
         dose       = .safe_chr(subdf$dose[i]),
         is_vehicle = .safe_chr(subdf$is_vehicle[i]),
-        reason     = .safe_reason(subdf$reason[i])
+        reason     = .safe_reason(subdf$reason[i]),
+        status     = .safe_chr(subdf$.__status__[i])
       )
     }
     out
@@ -2242,6 +2243,15 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   status_lab <- ifelse(df$exclude, "Excluded",
                        ifelse(df$axis_class == "moderate", "Moderate", "Kept"))
   df$.__status__ <- status_lab
+
+  # Add a default reason for moderate outliers when no specific reason is set.
+  mod_idx <- which(is.na(df$reason) | df$reason == "")
+  mod_idx <- mod_idx[df$.__status__[mod_idx] == "Moderate"]
+  if (length(mod_idx)) {
+    df$reason[mod_idx] <- ifelse(df$moderate_both_axes[mod_idx],
+                                 "Moderate separation on both axes vs. core",
+                                 "Moderate separation on one axis vs. core")
+  }
 
   status_styles <- list(
     Kept     = list(line = list(color = "white", width = 0.5), size = 8,  opacity = 0.9),
