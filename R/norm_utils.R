@@ -552,6 +552,8 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
 
     # Get the normalized data
     data <- dataSet$data.norm;
+    data <- as.matrix(data);
+    storage.mode(data) <- "double";
 
     # Get metadata from dataSet
     meta.info <- dataSet$meta.info;
@@ -561,8 +563,20 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
       stop(paste("Batch variable", batchVar, "not found in metadata"));
     }
 
+    # Align metadata rows to data columns when possible
+    if (!is.null(rownames(meta.info)) && all(colnames(data) %in% rownames(meta.info))) {
+      meta.info <- meta.info[colnames(data), , drop = FALSE];
+    }
+
     # Get batch vector
     batch <- meta.info[[batchVar]];
+
+    if (length(batch) != ncol(data)) {
+      stop("Batch vector length does not match number of samples");
+    }
+    if (any(is.na(batch))) {
+      stop("Batch variable has NA values for some samples");
+    }
 
     # Check if batch has at least 2 levels
     if (length(unique(batch)) < 2) {
@@ -576,12 +590,16 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
     data.batch.corrected <- ComBat(dat = data, batch = batch, mod = mod,
                                     par.prior = TRUE, prior.plots = FALSE);
 
+    # Track max absolute delta to confirm correction changed values
+    max.abs.delta <- max(abs(data.batch.corrected - data), na.rm = TRUE);
+
     # Save batch-corrected data back to dataSet
     dataSet$data.norm <- data.batch.corrected;
 
     # Save back to dat.in with message
     dat.in$dataSet <- dataSet;
     dat.in$numBatches <- length(unique(batch));
+    dat.in$maxAbsDelta <- max.abs.delta;
     qs::qsave(dat.in, "dat.in.qs");
   }
 
@@ -591,7 +609,7 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
 }
 
 .finalize.express.batch <- function(dataName) {
-  print("BATCH CORRECTION FINALIZE: Starting finalization");
+  print("BATCH CORRECTION FINALIZE: Starting");
 
   # Read the result from microservice
   dat.in <- qs::qread("dat.in.qs");
@@ -599,10 +617,13 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
   batchVar <- dat.in$batchVar;
   numBatches <- dat.in$numBatches;
 
+  if (!is.null(dat.in$maxAbsDelta)) {
+    print(paste("BATCH CORRECTION FINALIZE: max abs delta =", dat.in$maxAbsDelta));
+  }
+
   # Save the updated dataset back to file
   qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName);
   qs::qsave(dataSet.corrected, qsfile);
-
   # Update the data.anot.qs with batch-corrected data
   qs::qsave(dataSet.corrected$data.norm, file = "data.anot.qs");
 
@@ -619,11 +640,17 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
   # Update message (NOW we can use readSet/saveSet, outside microservice)
   msgSet <- readSet(msgSet, "msgSet");
   if (is.null(numBatches) || is.na(numBatches)) {
-    numBatches <- "unknown number of";
+    # Fallback if microservice did not persist numBatches.
+    if (!is.null(dataSet.corrected$meta.info) && batchVar %in% colnames(dataSet.corrected$meta.info)) {
+      numBatches <- length(unique(dataSet.corrected$meta.info[[batchVar]]))
+    } else {
+      numBatches <- "unknown number of"
+    }
   }
   msgSet$current.msg <- paste0("Batch correction applied using variable: ", batchVar,
                                ". Adjusted for ", numBatches, " batches.");
   saveSet(msgSet, "msgSet");
-
+  print(paste("BATCH CORRECTION FINALIZE:", msgSet$current.msg));
+  print(paste("BATCH CORRECTION FINALIZE: Done (", numBatches, " batches )"));
   return(1);
 }
