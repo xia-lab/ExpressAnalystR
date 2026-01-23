@@ -105,6 +105,15 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     minLvl <- 1;
     current.msg <- paste("No annotation was performed. Make sure organism and gene ID are specified correctly!"); 
   }
+  id.map <- data.frame(
+    original_id = feature.vec,
+    entrez_id = ifelse(is.na(anot.id), "", as.character(anot.id)),
+    match_status = !is.na(anot.id),
+    stringsAsFactors = FALSE
+  );
+
+  print(head(id.map));
+  qs::qsave(id.map, file="id.map.qs");
   # need to save the ids (mixed gene annotation and original id) 
   # in case, users needs to keep unannotated features
   # this need to be updated to gether with data from now on
@@ -440,13 +449,24 @@ doEntrez2SymbolMapping <- function(entrez.vec,data.org="NA", data.idType="NA"){
   tblNm <- getEntrezTableName(data.org, data.idType);
   gene.map <-  queryGeneDB(tblNm, data.org);
   gene.map[] <- lapply(gene.map, as.character)
-  
-  hit.inx <- match(entrez.vec, gene.map[, "gene_id"]);
-  symbols <- gene.map[hit.inx, "symbol"];
-  
-  # if not gene symbol, use id by itself
-  na.inx <- is.na(symbols);
-  symbols[na.inx] <- entrez.vec[na.inx];
+
+  # Handle case where gene.map might not have proper dimensions
+  symbols <- entrez.vec;  # Default to using original IDs
+  tryCatch({
+    if(!is.null(gene.map) && (is.matrix(gene.map) || is.data.frame(gene.map))) {
+      if(ncol(gene.map) >= 2 && "gene_id" %in% colnames(gene.map) && "symbol" %in% colnames(gene.map)) {
+        hit.inx <- match(entrez.vec, gene.map[, "gene_id"]);
+        symbols <- gene.map[hit.inx, "symbol"];
+        # if not gene symbol, use id by itself
+        na.inx <- is.na(symbols);
+        symbols[na.inx] <- entrez.vec[na.inx];
+      }
+    }
+  }, error = function(e) {
+    # If conversion fails, just use original IDs
+    symbols <<- entrez.vec;
+  })
+
   return(symbols);
 }
 # note, entrez.vec could contain NA / NULL – cannot rely on rownames
@@ -475,14 +495,35 @@ doEntrezIDAnot <- function(entrez.vec,
   gene.map <- queryGeneDB(tblNm, data.org)
   gene.map[] <- lapply(gene.map, as.character)  # uniform character columns
 
-  hit.inx   <- match(entrez.vec, gene.map[, "gene_id"])
-  anot.mat  <- gene.map[hit.inx, c("gene_id", "symbol", "name")]
+  # Handle case where gene.map might not have proper dimensions
+  anot.mat <- NULL
+  tryCatch({
+    if(!is.null(gene.map) && (is.matrix(gene.map) || is.data.frame(gene.map))) {
+      if(ncol(gene.map) >= 3 && all(c("gene_id", "symbol", "name") %in% colnames(gene.map))) {
+        hit.inx   <- match(entrez.vec, gene.map[, "gene_id"])
+        anot.mat  <- gene.map[hit.inx, c("gene_id", "symbol", "name")]
 
-  ## ── 3 · fill NAs with original IDs ---------------------------------------
-  na.inx <- is.na(hit.inx)
-  anot.mat[na.inx, "gene_id"] <- entrez.vec[na.inx]
-  anot.mat[na.inx, "symbol"]  <- entrez.vec[na.inx]
-  anot.mat[na.inx, "name"]    <- "NA"
+        ## ── 3 · fill NAs with original IDs ---------------------------------------
+        na.inx <- is.na(hit.inx)
+        anot.mat[na.inx, "gene_id"] <- entrez.vec[na.inx]
+        anot.mat[na.inx, "symbol"]  <- entrez.vec[na.inx]
+        anot.mat[na.inx, "name"]    <- "NA"
+      }
+    }
+  }, error = function(e) {
+    # Conversion failed, will create default matrix below
+    anot.mat <<- NULL
+  })
+
+  # If conversion failed or gene.map was invalid, create default annotation matrix
+  if(is.null(anot.mat)) {
+    anot.mat <- data.frame(
+      gene_id = entrez.vec,
+      symbol  = entrez.vec,
+      name    = rep("NA", length(entrez.vec)),
+      stringsAsFactors = FALSE
+    )
+  }
 
   rownames(anot.mat) <- NULL
   return(anot.mat)
@@ -514,10 +555,25 @@ doIdMappingGeneric <- function(orig.vec, gene.map, colNm1, colNm2, type="vec"){
 }
 
 ##########################################
-############# private utility methods #### 
+############# private utility methods ####
 ##########################################
 
 firstup <- function(x) {
   substr(x, 1, 1) <- toupper(substr(x, 1, 1))
   x
 }
+
+        #'Generate Gene Mapping Report
+        #'@description Generate a CSV file with gene mapping information using id.map.qs
+        #'@param dataName The name of the dataset
+        #'@return The filename of the generated CSV
+        #'@export
+        GenerateGeneMappingReport <- function(dataName=""){
+          output_file <- "gene_mapping_report.csv";
+            id.map <- qs::qread("id.map.qs");
+            write.csv(id.map, file=output_file, row.names=FALSE);
+            return(output_file);
+          
+        
+        }
+        

@@ -260,6 +260,12 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
                                      format  = c("png", "pdf")) {
 
   tryCatch({
+    dbg_file <- "coexp_plot_debug.log"
+    try(writeLines(paste0("[PlotCEMiTreatmentHeatmap] wd=", getwd(),
+                          " imgName=", imgName, " dpi=", dpi,
+                          " format=", paste(format, collapse = ",")),
+                   con = dbg_file, sep = "\n", useBytes = TRUE),
+        silent = TRUE)
 
     library(CEMiTool); library(WGCNA); library(Cairo)
 
@@ -360,12 +366,19 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     # FIX: Suppress Quartz popup on macOS
     invisible(dev.off())
     #message("Heat-map written to: ", outFile)
+    try(writeLines(paste0("[PlotCEMiTreatmentHeatmap] outFile=", outFile,
+                          " exists=", file.exists(outFile)),
+                   con = dbg_file, sep = "\n", useBytes = TRUE, append = TRUE),
+        silent = TRUE)
     imgSet <- readSet(imgSet, "imgSet");
     imgSet$coexp_traitheat <- outFile;
     saveSet(imgSet, "imgSet");
     1
 
   }, error = function(e) {
+    try(writeLines(paste0("[PlotCEMiTreatmentHeatmap] error=", conditionMessage(e)),
+                   con = dbg_file, sep = "\n", useBytes = TRUE, append = TRUE),
+        silent = TRUE)
     #message("PlotCEMiTreatmentHeatmap: ", e$message)
     0
   })
