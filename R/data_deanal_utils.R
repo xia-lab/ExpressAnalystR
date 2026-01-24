@@ -23,8 +23,8 @@
 #'
 SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
   dataSet <- readDataset(dataName);
-  save.image("selected.RData");
-  print(head(dataSet$meta.info));
+  #save.image("selected.RData");
+  #print(head(dataSet$meta.info));
   # Initialize default values to ensure dataSet is always in valid state
   dataSet$fst.cls <- factor(character(0))
   dataSet$sec.cls <- "NA"

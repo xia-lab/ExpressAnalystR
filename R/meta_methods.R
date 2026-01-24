@@ -772,7 +772,12 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
   if(nrow(meta.mat2) > 1000){
     meta.mat2 <- meta.mat2[1:1000,]; # already sorted based on meta-p values
   }
-  return(signif(as.matrix(meta.mat2), 5));
+  result <- signif(as.matrix(meta.mat2), 5)
+  # Arrow shadow save for Java-side reading
+  tryCatch({
+    arrow::write_feather(as.data.frame(result), "meta_res_mat.arrow", compression = "uncompressed")
+  }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
+  return(result);
 }
 
 GetMetaStat<-function(){
