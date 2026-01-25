@@ -174,9 +174,17 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
     width <- 12
     height <- 5
   }else{
-    Conditions <- dataSet$meta.info[,1];
-    conv <- data.frame(ind=sampleNms, Conditions=Conditions, stringsAsFactors = FALSE, check.names = FALSE)
-    df1 <- merge(df, conv, by="ind")
+    meta.info <- dataSet$meta.info
+    meta.info <- meta.info[match(sampleNms, rownames(meta.info)), , drop = FALSE]
+    Conditions <- meta.info[, 1]
+    valid <- !is.na(Conditions)
+    conv <- data.frame(
+      ind = sampleNms[valid],
+      Conditions = Conditions[valid],
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    df1 <- merge(df, conv, by = "ind")
     
     g = ggplot(df1, aes(x=values)) + 
       geom_line(aes(color=Conditions, group=ind), stat="density", alpha=0.6) +
@@ -1680,22 +1688,36 @@ qc.dendrogram.json <- function(dendro_df,
   stopifnot(all(c("Sample", "Dendrogram_Distance", "Status", "LabelMe") %in% names(dendro_df)))
 
   ## ── 1 · Tukey fences and statistical-outlier flag -------------------
-  stats     <- boxplot.stats(dendro_df$Dendrogram_Distance, coef = 1.5)$stats
-  q1        <- stats[2];  q3 <- stats[4];  iqr <- q3 - q1
-  lowFence  <- q1 - 1.5 * iqr
-  highFence <- q3 + 1.5 * iqr
-  dendro_df$stat_out <- with(dendro_df,
-                             Dendrogram_Distance < lowFence |
-                             Dendrogram_Distance > highFence)
+  dist_vals <- dendro_df$Dendrogram_Distance
+  if (length(dist_vals) == 0 || all(is.na(dist_vals))) {
+    dendro_df$stat_out <- FALSE
+    lowFence <- NA_real_
+    highFence <- NA_real_
+  } else {
+    stats     <- boxplot.stats(dist_vals, coef = 1.5)$stats
+    q1        <- stats[2];  q3 <- stats[4];  iqr <- q3 - q1
+    lowFence  <- q1 - 1.5 * iqr
+    highFence <- q3 + 1.5 * iqr
+    dendro_df$stat_out <- with(dendro_df,
+                               Dendrogram_Distance < lowFence |
+                               Dendrogram_Distance > highFence)
+    dendro_df$stat_out[is.na(dendro_df$stat_out)] <- FALSE
+  }
 
   ## ── 2 · Semantic palette -------------------------------------------
   status_cols <- c(Normal = "#666666", Outlier = "#E41A1C")
 
   ## ── 3 · Traces ------------------------------------------------------
   # 3a · Box from in-fence points
+  in_fence_count <- sum(!dendro_df$stat_out, na.rm = TRUE)
+  in_fence <- !dendro_df$stat_out
+  if (in_fence_count == 0 && nrow(dendro_df) > 0) {
+    in_fence <- rep(TRUE, nrow(dendro_df))
+    in_fence_count <- nrow(dendro_df)
+  }
   tr_box <- list(
-    x              = rep(0, sum(!dendro_df$stat_out)),
-    y              = I(dendro_df$Dendrogram_Distance[!dendro_df$stat_out]),
+    x              = rep(0, in_fence_count),
+    y              = I(dendro_df$Dendrogram_Distance[in_fence]),
     quartilemethod = "linear",
     type           = "box",
     width          = 0.8,

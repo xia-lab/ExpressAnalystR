@@ -105,6 +105,13 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     minLvl <- 1;
     current.msg <- paste("No annotation was performed. Make sure organism and gene ID are specified correctly!"); 
   }
+  id.map <- data.frame(
+    original_id = feature.vec,
+    entrez_id = ifelse(is.na(anot.id), "", as.character(anot.id)),
+    match_status = !is.na(anot.id),
+    stringsAsFactors = FALSE
+  );
+  qs::qsave(id.map, file="id.map.qs");
   # need to save the ids (mixed gene annotation and original id) 
   # in case, users needs to keep unannotated features
   # this need to be updated to gether with data from now on
@@ -143,6 +150,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   saveSet(msgSet, "msgSet");
   return(RegisterData(dataSet, matched.len));   
 }
+
 
 
 # Annotating genes to internal database
