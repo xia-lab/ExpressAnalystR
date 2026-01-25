@@ -75,12 +75,8 @@ qc.boxplot <- function(dat, imgNm, dpi=72, format="png", interactive=F){
                 t = 20,
                 pad = 0.5
             )
-    if(length(dataSet$meta.info) == 2){
-    w=1000;
-    }else{
-    w=800;
-    }
-    ggp_build <- layout(ggplotly(bp), autosize = FALSE, width = w, height = 600, margin = m)
+    # Use responsive sizing with percentage-based width
+    ggp_build <- layout(ggplotly(bp), autosize = TRUE, margin = m)
     return(ggp_build);
   }else{
   imgSet <- readSet(imgSet, "imgSet");
@@ -203,12 +199,8 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
       t = 20,
       pad = 0.5
     )
-    if(length(dataSet$meta.info) == 2){
-      w=1000;
-    }else{
-      w=800;
-    }
-    ggp_build <- layout(ggplotly(g), autosize = FALSE, width = w, height = 600, margin = m)
+    # Use responsive sizing with percentage-based width
+    ggp_build <- layout(ggplotly(g), autosize = TRUE, margin = m)
     return(ggp_build);
   }else{
     imgSet <- readSet(imgSet, "imgSet");
@@ -899,8 +891,9 @@ qc.ncov5.plot <- function(ncov5_df,
   if (interactive) {
     require(plotly)
     m <- list(l = 50, r = 50, b = 20, t = 20, pad = 0.5)
+    # Use responsive sizing with percentage-based width
     return(layout(plotly::ggplotly(g),
-                  autosize = FALSE, width = 1000, height = 600, margin = m))
+                  autosize = TRUE, margin = m))
   } else {
     if (dpi == 72) dpi <- dpi * 1.34
     Cairo(file = imgNm, width = width, height = height,
@@ -973,8 +966,9 @@ qc.nsig.plot <- function(nsig_df,
   if (interactive) {
     require("plotly")
     m <- list(l = 50, r = 50, b = 20, t = 20, pad = 0.5)
+    # Use responsive sizing with percentage-based width
     return(layout(plotly::ggplotly(g),
-                  autosize = FALSE, width = 1000, height = 600, margin = m))
+                  autosize = TRUE, margin = m))
   } else {
     if (dpi == 72) dpi <- dpi * 1.34
     Cairo(file = imgNm, width = width, height = height,
@@ -1049,8 +1043,9 @@ qc.dendrogram.plot <- function(dendro_df,
   if (interactive) {
     require(plotly)
     m <- list(l = 50, r = 50, b = 20, t = 20, pad = 0.5)
+    # Use responsive sizing with percentage-based width
     return(layout(plotly::ggplotly(g),
-                  autosize = FALSE, width = 1000, height = 600, margin = m))
+                  autosize = TRUE, margin = m))
   } else {
     if (dpi == 72) dpi <- dpi * 1.34
     Cairo(file = outFile, width = 8, height = 6,
@@ -1411,8 +1406,9 @@ qc.gini.plot <- function(gini_df,
   if (interactive) {
     require(plotly)
     m <- list(l = 50, r = 50, b = 20, t = 20, pad = 0.5)
+    # Use responsive sizing with percentage-based width
     return(layout(plotly::ggplotly(g),
-                  autosize = FALSE, width = 1000, height = 600, margin = m))
+                  autosize = TRUE, margin = m))
   } else {
     if (dpi == 72) dpi <- dpi * 1.34
     Cairo(file = imgNm, width = width, height = height,

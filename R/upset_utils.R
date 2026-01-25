@@ -95,12 +95,24 @@ PrepareUpsetData <- function(fileNm){
     json.list[[i]] <- list()
     json.list[[i]][["sets"]] <- new.df[i,][new.df[i,] != 0]
     entrez.vec <- rownames(new.df)[i];
-    hit.inx <- match(entrez.vec, gene.map[, "gene_id"]);
-    symbols <- gene.map[hit.inx, "symbol"];
-    
-    # if not gene symbol, use id by itself
-    na.inx <- is.na(symbols);
-    symbols[na.inx] <- entrez.vec[na.inx];
+
+    # Handle case where gene.map might not be a proper matrix/dataframe
+    symbols <- entrez.vec;  # Default to using original ID
+    tryCatch({
+      if(!is.null(gene.map) && is.matrix(gene.map) || is.data.frame(gene.map)) {
+        if(ncol(gene.map) >= 2 && "gene_id" %in% colnames(gene.map) && "symbol" %in% colnames(gene.map)) {
+          hit.inx <- match(entrez.vec, gene.map[, "gene_id"]);
+          symbols <- gene.map[hit.inx, "symbol"];
+          # if not gene symbol, use id by itself
+          na.inx <- is.na(symbols);
+          symbols[na.inx] <- entrez.vec[na.inx];
+        }
+      }
+    }, error = function(e) {
+      # If conversion fails, just use original ID
+      symbols <<- entrez.vec;
+    })
+
     json.list[[i]][["name"]] <- symbols;
     json.list[[i]][["entrez"]] <- entrez.vec;
   }
