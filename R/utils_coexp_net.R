@@ -198,7 +198,7 @@ SplitIgraphByModule <- function(g, keepXTalk = FALSE) {
       eKeep <- E(g)[inc(V(g)[module == m])]
       eKeep <- eKeep[ which(ends(g, eKeep)[,1] %in% genes.m$name &
                               ends(g, eKeep)[,2] %in% genes.m$name) ]
-      subG[[m]] <- subgraph.edges(g, eKeep)
+      subG[[m]] <- subgraph_from_edges(g, eKeep)
     }
   }
   subG
@@ -374,7 +374,7 @@ FilterNetByThresh <- function(thresh      = 0.05,
     stop("edge attribute 'weight' not found")
 
   # ── 1 · keep only edges above threshold ───────────────────────────
-  g <- subgraph.edges(g, E(g)[weight > thresh], delete.vertices = FALSE)
+  g <- subgraph_from_edges(g, E(g)[weight > thresh], delete.vertices = FALSE)
 
   # ── 2 · cap total edges if requested ──────────────────────────────
   if (!is.null(maxEdges) && ecount(g) > maxEdges) {
@@ -415,7 +415,7 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
     analSet <- readSet(analSet, "analSet");
     overall.graph <- analSet$overall.graph
     all.nms <- V(overall.graph)$name;
-    edge.mat <- get.edgelist(overall.graph);
+    edge.mat <- as_edgelist(overall.graph);
     dgrs <- degree(overall.graph);
     nodes2rm.dgr <- nodes2rm.btw <- NULL;
 
@@ -445,7 +445,7 @@ FilterBipartiNet <- function(nd.type, min.dgr, min.btw){
     }
 
     nodes2rm <- unique(c(nodes2rm.dgr, nodes2rm.btw));
-    overall.graph <- simplify(delete.vertices(overall.graph, nodes2rm));
+    overall.graph <- simplify(delete_vertices(overall.graph, nodes2rm));
     current.msg <<- paste("A total of", length(nodes2rm) , "was reduced.");
     analSet <- DecomposeGraph(overall.graph,analSet);
     substats <- analSet$substats;
@@ -674,7 +674,7 @@ FindCommunities <- function(method = "walktrap",
 
 
 community.significance.test <- function(graph, vs, ...) {
-  subgraph <- induced.subgraph(graph, vs)
+  subgraph <- induced_subgraph(graph, vs)
   in.degrees <- degree(subgraph)
   out.degrees <- degree(graph, vs) - in.degrees
   wilcox.test(in.degrees, out.degrees, ...)
@@ -684,7 +684,7 @@ community.significance.test <- function(graph, vs, ...) {
 # from to should be valid nodeIDs
 GetShortestPaths <- function(from, to){
   current.net <- ppi.comps[[current.net.nm]];
-  paths <- get.all.shortest.paths(current.net, from, to)$res;
+  paths <- all_shortest_paths(current.net, from, to)$res;
   if(length(paths) == 0){
     return (paste("No connection between the two nodes!"));
   }
@@ -712,7 +712,7 @@ DecomposeGraph <- function(gObj,analSet, minNodeNum = 3, jsonBool = F){
     if(jsonBool == "netjson"){
         comps <-list(gObj)
     }else{
-        comps <-decompose.graph(gObj, min.vertices=minNodeNum);
+        comps <- decompose(gObj, min.vertices=minNodeNum);
     }
   if(length(comps) == 0){
     current.msg <<- paste("No subnetwork was identified with at least", minNodeNum, "nodes!");
