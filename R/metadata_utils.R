@@ -186,6 +186,9 @@ GetMetaRow <- function(dataName, ridx=1){
 }
 
 ResetMetaTab <- function(dataName=""){
+  paramSet <- readSet(paramSet, "paramSet")
+  paramSet$excluded.samples <- character(0)
+  saveSet(paramSet, "paramSet")
   if(dataName != "NA"){
     dataSet <- readDataset(dataName);
      if(dataSet$type=="prot"){
@@ -286,6 +289,18 @@ UpdateMetaStatus <- function(dataName="",colNm){
   msgSet$current.msg <- paste0("Metadata type of ",colnames(dataSet$meta.info)[cidx]," has been changed to ", new, " !")
   saveSet(msgSet, "msgSet"); 
   RegisterData(dataSet);
+  paramSet <- readSet(paramSet, "paramSet")
+  if (is.null(paramSet$excluded.samples)) {
+    paramSet$excluded.samples <- character(0)
+  }
+  paramSet$excluded.samples <- unique(c(paramSet$excluded.samples, samplNm))
+  saveSet(paramSet, "paramSet")
+  paramSet <- readSet(paramSet, "paramSet")
+  if (is.null(paramSet$excluded.samples)) {
+    paramSet$excluded.samples <- character(0)
+  }
+  paramSet$excluded.samples <- unique(c(paramSet$excluded.samples, samplNm))
+  saveSet(paramSet, "paramSet")
   return(1);
 }
 

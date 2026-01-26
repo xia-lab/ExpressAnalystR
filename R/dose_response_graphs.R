@@ -614,13 +614,190 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
 ###################
 ###################
 
+PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet  <- readDataset(paramSet$dataName)
+
+  require(ggplot2)
+  require(Cairo)
+
+  ## Get all BMDs that passed filters
+  bmd.data <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
+
+  if (nrow(bmd.data) == 0) {
+    return(0)
+  }
+
+  ## Sort BMDs in ascending order (keep raw for calculations)
+  bmd.vals.raw <- sort(bmd.data$bmd)
+
+  ## Apply scale transformation if needed
+  bmd.vals <- bmd.vals.raw
+  if (scale == "log10") {
+    bmd.vals <- log10(bmd.vals)
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    bmd.vals <- log2(bmd.vals)
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  ## Calculate cumulative count (actual number of genes)
+  n_genes <- length(bmd.vals)
+  cumulative_count <- seq_len(n_genes)
+
+  ## Create data frame for plotting
+  accum.df <- data.frame(
+    bmd = bmd.vals,
+    cumulative = cumulative_count
+  )
+
+  ## Create the accumulation plot without markers
+  p <- ggplot(accum.df, aes(x = bmd, y = cumulative)) +
+    geom_line(color = "#2CA02C", size = 1.2) +
+    scale_y_continuous(
+      limits = c(0, n_genes),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.02, 0.02))) +
+    theme_bw(base_size = 11 * 1.3) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle(paste0("Gene Accumulation Plot - All Genes (n=", n_genes, ")")) +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  ## Save the plot
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+
+  Cairo(
+    file   = imgFile,
+    width  = 8,
+    height = 6,
+    unit   = "in",
+    dpi    = dpi,
+    type   = format,
+    bg     = "white"
+  )
+  print(p)
+  dev.off()
+
+  imgSet <- readSet(imgSet, "imgSet")
+  imgSet$PlotDRAccumulationAll <- imgFile
+  saveSet(imgSet, "imgSet")
+
+  return(1)
+}
+
+PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet  <- readDataset(paramSet$dataName)
+
+  require(ggplot2)
+  require(Cairo)
+
+  ## Get all BMDs that passed filters
+  bmd.data <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
+
+  if (nrow(bmd.data) == 0) {
+    return(0)
+  }
+
+  ## Sort BMDs in ascending order (keep raw values)
+  bmd.vals.raw <- sort(bmd.data$bmd)
+
+  ## Limit to top 100 genes with lowest BMDs
+  n_genes_total <- length(bmd.vals.raw)
+  n_genes <- min(100, n_genes_total)
+  bmd.vals.raw <- bmd.vals.raw[1:n_genes]
+
+  ## Apply scale transformation if needed
+  bmd.vals <- bmd.vals.raw
+  if (scale == "log10") {
+    bmd.vals <- log10(bmd.vals)
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    bmd.vals <- log2(bmd.vals)
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  ## Calculate cumulative fraction
+  cumulative_fraction <- seq_len(n_genes) / n_genes
+
+  ## Create data frame for plotting
+  accum.df <- data.frame(
+    bmd = bmd.vals,
+    cumulative = cumulative_fraction
+  )
+
+  ## Calculate 20th gene marker position
+  gene_20_idx <- min(20, n_genes)
+  gene_20_bmd <- bmd.vals[gene_20_idx]
+  gene_20_frac <- gene_20_idx / n_genes
+
+  ## Create the accumulation plot with 20th gene marker
+  p <- ggplot(accum.df, aes(x = bmd, y = cumulative)) +
+    geom_line(color = "#2CA02C", size = 1.2) +
+    ## 20th gene marker - horizontal dashed line only
+    geom_hline(yintercept = gene_20_frac, linetype = "dashed", color = "#FF7F0E", size = 0.8) +
+    geom_point(aes(x = gene_20_bmd, y = gene_20_frac), color = "#FF7F0E", size = 3.5, shape = 19) +
+    annotate("text", x = gene_20_bmd, y = gene_20_frac + 0.08,
+             label = paste0("20th gene (", signif(bmd.vals.raw[gene_20_idx], 3), " ", units, ")"),
+             color = "#FF7F0E", fontface = "bold", size = 4) +
+    scale_y_continuous(
+      limits = c(0, 1),
+      breaks = seq(0, 1, 0.2),
+      labels = scales::percent,
+      expand = expansion(mult = c(0.01, 0.01))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+    theme_bw(base_size = 11 * 1.3) +
+    xlab(xTitle) +
+    ylab("Cumulative Fraction of Genes") +
+    ggtitle(paste0("Gene Accumulation Plot - Top 100 Genes")) +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  ## Save the plot
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+
+  Cairo(
+    file   = imgFile,
+    width  = 8,
+    height = 6,
+    unit   = "in",
+    dpi    = dpi,
+    type   = format,
+    bg     = "white"
+  )
+  print(p)
+  dev.off()
+
+  imgSet <- readSet(imgSet, "imgSet")
+  imgSet$PlotDRAccumulationTop100 <- imgFile
+  saveSet(imgSet, "imgSet")
+
+  return(1)
+}
+
 PlotDRHistogramOld <- function(imgNm, dpi, format, units, scale){
   paramSet <- readSet(paramSet, "paramSet");
   dataSet <- readDataset(paramSet$dataName);
 
   require(ggplot2)
   s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
-  
+
   bmd.hist <- dataSet$bmdcalc.obj$bmdcalc.res[dataSet$bmdcalc.obj$bmdcalc.res$all.pass,]
 
   if(scale == "log10"){
@@ -633,22 +810,22 @@ PlotDRHistogramOld <- function(imgNm, dpi, format, units, scale){
     dens <- density(bmd.hist$bmd);
     xTitle <- paste0("Gene-level BMD (", units, ")")
   }
-  
+
   dens <- data.frame(x = dens$x, y = dens$y)
-  
+
   require(ggplot2)
-  p <- ggplot(aes(x = x, y = y), data = dens) + 
+  p <- ggplot(aes(x = x, y = y), data = dens) +
     geom_area() +
     geom_vline(aes(xintercept = s.pods[2], colour = "percentile10th"), size = 1) +
     geom_vline(aes(xintercept = s.pods[3], colour = "mode"), size = 1) +
     geom_vline(aes(xintercept = s.pods[1], colour = "gene20"), size = 1) +
-    scale_color_manual(name = "tPOD", 
+    scale_color_manual(name = "tPOD",
                        values = c(gene20 = "#A7414A", percentile10th = "#6A8A82", mode = "#CC9B31"),
-                       labels = c(paste0("20th gene: ", signif(s.pods[1],2)), 
+                       labels = c(paste0("20th gene: ", signif(s.pods[1],2)),
                                   paste0("Max 1st peak: ", signif(s.pods[3],2)),
-                                  paste0("10th percentile: ", signif(s.pods[2],2)))) + 
+                                  paste0("10th percentile: ", signif(s.pods[2],2)))) +
     theme_bw()
-  p <- p + xlab(xTitle) + ylab("Density function") + 
+  p <- p + xlab(xTitle) + ylab("Density function") +
     theme(axis.text.x = element_text(face="bold"), legend.position = c(.95, .95),
           legend.justification = c("right", "top"),
           legend.box.just = "right")

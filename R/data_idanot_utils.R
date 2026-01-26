@@ -111,8 +111,6 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     match_status = !is.na(anot.id),
     stringsAsFactors = FALSE
   );
-
-  print(head(id.map));
   qs::qsave(id.map, file="id.map.qs");
   # need to save the ids (mixed gene annotation and original id) 
   # in case, users needs to keep unannotated features
@@ -152,6 +150,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   saveSet(msgSet, "msgSet");
   return(RegisterData(dataSet, matched.len));   
 }
+
 
 
 # Annotating genes to internal database

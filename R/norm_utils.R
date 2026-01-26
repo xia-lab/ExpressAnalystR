@@ -530,6 +530,169 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
 #' McGill University, Canada
 #' License: MIT
 #' @export
+ValidateBatchVariable <- function(dataName, batchVar) {
+  # Read dataset
+  qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName);
+  dataSet <- qs::qread(qsfile);
+
+  # Read msgSet for storing messages
+  msgSet <- readSet(msgSet, "msgSet");
+
+  # Get metadata
+  meta.info <- dataSet$meta.info;
+
+  # Check if batch variable exists
+  if (!batchVar %in% colnames(meta.info)) {
+    msgSet$current.msg <- paste("Batch correction not performed. Batch variable '", batchVar, "' not found in metadata.", sep = "");
+    saveSet(msgSet, "msgSet");
+    return(0);
+  }
+
+  # Get batch vector
+  batch <- meta.info[[batchVar]];
+
+  # Check for NA values
+  if (any(is.na(batch))) {
+    msgSet$current.msg <- "Batch correction not performed. Batch variable contains NA values. Please select a metadata column without missing values.";
+    saveSet(msgSet, "msgSet");
+    return(0);
+  }
+
+  # Check number of unique batches
+  unique.batches <- unique(batch);
+  n.batches <- length(unique.batches);
+
+  if (n.batches < 2) {
+    msgSet$current.msg <- "Batch correction not performed. Batch variable must have at least 2 different levels for batch correction.";
+    saveSet(msgSet, "msgSet");
+    return(0);
+  }
+
+  # Check for complete overlap with primary metadata (dose/condition)
+  # Try to identify primary variable(s) from analysis.var or meta.types
+  primary.vars <- c();
+
+  # First try analysis.var if set
+  if (!is.null(dataSet$analysis.var) && dataSet$analysis.var %in% colnames(meta.info)) {
+    primary.vars <- c(dataSet$analysis.var);
+  }
+
+  # Also check for continuous variables (doses) in meta.types
+  if (!is.null(dataSet$meta.types)) {
+    cont.vars <- names(dataSet$meta.types)[dataSet$meta.types == "cont"];
+    cont.vars <- cont.vars[cont.vars %in% colnames(meta.info)];
+    primary.vars <- unique(c(primary.vars, cont.vars));
+  }
+
+  # If no primary variables found, check all non-batch columns
+  if (length(primary.vars) == 0) {
+    primary.vars <- setdiff(colnames(meta.info), batchVar);
+  }
+
+  # Check each potential primary variable
+  for (primary.var in primary.vars) {
+    if (primary.var == batchVar) next; # Skip if same as batch
+
+    primary <- meta.info[[primary.var]];
+    if (is.null(primary) || all(is.na(primary))) next;
+
+    # Create a contingency table to check overlap
+    overlap.table <- table(batch, primary);
+
+    # Check if batches completely confound with primary variable
+    # (each batch has only one level of primary variable)
+    batches.with.single.level <- apply(overlap.table, 1, function(x) sum(x > 0) == 1);
+
+    if (all(batches.with.single.level)) {
+      msgSet$current.msg <- paste("Batch correction not performed. Batch variable completely overlaps with the primary variable '", primary.var,
+                            "'. Each batch contains only one level of the primary condition. ",
+                            "Batch correction cannot distinguish between batch effects and biological effects. ",
+                            "Please select a different batch variable.", sep = "");
+      saveSet(msgSet, "msgSet");
+      return(0);
+    }
+
+    # Check if primary variable levels completely confound with batches
+    # (each primary level appears in only one batch) - NO BRIDGE CONDITIONS
+    primary.with.single.batch <- apply(overlap.table, 2, function(x) sum(x > 0) == 1);
+
+    if (all(primary.with.single.batch)) {
+      msgSet$current.msg <- paste("Batch correction not performed. Primary variable '", primary.var,
+                            "' completely overlaps with batch variable. Each condition/dose level appears in only ONE batch. ",
+                            "There are NO replicated conditions across batches to serve as a reference/bridge. ",
+                            "Batch correction cannot empirically distinguish batch effects from biological effects. ",
+                            "You need at least one condition (e.g., control or a specific dose) replicated across multiple batches.", sep = "");
+      saveSet(msgSet, "msgSet");
+      return(2); # Changed to WARNING
+    }
+
+    # Check for partial confounding (some overlap but not complete)
+    if (any(batches.with.single.level) || any(primary.with.single.batch)) {
+      pct.confounded.batches <- round(100 * sum(batches.with.single.level) / length(batches.with.single.level));
+      pct.confounded.primary <- round(100 * sum(primary.with.single.batch) / length(primary.with.single.batch));
+
+      msgSet$current.msg <- paste("Warning: Partial confounding detected between batch and primary variable '", primary.var, "'. ",
+                            pct.confounded.batches, "% of batches contain only one condition level, and ",
+                            pct.confounded.primary, "% of conditions appear in only one batch. ",
+                            "Batch correction may not fully separate batch effects from biological effects.", sep = "");
+      saveSet(msgSet, "msgSet");
+      return(2); # Warning code
+    }
+
+    # Check: Ensure there are bridge/reference conditions across batches
+    # Count how many batches each primary level appears in
+    primary.batch.counts <- apply(overlap.table, 2, function(x) sum(x > 0));
+    n.bridge.conditions <- sum(primary.batch.counts >= 2);
+
+    # Recommend having more bridge conditions for better estimation
+    if (n.bridge.conditions < 2) {
+      if (n.bridge.conditions == 0) {
+        msgSet$current.msg <- paste("Batch correction not performed. No bridge conditions detected for '", primary.var,
+                              "'. Each level appears in only ONE batch. ",
+                              "Batch correction requires at least one condition (e.g., control or a reference dose) ",
+                              "to be replicated across multiple batches so batch effects can be empirically estimated. ",
+                              "Without bridge samples, batch effects cannot be distinguished from biological effects.", sep = "");
+        saveSet(msgSet, "msgSet");
+        return(2); # Changed to WARNING (was 0)
+      }
+
+      bridge.names <- names(primary.batch.counts)[primary.batch.counts >= 2];
+      msgSet$current.msg <- paste("Only 1 bridge condition detected for '", primary.var,
+                            "' ('", paste(bridge.names, collapse = "', '"), "' appears in multiple batches). ",
+                            "Batch correction will proceed but may be less reliable. ",
+                            "Consider having at least 2 conditions (e.g., control + one dose) replicated across batches ",
+                            "for more robust batch effect estimation.", sep = "");
+      saveSet(msgSet, "msgSet");
+      return(2); # Warning code
+    }
+  }
+
+  # Check samples per batch
+  batch.counts <- table(batch);
+  min.samples <- min(batch.counts);
+
+  if (min.samples < 2) {
+    msgSet$current.msg <- paste("Warning: Some batches have fewer than 2 samples. Batch '",
+                          names(batch.counts)[which.min(batch.counts)],
+                          "' has only ", min.samples, " sample(s). ComBat may fail or produce unreliable results.", sep = "");
+    saveSet(msgSet, "msgSet");
+    return(2); # Warning code
+  }
+
+  if (min.samples < 3) {
+    msgSet$current.msg <- paste("Warning: Some batches have fewer than 3 samples. Batch correction may be less reliable. ",
+                          "Consider having at least 3 samples per batch for optimal results.", sep = "");
+    saveSet(msgSet, "msgSet");
+    return(2); # Warning code
+  }
+
+  # All checks passed
+  msgSet$current.msg <- paste("Batch variable validation passed: ", n.batches, " batches detected with ",
+                        min.samples, "-", max(batch.counts), " samples per batch.", sep = "");
+  saveSet(msgSet, "msgSet");
+  return(1);
+}
+
 PerformExpressBatchCorrection <- function(dataName, batchVar) {
   .prepare.express.batch(dataName, batchVar);
   .perform.computing();
