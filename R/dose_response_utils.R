@@ -484,8 +484,8 @@ paraCheck <- function(name, para) {
       stop("'displayEdgeLabel' should be a logical value!\n")		
   }
   if(name=="layout") {
-    if(!is.character(para) || length(para)!=1 || !(para%in%c("layout.fruchterman.reingold", "layout.spring", "layout.circle", "layout.kamada.kawai")))
-      stop("'layout' must be one of 'layout.fruchterman.reingold', 'layout.spring', 'layout.circle' and 'layout.kamada.kawai'!\n")
+    if(!is.character(para) || length(para)!=1 || !(para%in%c("layout_with_fr", "layout.spring", "layout_in_circle", "layout_with_kk")))
+      stop("'layout' must be one of 'layout_with_fr', 'layout.spring', 'layout_in_circle' and 'layout_with_kk'!\n")
   }
   if(name=="resultName") {
     if(!is.character(para) || length(para)!=1)

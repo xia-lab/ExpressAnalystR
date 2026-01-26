@@ -141,7 +141,7 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   b.mat[,2] <- as.character(bedges[,"ind"]);
   b.mat <- b.mat[complete.cases(b.mat),]
   colnames(b.mat) <- c("source", "target");
-  bg <- graph.data.frame(b.mat, directed=F);
+  bg <- graph_from_data_frame(b.mat, directed=F);
   idx <- unlist(sapply(V(bg)$name, function(x) which(x == id)));
   cols <- color_scale("red", "#E5C494");
   
@@ -234,7 +234,7 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   ppi.comps[[netNm]] <- bg;
   analSet$ppi.comps <- ppi.comps
   
-  bedge.mat <- get.edgelist(bg);
+  bedge.mat <- as_edgelist(bg);
   bedge.mat <- cbind(id=paste0("b", 1:nrow(bedge.mat)), source=bedge.mat[,1], target=bedge.mat[,2]);
   initsbls <- doEntrez2SymbolMapping(analSet$list.genes, paramSet$data.org, paramSet$data.idType)
   names(initsbls) <- analSet$list.genes

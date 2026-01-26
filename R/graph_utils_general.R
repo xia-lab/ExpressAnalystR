@@ -150,10 +150,10 @@ ExtractModule<- function(nodeids, type="enr"){
   g <- analSet$ppi.comps[[paramSet$current.net.nm]];
   # try to see if the nodes themselves are already connected
   hit.inx <- V(g)$name %in% nodes; 
-  gObj <- induced.subgraph(g, V(g)$name[hit.inx]);
+  gObj <- induced_subgraph(g, V(g)$name[hit.inx]);
   
   # now find connected components
-  comps <-decompose.graph(gObj, min.vertices=1);
+  comps <- decompose(gObj, min.vertices=1);
   
   if(length(comps) == 1){ # nodes are all connected
     g <- comps[[1]];
@@ -162,13 +162,13 @@ ExtractModule<- function(nodeids, type="enr"){
     paths.list <-list();
     sd.len <- length(nodes);
     for(pos in 1:sd.len){
-      paths.list[[pos]] <- get.shortest.paths(g, nodes[pos], nodes[-(1:pos)])$vpath;
+      paths.list[[pos]] <- shortest_paths(g, nodes[pos], nodes[-(1:pos)])$vpath;
     }
     nds.inxs <- unique(unlist(paths.list));
     nodes2rm <- V(g)$name[-nds.inxs];
-    g <- simplify(delete.vertices(g, nodes2rm));
+    g <- simplify(delete_vertices(g, nodes2rm));
   }
-  nodeList <- get.data.frame(g, "vertices");
+  nodeList <- igraph::as_data_frame(g, "vertices");
   if(nrow(nodeList) < 3){
     return ("NA");
   }
@@ -183,7 +183,7 @@ ExtractModule<- function(nodeids, type="enr"){
   ndFileNm <- paste(module.nm, "_node_list.csv", sep="");
   fast.write(nodeList, file=ndFileNm, row.names=F);
   
-  edgeList <- get.data.frame(g, "edges");
+  edgeList <- igraph::as_data_frame(g, "edges");
   edgeList <- cbind(rownames(edgeList), edgeList);
   colnames(edgeList) <- c("Id", "Source", "Target");
   edgFileNm <- paste(module.nm, "_edge_list.csv", sep="");
@@ -252,7 +252,7 @@ PerformLayOut <- function(net.nm, algo, focus=""){
     }else{
       maxiter <- 500;
     }
-    pos.xy <- layout.graphopt(g, niter=maxiter);
+    pos.xy <- layout_with_graphopt(g, niter=maxiter);
   }else if(algo == "fr"){
     pos.xy <- layout_with_fr(g, dim=3, niter=500);
   }else if(algo == "kk"){
