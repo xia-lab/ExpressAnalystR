@@ -773,9 +773,9 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
     meta.mat2 <- meta.mat2[1:1000,]; # already sorted based on meta-p values
   }
   result <- signif(as.matrix(meta.mat2), 5)
-  # Arrow shadow save for Java-side reading
+  # Safe-Handshake: Arrow save with verification
   tryCatch({
-    arrow::write_feather(as.data.frame(result), "meta_res_mat.arrow", compression = "uncompressed")
+    arrow_save(result, "meta_res_mat.arrow")
   }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
   return(result);
 }

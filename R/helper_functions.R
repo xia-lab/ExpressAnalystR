@@ -303,9 +303,9 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     RegisterData(dataSet)
     qs::qsave(res, "express.de.res.qs")
     result <- head(signif(as.matrix(res), 5), 1000)
-    # Arrow shadow save for Java-side reading
+    # Safe-Handshake: Arrow save with verification
     tryCatch({
-      arrow::write_feather(as.data.frame(result), "express_res_mat.arrow", compression = "uncompressed")
+      arrow_save(result, "express_res_mat.arrow")
     }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
     return(result)
 }
@@ -434,9 +434,9 @@ GetCovSigMat<-function(dataName){
   dataSet <- readDataset(dataName);
   drops <- c("ids","label")
   result <- CleanNumber(as.matrix(dataSet$analSet$cov$sig.mat[, !(names(dataSet$analSet$cov$sig.mat) %in% drops)]));
-  # Arrow shadow save for Java-side reading
+  # Safe-Handshake: Arrow save with verification
   tryCatch({
-    arrow::write_feather(as.data.frame(result), "cov_sig_mat.arrow", compression = "uncompressed")
+    arrow_save(result, "cov_sig_mat.arrow")
   }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
   return(result);
 }

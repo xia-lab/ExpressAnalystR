@@ -1211,9 +1211,9 @@ GetFitResultMatrix <- function(){
 
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
-  # Arrow shadow save for Java-side reading
+  # Safe-Handshake: Arrow save with verification
   tryCatch({
-    arrow::write_feather(as.data.frame(res), "fit_result_mat.arrow", compression = "uncompressed")
+    arrow_save(res, "fit_result_mat.arrow")
   }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
   return(res);
 }
