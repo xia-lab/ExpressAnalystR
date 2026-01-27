@@ -1,5 +1,5 @@
 ##################################################
-## R script for ExpressAnalyst Pro
+## R script for ExpressAnalyst 
 ## Description: Arrow utilities for zero-copy data exchange with Java
 ## Author: ExpressAnalyst Team
 ## Part of the Rserve/qs to Apache Arrow migration
@@ -52,6 +52,12 @@ write_arrow_safe <- function(df, path, compress = "uncompressed") {
         if (is.factor(df[[col]])) {
             df[[col]] <- as.character(df[[col]])
         }
+    }
+
+    # CRITICAL: Remove existing file first to prevent file-lock conflicts
+    if (file.exists(path)) {
+        unlink(path)
+        Sys.sleep(0.01)
     }
 
     # Write the Arrow file
@@ -400,6 +406,327 @@ ExportDEResultArrow <- function(de_result, filename = "de_result") {
         return(verified_path)
     }, error = function(e) {
         warning(paste("ExportDEResultArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Feature Selection Table to Arrow format (for JSF DataTable)
+#'
+#' Exports DE results with gene IDs, symbols, links for direct Java access.
+#' Java can read this directly via UniversalArrowProxy without Rserve calls.
+#'
+#' @param comp_res The comp.res matrix (DE results)
+#' @param symbols Gene symbols vector (same order as rownames of comp_res)
+#' @param links HTML link strings vector (same order as rownames of comp_res)
+#' @param sig_count Number of significant genes (for highlighting)
+#' @param filename Output filename (default: "express_de_res")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportFeatureTableArrow <- function(comp_res, symbols = NULL, links = NULL,
+                                     sig_count = 0, filename = "express_de_res") {
+    tryCatch({
+        if (is.null(comp_res) || nrow(comp_res) == 0) {
+            warning("ExportFeatureTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(comp_res)
+
+        # Gene IDs from rownames
+        gene_ids <- rownames(comp_res)
+        if (is.null(gene_ids)) {
+            gene_ids <- paste0("Gene_", seq_len(nrow(comp_res)))
+        }
+
+        # Symbols default to gene IDs if not provided
+        if (is.null(symbols) || length(symbols) != length(gene_ids)) {
+            symbols <- gene_ids
+        }
+
+        # Links default to "#" if not provided
+        if (is.null(links) || length(links) != length(gene_ids)) {
+            links <- rep("#", length(gene_ids))
+        }
+
+        # Significant flag (1 = significant, 0 = not)
+        sig_flag <- rep(0L, length(gene_ids))
+        if (sig_count > 0 && sig_count <= length(gene_ids)) {
+            sig_flag[1:sig_count] <- 1L
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(gene_ids),
+            symbol = as.character(symbols),
+            link = as.character(links),
+            significant = sig_flag,
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns from comp_res with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                # Format numeric values: use signif for display (4 significant figures)
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # Also save column names for Java reference
+        qs::qsave(colnames(comp_res), "express.de.res.qs")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] Feature table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportFeatureTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Meta-Analysis Result Table to Arrow format (for JSF DataTable)
+#'
+#' Exports meta-analysis results with gene IDs, symbols, links for direct Java access.
+#' Java can read this directly via UniversalArrowProxy without Rserve calls.
+#'
+#' @param meta_mat The meta result matrix
+#' @param gene_ids Gene IDs (rownames)
+#' @param symbols Gene symbols vector
+#' @param links HTML link strings vector
+#' @param sig_count Number of significant genes
+#' @param filename Output filename (default: "meta_res_table")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportMetaResultTableArrow <- function(meta_mat, gene_ids = NULL, symbols = NULL,
+                                        links = NULL, sig_count = 0,
+                                        filename = "meta_res_table") {
+    tryCatch({
+        if (is.null(meta_mat) || nrow(meta_mat) == 0) {
+            warning("ExportMetaResultTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(meta_mat)
+
+        # Gene IDs from rownames if not provided
+        if (is.null(gene_ids)) {
+            gene_ids <- rownames(meta_mat)
+        }
+        if (is.null(gene_ids)) {
+            gene_ids <- paste0("Gene_", seq_len(nrow(meta_mat)))
+        }
+
+        # Symbols default to gene IDs if not provided
+        if (is.null(symbols) || length(symbols) != length(gene_ids)) {
+            symbols <- gene_ids
+        }
+
+        # Links default to "#" if not provided
+        if (is.null(links) || length(links) != length(gene_ids)) {
+            links <- rep("#", length(gene_ids))
+        }
+
+        # Significant flag (1 = significant, 0 = not)
+        sig_flag <- rep(0L, length(gene_ids))
+        if (sig_count > 0 && sig_count <= length(gene_ids)) {
+            sig_flag[1:sig_count] <- 1L
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(gene_ids),
+            symbol = as.character(symbols),
+            link = as.character(links),
+            significant = sig_flag,
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns from meta_mat with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                # Format numeric values: use signif for display (4 significant figures)
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] Meta result table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportMetaResultTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Covariate Significant Table to Arrow format (for JSF DataTable)
+#'
+#' Exports covariate analysis results with gene IDs and symbols for direct Java access.
+#'
+#' @param cov_mat The covariate result matrix
+#' @param ids Gene IDs vector
+#' @param symbols Gene symbols vector
+#' @param filename Output filename (default: "cov_sig_table")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportCovSigTableArrow <- function(cov_mat, ids = NULL, symbols = NULL, filename = "cov_sig_table") {
+    tryCatch({
+        if (is.null(cov_mat) || nrow(cov_mat) == 0) {
+            warning("ExportCovSigTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(cov_mat)
+
+        # Gene IDs from parameter or rownames
+        if (is.null(ids)) {
+            ids <- rownames(cov_mat)
+        }
+        if (is.null(ids)) {
+            ids <- paste0("Gene_", seq_len(nrow(cov_mat)))
+        }
+
+        # Symbols default to IDs if not provided
+        if (is.null(symbols) || length(symbols) != length(ids)) {
+            symbols <- ids
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(ids),
+            symbol = as.character(symbols),
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first (safe-handshake)
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] Cov sig table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportCovSigTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Dose-Response Fit Result Table to Arrow format (for JSF DataTable)
+#'
+#' Exports dose-response model fitting results with gene IDs and model names for direct Java access.
+#'
+#' @param fit_mat The fit result matrix (P-val, BMDl, BMD, BMDu, b, c, d, e)
+#' @param gene_ids Gene IDs vector
+#' @param model_nms Model names vector
+#' @param filename Output filename (default: "dr_fit_result")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportDoseResponseTableArrow <- function(fit_mat, gene_ids = NULL, model_nms = NULL, filename = "dr_fit_result") {
+    tryCatch({
+        if (is.null(fit_mat) || nrow(fit_mat) == 0) {
+            warning("ExportDoseResponseTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(fit_mat)
+
+        # Gene IDs from parameter or rownames
+        if (is.null(gene_ids)) {
+            gene_ids <- rownames(fit_mat)
+        }
+        if (is.null(gene_ids)) {
+            gene_ids <- paste0("Gene_", seq_len(nrow(fit_mat)))
+        }
+
+        # Model names default to empty if not provided
+        if (is.null(model_nms) || length(model_nms) != length(gene_ids)) {
+            model_nms <- rep("", length(gene_ids))
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(gene_ids),
+            model_name = as.character(model_nms),
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first (safe-handshake)
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] DR fit result table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportDoseResponseTableArrow failed:", e$message))
         return(NULL)
     })
 }
