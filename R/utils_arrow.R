@@ -1,165 +1,80 @@
 ##################################################
-## R script for ExpressAnalyst
+## R script for ExpressAnalyst 
 ## Description: Arrow utilities for zero-copy data exchange with Java
 ## Author: ExpressAnalyst Team
 ## Part of the Rserve/qs to Apache Arrow migration
-##
-## Key Functions:
-##   shadow_save()  - Saves .qs + .arrow (for backward compatibility)
-##   arrow_save()   - Saves .arrow only (for new code paths)
-##
-## Safe-Handshake Pattern:
-##   1. unlink() existing file to prevent file-lock conflicts
-##   2. write_feather() to create new Arrow file
-##   3. normalizePath(mustWork=TRUE) to verify file is accessible
 ###################################################
 
-# ==================== Internal Helper ====================
+#' Sync file to disk and verify existence (Safe-Handshake pattern)
+#'
+#' This function ensures that a file is fully written to disk before
+#' returning control to Java. Uses normalizePath with mustWork=TRUE
+#' to provide a filesystem-level guarantee that the file exists.
+#'
+#' @param file_path Path to the file to sync and verify
+#' @param delay Delay in seconds before verification (default: 0.02 = 20ms)
+#' @return The normalized (absolute) path to the file, or NULL if verification fails
+#' @export
+sync_file <- function(file_path, delay = 0.02) {
+    if (is.null(file_path) || !nzchar(file_path)) {
+        return(invisible(NULL))
+    }
 
-#' Internal: Write Arrow file with safe-handshake
+    # Brief delay to allow filesystem buffers to flush
+    Sys.sleep(delay)
+
+    # Use normalizePath with mustWork=TRUE as filesystem verification
+    # This blocks until the OS confirms the file is accessible
+    tryCatch({
+        verified_path <- base::normalizePath(file_path, mustWork = TRUE)
+        return(verified_path)
+    }, error = function(e) {
+        warning(sprintf("sync_file: File verification failed for '%s': %s",
+                        file_path, e$message))
+        return(NULL)
+    })
+}
+
+#' Write Arrow file with safe-handshake verification
 #'
-#' Core function that handles the actual Arrow write with all safety measures.
-#' Used internally by shadow_save() and arrow_save().
+#' Writes an Arrow (Feather) file and returns the verified absolute path.
+#' Uses normalizePath(mustWork=TRUE) to ensure the file is fully written
+#' before returning control to Java.
 #'
-#' @param df Data frame to write (already prepared with row_names_id if needed)
-#' @param arrow_path Path for the Arrow file
-#' @return The verified absolute path, or NULL on failure
-#' @keywords internal
-.write_arrow_internal <- function(df, arrow_path) {
-    # Convert factors to character for Arrow compatibility
+#' @param df Data frame to write
+#' @param path Path for the Arrow file
+#' @param compress Compression type (default: "uncompressed" for memory-mapping)
+#' @return The verified absolute path to the Arrow file
+#' @export
+write_arrow_safe <- function(df, path, compress = "uncompressed") {
+    # Ensure factors are converted to character
     for (col in names(df)) {
         if (is.factor(df[[col]])) {
             df[[col]] <- as.character(df[[col]])
         }
     }
 
-    # CRITICAL: Remove existing file to prevent file-lock race conditions
-    # (Java may still have the old file memory-mapped)
-    if (file.exists(arrow_path)) {
-        unlink(arrow_path)
+    # CRITICAL: Remove existing file first to prevent file-lock conflicts
+    if (file.exists(path)) {
+        unlink(path)
         Sys.sleep(0.01)
     }
 
-    # Write Arrow file
-    arrow::write_feather(df, arrow_path, compression = "uncompressed")
+    # Write the Arrow file
+    arrow::write_feather(df, path, compression = compress)
 
-    # SAFE-HANDSHAKE: Brief delay then verify with normalizePath
-    # This blocks until the OS confirms the file is accessible
+    # Brief delay then verify with normalizePath
     Sys.sleep(0.02)
-    verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+
+    # Return verified absolute path - blocks until file is confirmed accessible
+    verified_path <- base::normalizePath(path, mustWork = TRUE)
     return(verified_path)
 }
 
-#' Internal: Prepare data frame with row_names_id column
-#'
-#' @param obj Matrix or data.frame
-#' @return Data frame with row_names_id as first column (if rownames exist)
-#' @keywords internal
-.prepare_df_with_rownames <- function(obj) {
-    df <- as.data.frame(obj, stringsAsFactors = FALSE)
-    rn <- rownames(obj)
-    # Only add row_names_id if rownames are meaningful (not just 1:n)
-    if (!is.null(rn) && length(rn) > 0 && !all(rn == as.character(seq_len(nrow(df))))) {
-        df <- cbind(row_names_id = as.character(rn), df)
-    }
-    return(df)
-}
-
-# ==================== Public API ====================
-
-#' Shadow save: Saves both .qs (for R) and .arrow (for Java)
-#'
-#' Primary function for saving data during migration. Maintains backward
-#' compatibility with existing R code while enabling zero-copy Java access.
-#'
-#' ALWAYS preserves rownames as the first column (row_names_id) in Arrow files.
-#'
-#' @param obj The object to save (matrix, data.frame, or list of these)
-#' @param file The .qs file path (Arrow path is auto-derived)
-#' @return The verified absolute path to the Arrow file, or NULL if not applicable
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' # Basic usage
-#' shadow_save(result_matrix, "results.qs")
-#'
-#' # Java then reads from "results.arrow" via:
-#' # DataTable table = sb.getOrCreateDataTable("results", arrowPath);
-#' }
-shadow_save <- function(obj, file) {
-    # Always save to qs for R compatibility
-    qs::qsave(obj, file)
-
-    # Generate Arrow path from qs path
-    arrow_path <- sub("\\.qs$", ".arrow", file)
-    if (!grepl("\\.arrow$", arrow_path)) {
-        arrow_path <- paste0(file, ".arrow")
-    }
-
-    tryCatch({
-        if (is.matrix(obj) || is.data.frame(obj)) {
-            # Single matrix/data.frame
-            df <- .prepare_df_with_rownames(obj)
-            return(.write_arrow_internal(df, arrow_path))
-
-        } else if (is.list(obj) && !inherits(obj, "phyloseq") && !is.null(names(obj))) {
-            # Named list with data.frame/matrix components
-            # Save each component as separate Arrow file
-            for (nm in names(obj)) {
-                if (is.data.frame(obj[[nm]]) || is.matrix(obj[[nm]])) {
-                    component_path <- sub("\\.arrow$", paste0("_", nm, ".arrow"), arrow_path)
-                    df <- .prepare_df_with_rownames(obj[[nm]])
-                    .write_arrow_internal(df, component_path)
-                }
-            }
-        }
-        # Skip phyloseq and other complex S4 objects (qs handles them)
-    }, error = function(e) {
-        warning(paste("Arrow shadow save failed:", e$message))
-    })
-
-    return(NULL)
-}
-
-#' Arrow save: Saves directly to .arrow (no .qs backup)
-#'
-#' Use this for new code paths where qs compatibility is not needed,
-#' or when you only need the Arrow file (e.g., result matrices for Java display).
-#'
-#' @param obj The R object to save (data.frame or matrix)
-#' @param file The file path (will add .arrow extension if missing)
-#' @return The verified absolute path to the Arrow file
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' arrow_save(result_mat, "express_res_mat.arrow")
-#' arrow_save(cov_mat, "cov_sig_mat.arrow")
-#' }
-arrow_save <- function(obj, file) {
-    # Ensure .arrow extension
-    if (!grepl("\\.arrow$", file)) {
-        file <- paste0(file, ".arrow")
-    }
-
-    if (!is.data.frame(obj) && !is.matrix(obj)) {
-        stop("arrow_save only supports data.frame and matrix objects")
-    }
-
-    tryCatch({
-        df <- .prepare_df_with_rownames(obj)
-        return(.write_arrow_internal(df, file))
-    }, error = function(e) {
-        stop(paste("Arrow save failed for", file, ":", e$message))
-    })
-}
-
-# ==================== Utility Functions ====================
-
 #' Safe column extraction with name-first, index-fallback strategy
 #'
-#' Provides safe column extraction during Arrow migration by:
+#' This function provides a safe way to extract columns from data frames
+#' during Arrow migration. It ensures data integrity by:
 #' 1. Trying named column access first (preferred)
 #' 2. Falling back to index if name doesn't exist (with warning)
 #' 3. Returning NA vector with error if both fail
@@ -171,29 +86,29 @@ arrow_save <- function(obj, file) {
 #' @return Column values as vector, or NA vector if extraction fails
 #' @export
 safeGetCol <- function(tab, name, idx = NULL, context = "") {
-    nrows <- nrow(tab)
-    if (is.null(nrows) || nrows == 0) {
-        return(character(0))
-    }
+  nrows <- nrow(tab)
+  if (is.null(nrows) || nrows == 0) {
+    return(character(0))
+  }
 
-    # Strategy 1: Try by name first (preferred - most reliable)
-    if (!is.null(name) && name %in% colnames(tab)) {
-        return(tab[[name]])
-    }
+  # Strategy 1: Try by name first (preferred - most reliable)
+  if (!is.null(name) && name %in% colnames(tab)) {
+    return(tab[[name]])
+  }
 
-    # Strategy 2: Fall back to index (with warning)
-    if (!is.null(idx) && is.numeric(idx) && idx > 0 && ncol(tab) >= idx) {
-        actualName <- colnames(tab)[idx]
-        warning(sprintf("[%s] Column '%s' not found, using index %d (actual column: '%s').",
-                        context, name, idx, actualName))
-        return(tab[, idx])
-    }
+  # Strategy 2: Fall back to index (with warning)
+  if (!is.null(idx) && is.numeric(idx) && idx > 0 && ncol(tab) >= idx) {
+    actualName <- colnames(tab)[idx]
+    warning(sprintf("[%s] Column '%s' not found, using index %d (actual column: '%s').",
+                    context, name, idx, actualName))
+    return(tab[, idx])
+  }
 
-    # Strategy 3: Both failed - return NA with error
-    warning(sprintf("[%s] FAILED to extract column: name='%s', idx=%s. Available columns: %s",
-                    context, name, ifelse(is.null(idx), "NULL", idx),
-                    paste(colnames(tab), collapse = ", ")))
-    return(rep(NA, nrows))
+  # Strategy 3: Both failed - return NA with error
+  warning(sprintf("[%s] FAILED to extract column: name='%s', idx=%s. Available columns: %s",
+                  context, name, ifelse(is.null(idx), "NULL", idx),
+                  paste(colnames(tab), collapse=", ")))
+  return(rep(NA, nrows))
 }
 
 #' Validate that required columns exist in a data frame
@@ -204,12 +119,658 @@ safeGetCol <- function(tab, name, idx = NULL, context = "") {
 #' @return TRUE if all columns exist, FALSE otherwise (with warnings)
 #' @export
 validateColumns <- function(tab, required, context = "") {
-    missing <- setdiff(required, colnames(tab))
-    if (length(missing) > 0) {
-        warning(sprintf("[%s] Missing required columns: %s. Available: %s",
-                        context, paste(missing, collapse = ", "),
-                        paste(colnames(tab), collapse = ", ")))
-        return(FALSE)
-    }
-    return(TRUE)
+  missing <- setdiff(required, colnames(tab))
+  if (length(missing) > 0) {
+    warning(sprintf("[%s] Missing required columns: %s. Available: %s",
+                    context, paste(missing, collapse=", "),
+                    paste(colnames(tab), collapse=", ")))
+    return(FALSE)
+  }
+  return(TRUE)
+}
+
+#' Shadow save function for numeric matrices (Safe-Handshake pattern)
+#'
+#' Saves data as both .qs (for R) and .arrow (for Java zero-copy access).
+#' ALWAYS preserves rownames as the first column (row_names_id) in Arrow files.
+#' Returns the verified absolute path to the Arrow file for Java to memory-map.
+#' Removes existing Arrow file first to prevent file-locking conflicts.
+#'
+#' @param obj The object to save (matrix or data.frame)
+#' @param file The .qs file path (will auto-generate .arrow path)
+#' @param compress Compression for Arrow (default: "uncompressed" for memory-mapping)
+#' @return The verified absolute path to the Arrow file, or NULL if save failed
+#' @export
+shadow_save <- function(obj, file, compress = "uncompressed") {
+    # Always save to qs for R compatibility
+    qs::qsave(obj, file)
+
+    # Generate Arrow path
+    arrow_path <- sub("\\.qs$", ".arrow", file)
+
+    tryCatch({
+        if (is.matrix(obj) || is.data.frame(obj)) {
+            df <- as.data.frame(obj)
+
+            # Preserve rownames as first column
+            rn <- rownames(obj)
+            if (!is.null(rn) && length(rn) > 0 && !all(rn == as.character(1:nrow(df)))) {
+                df <- cbind(row_names_id = as.character(rn), df)
+            }
+
+            # Ensure all character columns are properly typed
+            for (col in names(df)) {
+                if (is.factor(df[[col]])) {
+                    df[[col]] <- as.character(df[[col]])
+                }
+            }
+
+            # CRITICAL: Remove existing file first to prevent file-lock conflicts
+            # Java should have closed its memory-map before R reaches here
+            if (file.exists(arrow_path)) {
+                unlink(arrow_path)
+                Sys.sleep(0.01)
+            }
+
+            arrow::write_feather(df, arrow_path, compression = compress)
+
+            # SAFE-HANDSHAKE: Brief delay then verify with normalizePath
+            # This blocks until the OS confirms the file is accessible
+            Sys.sleep(0.02)
+            verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+            return(verified_path)
+        }
+    }, error = function(e) {
+        warning(paste("Arrow shadow save failed:", e$message))
+    })
+
+    return(NULL)
+}
+
+#' Shadow save for mixed-type data frames (Safe-Handshake pattern)
+#'
+#' Handles factors by converting to character. Returns verified path.
+#' Removes existing Arrow file first to prevent file-locking conflicts.
+#'
+#' @param obj Data frame or matrix to save
+#' @param file Path to .qs file
+#' @param compress Compression for Arrow (default: "uncompressed")
+#' @return The verified absolute path to the Arrow file, or NULL if save failed
+#' @export
+shadow_save_mixed <- function(obj, file, compress = "uncompressed") {
+    # Always save qs format for backward compatibility
+    qs::qsave(obj, file)
+
+    # Derive Arrow path
+    arrow_path <- sub("\\.qs$", ".arrow", file)
+
+    tryCatch({
+        if (is.matrix(obj) || is.data.frame(obj)) {
+            df <- as.data.frame(obj, stringsAsFactors = FALSE)
+
+            # Convert factors to character for Arrow compatibility
+            for (col in names(df)) {
+                if (is.factor(df[[col]])) {
+                    df[[col]] <- as.character(df[[col]])
+                }
+            }
+
+            rn <- rownames(obj)
+            if (!is.null(rn) && length(rn) > 0 && !all(rn == as.character(1:nrow(df)))) {
+                # Prepend row_names_id as first column
+                df <- cbind(row_names_id = as.character(rn), df)
+            }
+
+            # CRITICAL: Remove existing file first to prevent file-lock conflicts
+            if (file.exists(arrow_path)) {
+                unlink(arrow_path)
+                Sys.sleep(0.01)
+            }
+
+            arrow::write_feather(df, arrow_path, compression = compress)
+
+            # SAFE-HANDSHAKE: Brief delay then verify with normalizePath
+            Sys.sleep(0.02)
+            verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+            return(verified_path)
+        }
+    }, error = function(e) {
+        warning(paste("Arrow save (mixed) failed:", e$message))
+    })
+
+    return(NULL)
+}
+
+#' Export normalized data matrix to Arrow format (Safe-Handshake)
+#'
+#' Called after normalization to enable zero-copy access.
+#' Returns verified path for Java consumption.
+#'
+#' @param dataSet dataSet object containing normalized data
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportNormDataArrow <- function(dataSet = NA) {
+    tryCatch({
+        if (!is.null(dataSet$norm)) {
+            mat <- dataSet$norm
+            df <- as.data.frame(mat)
+            rn <- rownames(mat)
+            if (!is.null(rn)) {
+                df <- cbind(row_names_id = as.character(rn), df)
+            }
+
+            arrow_path <- "norm_data.arrow"
+
+            # Remove existing file first
+            if (file.exists(arrow_path)) {
+                unlink(arrow_path)
+                Sys.sleep(0.01)
+            }
+
+            arrow::write_feather(df, arrow_path, compression = "uncompressed")
+
+            # SAFE-HANDSHAKE: Verify file is ready
+            Sys.sleep(0.02)
+            verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+            return(verified_path)
+        }
+        return(NULL)
+    }, error = function(e) {
+        warning(paste("ExportNormDataArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export prenorm data matrix to Arrow format (Safe-Handshake)
+#'
+#' Called during data preparation. Returns verified path.
+#'
+#' @param dataSet dataSet object containing prenorm data
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportPrenormDataArrow <- function(dataSet = NA) {
+    tryCatch({
+        if (!is.null(dataSet$prenorm)) {
+            mat <- dataSet$prenorm
+            df <- as.data.frame(mat)
+            rn <- rownames(mat)
+            if (!is.null(rn)) {
+                df <- cbind(row_names_id = as.character(rn), df)
+            }
+
+            arrow_path <- "prenorm_data.arrow"
+
+            # Remove existing file first
+            if (file.exists(arrow_path)) {
+                unlink(arrow_path)
+                Sys.sleep(0.01)
+            }
+
+            arrow::write_feather(df, arrow_path, compression = "uncompressed")
+
+            # SAFE-HANDSHAKE: Verify file is ready
+            Sys.sleep(0.02)
+            verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+            return(verified_path)
+        }
+        return(NULL)
+    }, error = function(e) {
+        warning(paste("ExportPrenormDataArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export statistical results matrix to Arrow format (Safe-Handshake)
+#'
+#' For t-test, fold change, volcano, ANOVA results. Returns verified path.
+#' Removes existing file first to prevent file-locking conflicts with Java.
+#'
+#' @param result_mat Result matrix to export
+#' @param filename Output filename (without .arrow extension)
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportResultMatArrow <- function(result_mat, filename) {
+    tryCatch({
+        df <- as.data.frame(result_mat)
+
+        # Convert factors to character
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                df[[col]] <- as.character(df[[col]])
+            }
+        }
+
+        rn <- rownames(result_mat)
+        if (!is.null(rn)) {
+            df <- cbind(row_names_id = as.character(rn), df)
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # CRITICAL: Remove existing file first to prevent file-lock conflicts
+        # Java should have closed its memory-map before R reaches here
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)  # Brief pause after delete
+        }
+
+        arrow::write_feather(df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportResultMatArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export DE (Differential Expression) results to Arrow format
+#'
+#' For DESeq2, limma, edgeR results. Returns verified path.
+#'
+#' @param de_result DE result data frame or matrix
+#' @param filename Output filename (without .arrow extension)
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportDEResultArrow <- function(de_result, filename = "de_result") {
+    tryCatch({
+        df <- as.data.frame(de_result)
+
+        # Convert factors to character
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                df[[col]] <- as.character(df[[col]])
+            }
+        }
+
+        rn <- rownames(de_result)
+        if (!is.null(rn)) {
+            df <- cbind(row_names_id = as.character(rn), df)
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportDEResultArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Feature Selection Table to Arrow format (for JSF DataTable)
+#'
+#' Exports DE results with gene IDs, symbols, links for direct Java access.
+#' Java can read this directly via UniversalArrowProxy without Rserve calls.
+#'
+#' @param comp_res The comp.res matrix (DE results)
+#' @param symbols Gene symbols vector (same order as rownames of comp_res)
+#' @param links HTML link strings vector (same order as rownames of comp_res)
+#' @param sig_count Number of significant genes (for highlighting)
+#' @param filename Output filename (default: "express_de_res")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportFeatureTableArrow <- function(comp_res, symbols = NULL, links = NULL,
+                                     sig_count = 0, filename = "express_de_res") {
+    tryCatch({
+        if (is.null(comp_res) || nrow(comp_res) == 0) {
+            warning("ExportFeatureTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(comp_res)
+
+        # Gene IDs from rownames
+        gene_ids <- rownames(comp_res)
+        if (is.null(gene_ids)) {
+            gene_ids <- paste0("Gene_", seq_len(nrow(comp_res)))
+        }
+
+        # Symbols default to gene IDs if not provided
+        if (is.null(symbols) || length(symbols) != length(gene_ids)) {
+            symbols <- gene_ids
+        }
+
+        # Links default to "#" if not provided
+        if (is.null(links) || length(links) != length(gene_ids)) {
+            links <- rep("#", length(gene_ids))
+        }
+
+        # Significant flag (1 = significant, 0 = not)
+        sig_flag <- rep(0L, length(gene_ids))
+        if (sig_count > 0 && sig_count <= length(gene_ids)) {
+            sig_flag[1:sig_count] <- 1L
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(gene_ids),
+            symbol = as.character(symbols),
+            link = as.character(links),
+            significant = sig_flag,
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns from comp_res with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                # Format numeric values: use signif for display (4 significant figures)
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # Also save column names for Java reference
+        qs::qsave(colnames(comp_res), "express.de.res.qs")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] Feature table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportFeatureTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Meta-Analysis Result Table to Arrow format (for JSF DataTable)
+#'
+#' Exports meta-analysis results with gene IDs, symbols, links for direct Java access.
+#' Java can read this directly via UniversalArrowProxy without Rserve calls.
+#'
+#' @param meta_mat The meta result matrix
+#' @param gene_ids Gene IDs (rownames)
+#' @param symbols Gene symbols vector
+#' @param links HTML link strings vector
+#' @param sig_count Number of significant genes
+#' @param filename Output filename (default: "meta_res_table")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportMetaResultTableArrow <- function(meta_mat, gene_ids = NULL, symbols = NULL,
+                                        links = NULL, sig_count = 0,
+                                        filename = "meta_res_table") {
+    tryCatch({
+        if (is.null(meta_mat) || nrow(meta_mat) == 0) {
+            warning("ExportMetaResultTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(meta_mat)
+
+        # Gene IDs from rownames if not provided
+        if (is.null(gene_ids)) {
+            gene_ids <- rownames(meta_mat)
+        }
+        if (is.null(gene_ids)) {
+            gene_ids <- paste0("Gene_", seq_len(nrow(meta_mat)))
+        }
+
+        # Symbols default to gene IDs if not provided
+        if (is.null(symbols) || length(symbols) != length(gene_ids)) {
+            symbols <- gene_ids
+        }
+
+        # Links default to "#" if not provided
+        if (is.null(links) || length(links) != length(gene_ids)) {
+            links <- rep("#", length(gene_ids))
+        }
+
+        # Significant flag (1 = significant, 0 = not)
+        sig_flag <- rep(0L, length(gene_ids))
+        if (sig_count > 0 && sig_count <= length(gene_ids)) {
+            sig_flag[1:sig_count] <- 1L
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(gene_ids),
+            symbol = as.character(symbols),
+            link = as.character(links),
+            significant = sig_flag,
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns from meta_mat with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                # Format numeric values: use signif for display (4 significant figures)
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] Meta result table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportMetaResultTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Covariate Significant Table to Arrow format (for JSF DataTable)
+#'
+#' Exports covariate analysis results with gene IDs and symbols for direct Java access.
+#'
+#' @param cov_mat The covariate result matrix
+#' @param ids Gene IDs vector
+#' @param symbols Gene symbols vector
+#' @param filename Output filename (default: "cov_sig_table")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportCovSigTableArrow <- function(cov_mat, ids = NULL, symbols = NULL, filename = "cov_sig_table") {
+    tryCatch({
+        if (is.null(cov_mat) || nrow(cov_mat) == 0) {
+            warning("ExportCovSigTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(cov_mat)
+
+        # Gene IDs from parameter or rownames
+        if (is.null(ids)) {
+            ids <- rownames(cov_mat)
+        }
+        if (is.null(ids)) {
+            ids <- paste0("Gene_", seq_len(nrow(cov_mat)))
+        }
+
+        # Symbols default to IDs if not provided
+        if (is.null(symbols) || length(symbols) != length(ids)) {
+            symbols <- ids
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(ids),
+            symbol = as.character(symbols),
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first (safe-handshake)
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] Cov sig table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportCovSigTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export Dose-Response Fit Result Table to Arrow format (for JSF DataTable)
+#'
+#' Exports dose-response model fitting results with gene IDs and model names for direct Java access.
+#'
+#' @param fit_mat The fit result matrix (P-val, BMDl, BMD, BMDu, b, c, d, e)
+#' @param gene_ids Gene IDs vector
+#' @param model_nms Model names vector
+#' @param filename Output filename (default: "dr_fit_result")
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportDoseResponseTableArrow <- function(fit_mat, gene_ids = NULL, model_nms = NULL, filename = "dr_fit_result") {
+    tryCatch({
+        if (is.null(fit_mat) || nrow(fit_mat) == 0) {
+            warning("ExportDoseResponseTableArrow: No data to export")
+            return(NULL)
+        }
+
+        df <- as.data.frame(fit_mat)
+
+        # Gene IDs from parameter or rownames
+        if (is.null(gene_ids)) {
+            gene_ids <- rownames(fit_mat)
+        }
+        if (is.null(gene_ids)) {
+            gene_ids <- paste0("Gene_", seq_len(nrow(fit_mat)))
+        }
+
+        # Model names default to empty if not provided
+        if (is.null(model_nms) || length(model_nms) != length(gene_ids)) {
+            model_nms <- rep("", length(gene_ids))
+        }
+
+        # Build final data frame with metadata columns first
+        result_df <- data.frame(
+            gene_id = as.character(gene_ids),
+            model_name = as.character(model_nms),
+            stringsAsFactors = FALSE
+        )
+
+        # Add all numeric columns with proper formatting
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                result_df[[col]] <- as.character(df[[col]])
+            } else if (is.numeric(df[[col]])) {
+                result_df[[col]] <- signif(df[[col]], 4)
+            } else {
+                result_df[[col]] <- df[[col]]
+            }
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first (safe-handshake)
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        message("[Arrow] DR fit result table exported: ", verified_path, " (", nrow(result_df), " rows)")
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportDoseResponseTableArrow failed:", e$message))
+        return(NULL)
+    })
+}
+
+#' Export enrichment results to Arrow format
+#'
+#' For ORA, GSEA, pathway analysis results. Returns verified path.
+#'
+#' @param enrich_result Enrichment result data frame or matrix
+#' @param filename Output filename (without .arrow extension)
+#' @return The verified absolute path to the Arrow file, or NULL on failure
+#' @export
+ExportEnrichResultArrow <- function(enrich_result, filename = "enrich_result") {
+    tryCatch({
+        df <- as.data.frame(enrich_result)
+
+        # Convert factors to character
+        for (col in names(df)) {
+            if (is.factor(df[[col]])) {
+                df[[col]] <- as.character(df[[col]])
+            }
+        }
+
+        rn <- rownames(enrich_result)
+        if (!is.null(rn)) {
+            df <- cbind(row_names_id = as.character(rn), df)
+        }
+
+        arrow_path <- paste0(filename, ".arrow")
+
+        # Remove existing file first
+        if (file.exists(arrow_path)) {
+            unlink(arrow_path)
+            Sys.sleep(0.01)
+        }
+
+        arrow::write_feather(df, arrow_path, compression = "uncompressed")
+
+        # SAFE-HANDSHAKE: Verify file is ready
+        Sys.sleep(0.02)
+        verified_path <- base::normalizePath(arrow_path, mustWork = TRUE)
+        return(verified_path)
+    }, error = function(e) {
+        warning(paste("ExportEnrichResultArrow failed:", e$message))
+        return(NULL)
+    })
 }

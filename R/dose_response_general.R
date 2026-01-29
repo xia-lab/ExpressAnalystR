@@ -1202,6 +1202,11 @@ GetFitResultMatrix <- function(){
   paramSet <- readSet(paramSet, "paramSet");
   dataSet <- readDataset(paramSet$dataName);
   res <- dataSet$html.resTable;
+
+  # Extract gene IDs and model names before removing
+  gene_ids <- as.character(res[,1])
+  model_nms <- as.character(res[,2])
+
   res <- res[,-c(1,2)];
   res <- as.matrix(res);
   res <- signif(res, 5)
@@ -1211,10 +1216,12 @@ GetFitResultMatrix <- function(){
 
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
-  # Safe-Handshake: Arrow save with verification
+
+  # Export complete table to Arrow for Java JSF DataTable
   tryCatch({
-    arrow_save(res, "fit_result_mat.arrow")
-  }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
+    ExportDoseResponseTableArrow(res, gene_ids, model_nms, "dr_fit_result")
+  }, error = function(e) { warning(paste("Arrow export failed:", e$message)) })
+
   return(res);
 }
 

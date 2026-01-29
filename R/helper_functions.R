@@ -434,10 +434,14 @@ GetCovSigMat<-function(dataName){
   dataSet <- readDataset(dataName);
   drops <- c("ids","label")
   result <- CleanNumber(as.matrix(dataSet$analSet$cov$sig.mat[, !(names(dataSet$analSet$cov$sig.mat) %in% drops)]));
-  # Safe-Handshake: Arrow save with verification
+
+  # Export complete covariate table to Arrow for Java JSF DataTable
   tryCatch({
-    arrow_save(result, "cov_sig_mat.arrow")
-  }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
+    ids <- dataSet$analSet$cov$sig.mat$ids
+    symbols <- dataSet$analSet$cov$sig.mat$label
+    ExportCovSigTableArrow(result, ids, symbols, "cov_sig_table")
+  }, error = function(e) { warning(paste("Arrow export failed:", e$message)) })
+
   return(result);
 }
 

@@ -414,6 +414,33 @@ dataSet$comp.res <- rbind(resTable, other)
   dataSet$pval <- p.lvl;
   dataSet$fc.val <- fc.lvl;
   dataSet$comp.res.filename <- filename;
+
+  # === ARROW EXPORT for Java JSF DataTable (zero-copy access) ===
+  # Generate links for genes
+  gene_ids <- rownames(dataSet$comp.res)
+  if (paramSet$data.org == "generic") {
+    if (paramSet$data.idType == "ko") {
+      gene_links <- paste0("<a href='https://www.genome.jp/dbget-bin/www_bget?", gene_ids, "' target='_blank'>KEGG</a>")
+    } else if (paramSet$data.idType == "s2f") {
+      gene_links <- paste0("<a href='https://www.ecoomicsdb.ca/#/query?ortho=", gene_ids, "' target='_blank'>EODB</a>")
+    } else {
+      gene_links <- rep("#", length(gene_ids))
+    }
+  } else if (paramSet$data.org == "custom") {
+    gene_links <- rep("#", length(gene_ids))
+  } else {
+    gene_links <- paste0("<a href='http://www.ncbi.nlm.nih.gov/gene?term=", gene_ids, "' target='_blank'>NCBI</a>")
+  }
+
+  # Export to Arrow for Java direct access (replaces Rserve calls)
+  ExportFeatureTableArrow(
+    comp_res = dataSet$comp.res,
+    symbols = analSet$comp.genes.symbols,
+    links = gene_links,
+    sig_count = de.Num,
+    filename = "express_de_res"
+  )
+
   res <- RegisterData(dataSet);
   saveSet(paramSet, "paramSet");
   return(c(output_file, de.Num, geneList, total, up, down, non.de.Num));
