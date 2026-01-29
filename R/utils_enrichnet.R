@@ -109,6 +109,8 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   n_nodes <- vcount(g);
   # Updated for igraph >= 0.8.0: removed deprecated parameters (area, repulserad, start.temp, grid)
   pos.xy <- layout_with_fr(g, niter=500)
+  # tighten layout to reduce spacing between disconnected components
+  pos.xy <- sweep(pos.xy, 2, colMeans(pos.xy), "-") * 0.6
   
   # now create the json object
   nodes <- vector(mode="list");
@@ -203,6 +205,8 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   n_nodes_bg <- vcount(bg);
   # Updated for igraph >= 0.8.0: removed deprecated parameters (area, repulserad, start.temp, grid)
   pos.xy <- layout_with_fr(bg, niter=500)
+  # tighten layout to reduce spacing between disconnected components
+  pos.xy <- sweep(pos.xy, 2, colMeans(pos.xy), "-") * 0.6
   
   # now create the json object
   bnodes <- vector(mode="list");

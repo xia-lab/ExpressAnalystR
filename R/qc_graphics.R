@@ -1502,6 +1502,47 @@ SummarizeQC <- function(fileName, imgNameBase, threshold = 0.1) {
   summary_df <- Reduce(function(x, y) merge(x, y, by = "Sample", all = TRUE),
                        list(ncov5_df, nsig_df, gini_df, dendrogram_df))
 
+  ## --- PCA distance to group centroid (if PCA is available) ---
+  pca_dist_df <- NULL
+  analSet <- try(readSet(analSet, "analSet"), silent = TRUE)
+  if (!inherits(analSet, "try-error") && !is.null(analSet$pca) && !is.null(analSet$pca$x)) {
+    pca.res <- as.data.frame(analSet$pca$x)[, 1:2, drop = FALSE]
+    colnames(pca.res) <- c("PC1", "PC2")
+    pca.res$Sample <- rownames(pca.res)
+
+    if (!is.null(dataSet$meta.info)) {
+      meta <- dataSet$meta.info
+      common <- intersect(pca.res$Sample, rownames(meta))
+      if (length(common) > 0) {
+        dfp <- pca.res[pca.res$Sample %in% common, , drop = FALSE]
+        dfp$group <- as.character(meta[dfp$Sample, 1])
+        centroids <- aggregate(cbind(PC1, PC2) ~ group, dfp, mean)
+        dfp <- merge(dfp, centroids, by = "group", suffixes = c("", "_centroid"))
+        dfp$PCA_Distance <- sqrt((dfp$PC1 - dfp$PC1_centroid)^2 + (dfp$PC2 - dfp$PC2_centroid)^2)
+        pset <- try(readSet(paramSet, "paramSet"), silent = TRUE)
+        excl_list <- character(0)
+        mod_list <- character(0)
+        if (!inherits(pset, "try-error") && !is.null(pset$pca.outliers_excluded)) {
+          excl_list <- as.character(pset$pca.outliers_excluded)
+        }
+        if (!inherits(pset, "try-error") && !is.null(pset$pca.outliers_moderate)) {
+          mod_list <- as.character(pset$pca.outliers_moderate)
+        }
+        excl_list <- excl_list[!is.na(excl_list) & excl_list != "NA" & excl_list != ""]
+        mod_list <- mod_list[!is.na(mod_list) & mod_list != "NA" & mod_list != ""]
+        dfp$PCA_Status <- "Kept"
+        dfp$PCA_Status[dfp$Sample %in% mod_list] <- "Moderate"
+        dfp$PCA_Status[dfp$Sample %in% excl_list] <- "Excluded"
+        dfp$Outlier_PCA <- as.integer(dfp$PCA_Status == "Excluded")
+        pca_dist_df <- dfp[, c("Sample", "PCA_Distance", "PCA_Status", "Outlier_PCA"), drop = FALSE]
+      }
+    }
+  }
+
+  if (!is.null(pca_dist_df)) {
+    summary_df <- merge(summary_df, pca_dist_df, by = "Sample", all = TRUE)
+  }
+
   ## --- Outlier calls on the merged columns ---
   # NSig80 IQR rule (3*IQR)
   Q1_nsig <- quantile(summary_df$NSig80, 0.25, na.rm = TRUE)
@@ -2178,6 +2219,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
     out <- vector("list", n)
     for (i in seq_len(n)) {
       out[[i]] <- list(
+        sample     = .safe_chr(subdf$sample_id[i]),
         dose       = .safe_chr(subdf$dose[i]),
         is_vehicle = .safe_chr(subdf$is_vehicle[i]),
         reason     = .safe_reason(subdf$reason[i]),
@@ -2209,6 +2251,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   df$moderate_both_axes <- (df$ax_PC1 == "moderate" & df$ax_PC2 == "moderate")
 
   D  <- euclid_med(df)
+  df$distance <- D
   df$far_euclid <- D > (2 * median(D, na.rm = TRUE))
   df$far_repl  <- within_dose_far(df)
 
@@ -2216,43 +2259,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   df$exclude <- df$axis_class == "strong"
   df$reason[df$exclude] <- "Strong axis separation vs. core (>2× core span)"
 
-  if (!all(is.na(df$dose))) {
-    strong_rows <- which(df$exclude)
-    if (length(strong_rows) > 1) {
-      dups <- duplicated(df$dose[strong_rows]) | duplicated(df$dose[strong_rows], fromLast = TRUE)
-      if (any(dups, na.rm = TRUE)) {
-        df$exclude[strong_rows] <- FALSE
-        df$reason[strong_rows]  <- NA_character_
-      }
-    }
-  }
-
-  m_idx <- which(!df$exclude & df$axis_class == "moderate")
-  for (i in m_idx) {
-    reasons <- character(0)
-    if (isTRUE(df$moderate_both_axes[i]) && isTRUE(df$far_euclid[i]))
-      reasons <- c(reasons, "Moderate on both axes with large Euclidean distance")
-    if (isTRUE(df$far_repl[i]))
-      reasons <- c(reasons, "Far from replicate/similar dose cluster")
-    if (isTRUE(df$worse_qc[i]))
-      reasons <- c(reasons, "Lower sequencing quality")
-    if (length(reasons)) {
-      df$exclude[i] <- TRUE
-      df$reason[i]  <- paste(reasons, collapse = "; ")
-    }
-  }
-
-  if (!all(is.na(df$dose))) {
-    kept_by_dose <- tapply(!df$exclude & !df$is_vehicle, df$dose, sum)
-    drop_doses <- names(kept_by_dose[!is.na(kept_by_dose) & kept_by_dose < min_per_dose])
-    if (length(drop_doses)) {
-      hit <- which(df$dose %in% drop_doses & !df$is_vehicle)
-      df$exclude[hit] <- TRUE
-      df$reason[hit]  <- ifelse(is.na(df$reason[hit]),
-                                "Dose dropped (<2 samples after QC/outlier)",
-                                paste(df$reason[hit], "Dose dropped (<2 samples)", sep="; "))
-    }
-  }
+  # Only the strong axis-separation criterion is used for Excluded.
 
   veh_kept <- sum(!df$exclude & df$is_vehicle, na.rm = TRUE)
   vehicle_note <- if (any("is_vehicle" == colnames(meta)) && veh_kept < min_vehicles)
@@ -2261,6 +2268,12 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   status_lab <- ifelse(df$exclude, "Excluded",
                        ifelse(df$axis_class == "moderate", "Moderate", "Kept"))
   df$.__status__ <- status_lab
+
+  # Persist PCA outlier levels for downstream summary table
+  paramSet <- readSet(paramSet, "paramSet")
+  paramSet$pca.outliers_excluded <- df$sample_id[df$.__status__ == "Excluded"]
+  paramSet$pca.outliers_moderate <- df$sample_id[df$.__status__ == "Moderate"]
+  saveSet(paramSet, "paramSet")
 
   # Add a default reason for moderate outliers when no specific reason is set.
   mod_idx <- which(is.na(df$reason) | df$reason == "")
@@ -2384,7 +2397,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   writeLines(json.obj, jsonFile)
 
   out_cols <- c("sample_id","group","dose","is_vehicle","uniq_map",
-                "PC1","PC2","ax_PC1","ax_PC2","axis_class",
+                "PC1","PC2","distance","ax_PC1","ax_PC2","axis_class",
                 "moderate_both_axes","far_euclid","far_repl",
                 "worse_qc","exclude","reason","__.__status__")
   keep_cols <- intersect(out_cols, colnames(df))

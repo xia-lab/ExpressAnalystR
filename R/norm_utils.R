@@ -160,6 +160,11 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
         avg.counts <- rowMeans(data, na.rm = TRUE)
         rm.inx <- avg.counts < count.thresh
         msg <- paste(msg, "Filtered ", sum(rm.inx), " genes with low counts using average method.", collapse = " ")
+    } else if (countOpt == "median") {
+        # Median approach: calculate median counts across samples for each gene
+        med.counts <- apply(data, 1, median, na.rm = TRUE)
+        rm.inx <- med.counts < count.thresh
+        msg <- paste(msg, "Filtered ", sum(rm.inx), " genes with low counts using median method.", collapse = " ")
     }
   }else{
     avg.signal <- rowMeans(data, na.rm=TRUE)

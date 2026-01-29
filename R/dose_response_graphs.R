@@ -51,11 +51,62 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     #prepare pathways summary
     data.sorted = gs.POD$geneset.stats[order(gs.POD$geneset.stats$Adjusted.Pvalue),]
     details <- GetFunctionalDetails(data.sorted, gs.POD$geneset.matches)
+    details$gene.matches <- lapply(details$gene.matches, function(gm) {
+      if (is.null(gm)) {
+        character(0)
+      } else {
+        gm <- as.character(gm)
+        gm <- gm[!is.na(gm) & nzchar(gm)]
+        unique(gm)
+      }
+    })
 
-    # make out file
-    details.out <- as.data.frame(details[-7])
-    colnames(details.out) <- c("Name", "pathBMD", "pval", "adj.pval", "perc.path", "num.hits")
+    details.out <- data.frame(
+      Name = details$pathways,
+      pathBMD = details$pathways.bmd,
+      pval = details$pathways.pval,
+      adj.pval = details$pathways.adjpval,
+      perc.path = details$pathways.nodesz,
+      num.hits = details$pathways.observedhits
+    )
     data.table::fwrite(details.out, quote = FALSE, row.names = FALSE, sep = "\t", file="gse.txt");
+
+    # write enrichment csv with gene symbols for each pathway
+    csv.base <- gsub("\\.json$", "", fileNm)
+    csv.nm <- paste0(csv.base, "_pathway_enrichment.csv")
+    pathways <- details$pathways
+    genes.by.path <- lapply(pathways, function(pw) {
+      gm <- details$gene.matches[[pw]]
+      if (is.null(gm)) {
+        character(0)
+      } else {
+        gm <- as.character(gm)
+        gm <- gm[!is.na(gm) & nzchar(gm)]
+        unique(gm)
+      }
+    })
+    symbols.by.path <- lapply(genes.by.path, function(ids) {
+      if (length(ids) == 0) {
+        character(0)
+      } else {
+        syms <- doEntrez2SymbolMapping(ids)
+        syms[syms == ""] <- ids[syms == ""]
+        syms
+      }
+    })
+    enrich.csv <- data.frame(
+      Pathway = pathways,
+      BMD = details$pathways.bmd,
+      Pvalue = details$pathways.pval,
+      Adjusted.Pvalue = details$pathways.adjpval,
+      PathwayFraction = details$pathways.nodesz,
+      ObservedHits = details$pathways.observedhits,
+      GeneIDs = vapply(genes.by.path, function(x) paste(unique(x), collapse = ";"), character(1)),
+      GeneSymbols = vapply(symbols.by.path, function(x) paste(unique(x), collapse = ";"), character(1)),
+      stringsAsFactors = FALSE
+    )
+    data.table::fwrite(enrich.csv, file = csv.nm)
+    details$enrich_csv <- csv.nm
 
     resTable <- details.out;
     vis.type <- "curvefit";
@@ -72,6 +123,7 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     details.50 <- lapply(details.50, as.list)
     test <- reshape2::melt(details.50)[,c(1,3)]
     colnames(test) <- c("entrez", "pathway")
+    test <- unique(test)
     test$symbol <- doEntrez2SymbolMapping(test$entrez)
     dataSet$pathway.ids <- test
     
@@ -631,6 +683,26 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
   ## Sort BMDs in ascending order (keep raw for calculations)
   bmd.vals.raw <- sort(bmd.data$bmd)
 
+  ## tPOD values (feat.20, feat.10th, mode) on requested scale
+  s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
+
+  ## LCRD on RAW scale, then convert to plot scale
+  lcrd_val <- NA_real_
+  probe <- if ("gene.id" %in% names(bmd.data)) as.character(bmd.data$gene.id) else
+           if ("probe"   %in% names(bmd.data)) as.character(bmd.data$probe)   else
+           if ("item"    %in% names(bmd.data)) as.character(bmd.data$item)    else
+           seq_len(nrow(bmd.data))
+  ok <- is.finite(bmd.data$bmd) & bmd.data$bmd > 0 & !is.na(probe)
+  if (sum(ok) >= 1) {
+    lcrd_raw <- LCRD(bmc = bmd.data$bmd[ok], probe = probe[ok])$LCRD_Result$BMC
+    lcrd_val <- switch(
+      scale,
+      log10 = log10(lcrd_raw),
+      log2  = log2(lcrd_raw),
+      lcrd_raw
+    )
+  }
+
   ## Apply scale transformation if needed
   bmd.vals <- bmd.vals.raw
   if (scale == "log10") {
@@ -642,6 +714,21 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
   } else {
     xTitle <- paste0("Feature-level BMD (", units, ")")
   }
+
+  ## tPOD legend info
+  pod.cols <- c(
+    gene20         = "#D62728",
+    mode           = "#FF7F0E",
+    percentile10th = "#2CA02C",
+    lcrd           = "#1F77B4"
+  )
+  pod.breaks <- c("gene20", "mode", "percentile10th", "lcrd")
+  pod.labels <- c(
+    paste0("20th feature: ",    ifelse(is.finite(s.pods["feat.20"]),   signif(s.pods["feat.20"], 2), "NA")),
+    paste0("Max 1st peak: ",    ifelse(is.finite(s.pods["mode"]),      signif(s.pods["mode"],     2), "NA")),
+    paste0("10th percentile: ", ifelse(is.finite(s.pods["feat.10th"]), signif(s.pods["feat.10th"],2), "NA")),
+    paste0("LCRD: ",            ifelse(is.finite(lcrd_val),            signif(lcrd_val,           2), "NA"))
+  )
 
   ## Calculate cumulative count (actual number of genes)
   n_genes <- length(bmd.vals)
@@ -656,6 +743,20 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
   ## Create the accumulation plot without markers
   p <- ggplot(accum.df, aes(x = bmd, y = cumulative)) +
     geom_line(color = "#2CA02C", size = 1.2) +
+    { if (is.finite(s.pods["feat.20"]))
+        geom_vline(aes(xintercept = s.pods["feat.20"], colour = "gene20"), size = 1) } +
+    { if (is.finite(s.pods["mode"]))
+        geom_vline(aes(xintercept = s.pods["mode"], colour = "mode"), size = 1) } +
+    { if (is.finite(s.pods["feat.10th"]))
+        geom_vline(aes(xintercept = s.pods["feat.10th"], colour = "percentile10th"), size = 1) } +
+    { if (is.finite(lcrd_val))
+        geom_vline(aes(xintercept = lcrd_val, colour = "lcrd"), size = 1) } +
+    scale_color_manual(
+      name   = "tPOD",
+      breaks = pod.breaks,
+      values = pod.cols,
+      labels = pod.labels
+    ) +
     scale_y_continuous(
       limits = c(0, n_genes),
       expand = expansion(mult = c(0.01, 0.05))
@@ -677,7 +778,7 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
 
   Cairo(
     file   = imgFile,
-    width  = 8,
+    width  = 10,
     height = 6,
     unit   = "in",
     dpi    = dpi,
@@ -728,39 +829,39 @@ PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
     xTitle <- paste0("Feature-level BMD (", units, ")")
   }
 
-  ## Calculate cumulative fraction
-  cumulative_fraction <- seq_len(n_genes) / n_genes
+  ## Calculate cumulative count (actual number of genes)
+  cumulative_count <- seq_len(n_genes)
 
   ## Create data frame for plotting
   accum.df <- data.frame(
     bmd = bmd.vals,
-    cumulative = cumulative_fraction
+    cumulative = cumulative_count
   )
 
   ## Calculate 20th gene marker position
   gene_20_idx <- min(20, n_genes)
   gene_20_bmd <- bmd.vals[gene_20_idx]
-  gene_20_frac <- gene_20_idx / n_genes
+  gene_20_count <- gene_20_idx
 
   ## Create the accumulation plot with 20th gene marker
+  label_offset <- max(1, n_genes * 0.08)
   p <- ggplot(accum.df, aes(x = bmd, y = cumulative)) +
     geom_line(color = "#2CA02C", size = 1.2) +
     ## 20th gene marker - horizontal dashed line only
-    geom_hline(yintercept = gene_20_frac, linetype = "dashed", color = "#FF7F0E", size = 0.8) +
-    geom_point(aes(x = gene_20_bmd, y = gene_20_frac), color = "#FF7F0E", size = 3.5, shape = 19) +
-    annotate("text", x = gene_20_bmd, y = gene_20_frac + 0.08,
+    geom_hline(yintercept = gene_20_count, linetype = "dashed", color = "#FF7F0E", size = 0.8) +
+    geom_point(aes(x = gene_20_bmd, y = gene_20_count), color = "#FF7F0E", size = 3.5, shape = 19) +
+    annotate("text", x = gene_20_bmd, y = gene_20_count + label_offset,
              label = paste0("20th gene (", signif(bmd.vals.raw[gene_20_idx], 3), " ", units, ")"),
              color = "#FF7F0E", fontface = "bold", size = 4) +
     scale_y_continuous(
-      limits = c(0, 1),
-      breaks = seq(0, 1, 0.2),
-      labels = scales::percent,
-      expand = expansion(mult = c(0.01, 0.01))
+      limits = c(0, n_genes),
+      breaks = scales::pretty_breaks(n = 5),
+      expand = expansion(mult = c(0.01, 0.05))
     ) +
     scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) +
     theme_bw(base_size = 11 * 1.3) +
     xlab(xTitle) +
-    ylab("Cumulative Fraction of Genes") +
+    ylab("Cumulative Number of Genes") +
     ggtitle(paste0("Gene Accumulation Plot - Top 100 Genes")) +
     theme(
       axis.text.x = element_text(face = "bold"),
