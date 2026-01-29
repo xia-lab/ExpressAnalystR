@@ -892,6 +892,325 @@ PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
   return(1)
 }
 
+## ---- Multi-dataset gene accumulation utilities -----------------------------
+AccuReadBmdFile <- function(file) {
+  if (!file.exists(file)) {
+    return(NULL)
+  }
+  sep <- ifelse(grepl("\\\\.csv$", file, ignore.case = TRUE), ",", "\t")
+  df <- tryCatch(
+    read.table(file, header = TRUE, sep = sep, quote = "", comment.char = "", stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(df) || !("bmd" %in% names(df))) {
+    return(NULL)
+  }
+  if ("all.pass" %in% names(df)) {
+    ap <- df$all.pass
+    if (!is.logical(ap)) {
+      ap <- tolower(as.character(ap)) %in% c("true", "t", "1", "yes")
+    }
+    df <- df[ap, , drop = FALSE]
+  }
+  df
+}
+
+AccuExtractBmd <- function(df) {
+  bmds <- suppressWarnings(as.numeric(df$bmd))
+  bmds <- bmds[is.finite(bmds) & !is.na(bmds) & bmds > 0]
+  bmds
+}
+
+AccuComputeTPods <- function(bmds_raw, probe, scale) {
+  pod <- c("feat.20", "feat.10th", "mode", "lcrd")
+  trans.pod <- rep(NA_real_, length(pod))
+  names(trans.pod) <- pod
+
+  bmds <- switch(
+    scale,
+    log10 = log10(bmds_raw),
+    log2  = log2(bmds_raw),
+    bmds_raw
+  )
+
+  if (length(bmds) == 0) {
+    return(trans.pod)
+  }
+
+  if (length(bmds) >= 20) {
+    bmd.sort <- sort(bmds)
+    trans.pod["feat.20"] <- bmd.sort[20]
+  }
+  trans.pod["feat.10th"] <- unname(quantile(bmds, 0.1, na.rm = TRUE))
+
+  if (length(bmds) > 1) {
+    density.bmd <- density(bmds, na.rm = TRUE)
+    X <- density.bmd$x; Y <- density.bmd$y
+    dY <- diff(Y) / diff(X); dX <- rowMeans(embed(X, 2))
+    dY.signs <- sign(dY); dY.signs.1 <- c(0, dY.signs[-length(dY.signs)])
+    sign.changes <- dY.signs - dY.signs.1
+    inds.maxes <- which(sign.changes == -2)
+    inds.mins  <- which(sign.changes ==  2)
+
+    bmd.temp <- bmds; bmds.tot <- length(bmd.temp)
+    if (length(inds.mins) > 0 && length(inds.maxes) > 0) {
+      mins <- dX[inds.mins]; maxes <- dX[inds.maxes]
+      mins.maxes <- sort(c(mins, maxes))
+      num.modes  <- length(mins.maxes) %/% 2
+      mins.maxes <- mins.maxes[1:(2 * num.modes)]
+      size.peaks <- per.peaks <- rep(NA_real_, num.modes)
+      for (i in seq_len(num.modes)) {
+        size.peaks[i] <- sum(bmd.temp < mins.maxes[2 * i])
+        per.peaks[i]  <- size.peaks[i] / bmds.tot
+        bmd.temp <- bmd.temp[!(bmd.temp < mins.maxes[2 * i])]
+      }
+      per.pass <- which(per.peaks > 0.05)
+    } else if (length(inds.mins) == 0 && length(inds.maxes) > 0) {
+      maxes <- dX[inds.maxes]
+      per.pass <- 1
+    } else {
+      per.pass <- integer(0)
+    }
+    trans.pod["mode"] <- if (length(per.pass) > 0) unname(maxes[per.pass[1]]) else NA_real_
+  }
+
+  if (!missing(probe) && length(probe) > 0) {
+    ok <- is.finite(bmds_raw) & bmds_raw > 0 & !is.na(probe)
+    if (sum(ok) >= 1 && exists("LCRD")) {
+      lcrd_raw <- tryCatch(LCRD(bmc = bmds_raw[ok], probe = probe[ok])$LCRD_Result$BMC, error = function(e) NA_real_)
+      trans.pod["lcrd"] <- switch(
+        scale,
+        log10 = log10(lcrd_raw),
+        log2  = log2(lcrd_raw),
+        lcrd_raw
+      )
+    }
+  }
+  trans.pod
+}
+
+WriteAccuSummary <- function(files, outFile, scale = "raw") {
+  res <- data.frame(
+    file = character(0),
+    n_genes = integer(0),
+    bmd_min = character(0),
+    bmd_median = character(0),
+    bmd_max = character(0),
+    tpod_feat20 = character(0),
+    tpod_feat10th = character(0),
+    tpod_mode = character(0),
+    tpod_lcrd = character(0),
+    stringsAsFactors = FALSE
+  )
+
+  for (i in seq_along(files)) {
+    df <- AccuReadBmdFile(files[i])
+    if (is.null(df)) {
+      next
+    }
+    bmds_raw <- AccuExtractBmd(df)
+    n_genes <- length(bmds_raw)
+    probe <- if ("gene.id" %in% names(df)) {
+      as.character(df$gene.id)
+    } else if ("probe" %in% names(df)) {
+      as.character(df$probe)
+    } else if ("item" %in% names(df)) {
+      as.character(df$item)
+    } else {
+      seq_along(bmds_raw)
+    }
+    tpods <- AccuComputeTPods(bmds_raw, probe, scale)
+    res <- rbind(res, data.frame(
+      file = basename(files[i]),
+      n_genes = n_genes,
+      bmd_min = ifelse(n_genes > 0, signif(min(bmds_raw, na.rm = TRUE), 4), NA),
+      bmd_median = ifelse(n_genes > 0, signif(median(bmds_raw, na.rm = TRUE), 4), NA),
+      bmd_max = ifelse(n_genes > 0, signif(max(bmds_raw, na.rm = TRUE), 4), NA),
+      tpod_feat20 = ifelse(is.finite(tpods["feat.20"]), signif(tpods["feat.20"], 4), NA),
+      tpod_feat10th = ifelse(is.finite(tpods["feat.10th"]), signif(tpods["feat.10th"], 4), NA),
+      tpod_mode = ifelse(is.finite(tpods["mode"]), signif(tpods["mode"], 4), NA),
+      tpod_lcrd = ifelse(is.finite(tpods["lcrd"]), signif(tpods["lcrd"], 4), NA),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (nrow(res) == 0) {
+    return(0)
+  }
+  write.csv(res, outFile, row.names = FALSE)
+  return(1)
+}
+
+PlotDRAccumulationAllMulti <- function(files, labels, tpodType, imgNm, dpi, format, units, scale) {
+  require(ggplot2)
+  require(Cairo)
+
+  plot.df <- data.frame()
+  tpod.df <- data.frame()
+  max_genes <- 0
+
+  for (i in seq_along(files)) {
+    df <- AccuReadBmdFile(files[i])
+    if (is.null(df)) {
+      next
+    }
+    bmds_raw <- AccuExtractBmd(df)
+    if (length(bmds_raw) == 0) {
+      next
+    }
+    bmds_raw <- sort(bmds_raw)
+    bmds <- switch(
+      scale,
+      log10 = log10(bmds_raw),
+      log2  = log2(bmds_raw),
+      bmds_raw
+    )
+    n_genes <- length(bmds)
+    max_genes <- max(max_genes, n_genes)
+    plot.df <- rbind(plot.df, data.frame(
+      dataset = labels[i],
+      bmd = bmds,
+      cumulative = seq_len(n_genes),
+      stringsAsFactors = FALSE
+    ))
+
+    probe <- if ("gene.id" %in% names(df)) {
+      as.character(df$gene.id)
+    } else if ("probe" %in% names(df)) {
+      as.character(df$probe)
+    } else if ("item" %in% names(df)) {
+      as.character(df$item)
+    } else {
+      seq_along(bmds_raw)
+    }
+    tpods <- AccuComputeTPods(bmds_raw, probe, scale)
+    if (!is.null(tpods[tpodType]) && is.finite(tpods[tpodType])) {
+      tpod.df <- rbind(tpod.df, data.frame(
+        dataset = labels[i],
+        tpod = tpods[tpodType],
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+
+  if (nrow(plot.df) == 0) {
+    return(0)
+  }
+
+  if (scale == "log10") {
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  p <- ggplot(plot.df, aes(x = bmd, y = cumulative, color = dataset)) +
+    geom_line(size = 1.1) +
+    scale_y_continuous(
+      limits = c(0, max_genes),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.02, 0.02))) +
+    theme_bw(base_size = 11 * 1.2) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle(paste0("Gene Accumulation Plot - All Genes (", tpodType, ")")) +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  if (nrow(tpod.df) > 0) {
+    p <- p + geom_vline(data = tpod.df, aes(xintercept = tpod, color = dataset), linetype = "dashed", size = 0.9)
+  }
+
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+  Cairo(file = imgFile, width = 10, height = 6, unit = "in", dpi = dpi, type = format, bg = "white")
+  print(p)
+  dev.off()
+
+  return(1)
+}
+
+PlotDRAccumulationTop100Multi <- function(files, labels, imgNm, dpi, format, units, scale) {
+  require(ggplot2)
+  require(Cairo)
+
+  plot.df <- data.frame()
+  max_genes <- 0
+
+  for (i in seq_along(files)) {
+    df <- AccuReadBmdFile(files[i])
+    if (is.null(df)) {
+      next
+    }
+    bmds_raw <- AccuExtractBmd(df)
+    if (length(bmds_raw) == 0) {
+      next
+    }
+    bmds_raw <- sort(bmds_raw)
+    n_genes <- min(100, length(bmds_raw))
+    bmds_raw <- bmds_raw[1:n_genes]
+    bmds <- switch(
+      scale,
+      log10 = log10(bmds_raw),
+      log2  = log2(bmds_raw),
+      bmds_raw
+    )
+    max_genes <- max(max_genes, n_genes)
+    plot.df <- rbind(plot.df, data.frame(
+      dataset = labels[i],
+      bmd = bmds,
+      cumulative = seq_len(n_genes),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (nrow(plot.df) == 0) {
+    return(0)
+  }
+
+  if (scale == "log10") {
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  p <- ggplot(plot.df, aes(x = bmd, y = cumulative, color = dataset)) +
+    geom_line(size = 1.1) +
+    scale_y_continuous(
+      limits = c(0, max_genes),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+    theme_bw(base_size = 11 * 1.2) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle("Gene Accumulation Plot - Top 100 Genes") +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  if (max_genes >= 20) {
+    p <- p + geom_hline(yintercept = 20, linetype = "dashed", color = "#FF7F0E", size = 0.8)
+  }
+
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+  Cairo(file = imgFile, width = 10, height = 6, unit = "in", dpi = dpi, type = format, bg = "white")
+  print(p)
+  dev.off()
+
+  return(1)
+}
+
 PlotDRHistogramOld <- function(imgNm, dpi, format, units, scale){
   paramSet <- readSet(paramSet, "paramSet");
   dataSet <- readDataset(paramSet$dataName);
