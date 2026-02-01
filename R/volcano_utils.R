@@ -319,15 +319,18 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
                              box.padding = 0.5, point.padding = 0.3,
                              segment.color = "grey50", show.legend = FALSE)
 
-  # Create interactive plotly (without labels)
-  pwidget <- ggplotly(gg_volcano, tooltip = "text") %>% layout(hovermode = 'closest')
-
   # Save outputs
   imgSet <- readSet(imgSet, "imgSet");
-  imgSet$volcanoPlotly <- paste0(fileNm, ".rda");
   imgSet$volcanoPlot <- paste0(fileNm, ".png");
 
-  save(pwidget, file = imgSet$volcanoPlotly);
+  # Create interactive plotly only when node count <= 5000
+  if (nrow(volcano_data) <= 5000) {
+    pwidget <- ggplotly(gg_volcano, tooltip = "text") %>% layout(hovermode = 'closest')
+    imgSet$volcanoPlotly <- paste0(fileNm, ".rda");
+    save(pwidget, file = imgSet$volcanoPlotly);
+  } else {
+    imgSet$volcanoPlotly <- NULL;
+  }
 
   Cairo::Cairo(file = imgSet$volcanoPlot, unit="px", dpi=dpi, width=1000, height=800, type=format, bg="white");
   print(gg_volcano_labeled)
