@@ -448,6 +448,7 @@ GetCovSigColNames<-function(dataName){
 }
 
 GetCovDENums <- function(dataName){
+    dataSet <- readDataset(dataName);
     deNum <- nrow(dataSet$analSet$cov$sig.mat);
     nonDeNum <- nrow(dataSet$comp.res) - deNum;
     return(c(deNum, nonDeNum));

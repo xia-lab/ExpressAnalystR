@@ -205,7 +205,7 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   dat <- dataSet$data.norm;
   pca3d <- list();
   dat <- na.omit(dat);
-  nb <- as.numeric(25000) # set to max 5000 datapoints
+  nb <- as.numeric(5000) # set to max 5000 datapoints
   if(clustOpt == "pca"){
     pca <- prcomp(t(dat), center=T, scale=T);
     imp.pca<-summary(pca)$importance;
