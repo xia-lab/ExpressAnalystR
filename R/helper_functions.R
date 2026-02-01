@@ -302,7 +302,12 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
 
     RegisterData(dataSet)
     qs::qsave(res, "express.de.res.qs")
-    return(head(signif(as.matrix(res), 5),1000))
+    result <- head(signif(as.matrix(res), 5), 1000)
+    # Safe-Handshake: Arrow save with verification
+    tryCatch({
+      arrow_save(result, "express_res_mat.arrow")
+    }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
+    return(result)
 }
 
 
@@ -428,7 +433,16 @@ GetCovSigFileName <-function(dataName){
 GetCovSigMat<-function(dataName){
   dataSet <- readDataset(dataName);
   drops <- c("ids","label")
-  return(CleanNumber(as.matrix(dataSet$analSet$cov$sig.mat[, !(names(dataSet$analSet$cov$sig.mat) %in% drops)])));
+  result <- CleanNumber(as.matrix(dataSet$analSet$cov$sig.mat[, !(names(dataSet$analSet$cov$sig.mat) %in% drops)]));
+
+  # Export complete covariate table to Arrow for Java JSF DataTable
+  tryCatch({
+    ids <- dataSet$analSet$cov$sig.mat$ids
+    symbols <- dataSet$analSet$cov$sig.mat$label
+    ExportCovSigTableArrow(result, ids, symbols, "cov_sig_table")
+  }, error = function(e) { warning(paste("Arrow export failed:", e$message)) })
+
+  return(result);
 }
 
 GetCovSigIds<-function(dataName){

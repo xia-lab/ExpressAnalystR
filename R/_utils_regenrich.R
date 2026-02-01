@@ -1,6 +1,6 @@
 
 my.reg.enrich <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
-  save.image("my.reg.RData");
+  #save.image("my.reg.RData");
   require(dplyr)
   
   paramSet <- readSet(paramSet, "paramSet");

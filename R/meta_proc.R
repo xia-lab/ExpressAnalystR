@@ -933,7 +933,8 @@ PlotMetaPCA <- function(imgNm, dpi, format, interactive=F){
                 t = 20,
                 pad = 0.5
             )
-    ggp_build <- layout(ggplotly(pcafig), autosize = FALSE, width = 800, height = 600, margin = m);
+    # Use responsive sizing with percentage-based width
+    ggp_build <- layout(ggplotly(pcafig), autosize = TRUE, margin = m);
     save(ggp_build, file=plotlyNm);
     #return(ggp_build);
   ##}else{
@@ -985,7 +986,8 @@ PlotMetaDensity<- function(imgNm, dpi=72, format, interactive=F){
                 t = 20,
                 pad = 0.5
             )
-    ggp_build <- layout(ggplotly(g), autosize = FALSE, width = 800, height = 600, margin = m)
+    # Use responsive sizing with percentage-based width
+    ggp_build <- layout(ggplotly(g), autosize = TRUE, margin = m)
     save(ggp_build, file=plotlyNm);
 
   #  return(ggp_build);

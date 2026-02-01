@@ -169,6 +169,85 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
   return(RegisterData(dataSet));
 }
 
+SetExcludedSamples <- function(samples = character(0), append = TRUE) {
+  paramSet <- readSet(paramSet, "paramSet")
+  if (is.null(paramSet$excluded.samples)) {
+    paramSet$excluded.samples <- character(0)
+  }
+  samples <- unique(as.character(samples))
+  if (append) {
+    paramSet$excluded.samples <- unique(c(paramSet$excluded.samples, samples))
+  } else {
+    paramSet$excluded.samples <- samples
+  }
+  saveSet(paramSet, "paramSet")
+  return(paramSet$excluded.samples)
+}
+
+ClearExcludedSamples <- function() {
+  paramSet <- readSet(paramSet, "paramSet")
+  paramSet$excluded.samples <- character(0)
+  saveSet(paramSet, "paramSet")
+  return(1)
+}
+
+ReadTabExpressDataWithExclude <- function(fileName, metafileName="", metaContain="true",
+                                          oneDataAnalType="default", path="", exclude.samples=NULL) {
+  res <- ReadTabExpressData(fileName, metafileName, metaContain, oneDataAnalType, path)
+  if (identical(res, 0)) {
+    return(0)
+  }
+  if (is.null(exclude.samples)) {
+    paramSet <- readSet(paramSet, "paramSet")
+    exclude.samples <- paramSet$excluded.samples
+  }
+  exclude.samples <- unique(as.character(exclude.samples))
+  if (length(exclude.samples) == 0) {
+    return(readDataset(fileName))
+  }
+  dataSet <- readDataset(fileName)
+  data.raw <- qs::qread("data.raw.qs")
+  keep <- !(colnames(data.raw) %in% exclude.samples)
+  data.raw <- data.raw[, keep, drop = FALSE]
+  meta <- dataSet$meta.info
+  meta <- meta[rownames(meta) %in% colnames(data.raw), , drop = FALSE]
+  dataSet$meta.info <- meta
+  dataSet$metaOrig <- meta
+  dataSet$data.norm <- data.raw
+
+  qs::qsave(data.raw, "data.raw.qs")
+  qs::qsave(data.raw, "int.mat.qs")
+  qs::qsave(data.raw, "data.anot.qs")
+  qs::qsave(data.raw, "data.missed.qs")
+  fast.write(sanitizeSmallNumbers(data.raw), file="data_original.csv")
+  .save.annotated.data(data.raw)
+
+  paramSet <- readSet(paramSet, "paramSet")
+  if (!is.null(paramSet$dataSet)) {
+    paramSet$dataSet$meta.info <- meta
+    saveSet(paramSet, "paramSet")
+  }
+  RegisterData(dataSet)
+  return(dataSet)
+}
+
+RebuildAfterExclusion <- function(dataName, norm.opt, var.thresh, count.thresh,
+                                  filterUnmapped, islog = "false", countOpt = "sum") {
+  paramSet <- readSet(paramSet, "paramSet")
+  exclude.samples <- paramSet$excluded.samples
+  ReadTabExpressDataWithExclude(dataName, metafileName="", metaContain=paramSet$isMetaContain,
+                                oneDataAnalType=paramSet$oneDataAnalType, path="",
+                                exclude.samples=exclude.samples)
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet <- readDataset(dataName)
+  if (!is.null(paramSet$data.org) && paramSet$data.org != "NA" &&
+      !is.null(paramSet$data.idType) && paramSet$data.idType != "NA") {
+    PerformDataAnnot(dataName, paramSet$data.org, dataSet$type, paramSet$data.idType, paramSet$lvl.opt)
+  }
+  PerformNormalization(dataName, norm.opt, var.thresh, count.thresh, filterUnmapped, islog, countOpt)
+  return(1)
+}
+
 #read annotation table file when user selects custom annotdataSet$meta.info <-ation option
 ReadAnnotationTable <- function(fileName) {
   anot.data <- .readDataTable(fileName);

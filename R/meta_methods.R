@@ -749,6 +749,7 @@ GetMetaResultColNames<-function(type="averageFc"){
 GetMetaResultMatrix<-function(single.type="averageFc"){
 
   analSet <- readSet(analSet, "analSet");
+  paramSet <- readSet(paramSet, "paramSet");
 
   if(single.type == "averageFc"){
     dat.mat <- analSet$avg.fc.mat;
@@ -772,7 +773,41 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
   if(nrow(meta.mat2) > 1000){
     meta.mat2 <- meta.mat2[1:1000,]; # already sorted based on meta-p values
   }
-  return(signif(as.matrix(meta.mat2), 5));
+  result <- signif(as.matrix(meta.mat2), 5)
+
+  # === ARROW EXPORT for Java JSF DataTable (zero-copy access) ===
+  tryCatch({
+    gene_ids <- rownames(result)
+
+    # Get symbols
+    inmex.meta <- qs::qread("inmex_meta.qs")
+    if (inmex.meta$id.type == "entrez") {
+      symbols <- inmex.meta$gene.symbls[gene_ids]
+    } else {
+      symbols <- gene_ids
+    }
+
+    # Generate links
+    if (paramSet$data.org == "ko") {
+      links <- paste0("<a href='https://www.genome.jp/dbget-bin/www_bget?", gene_ids, "' target='_blank'>KEGG</a>")
+    } else {
+      links <- paste0("<a href='http://www.ncbi.nlm.nih.gov/gene?term=", gene_ids, "' target='_blank'>NCBI</a>")
+    }
+
+    # Get sig count
+    sig_count <- ifelse(!is.null(analSet$meta.sig.count), analSet$meta.sig.count, 0)
+
+    ExportMetaResultTableArrow(
+      meta_mat = result,
+      gene_ids = gene_ids,
+      symbols = symbols,
+      links = links,
+      sig_count = sig_count,
+      filename = "meta_res_table"
+    )
+  }, error = function(e) { warning(paste("Arrow export failed:", e$message)) })
+
+  return(result);
 }
 
 GetMetaStat<-function(){
@@ -949,6 +984,7 @@ DoMetaSigUpdate <- function(BHth=0.05,fc.val=0){
     meta.mat <- meta.mat.all[significant,];
     analSet$meta.mat.all <- meta.mat.all;
     analSet$meta.mat <- meta.mat;
+    analSet$meta.sig.count <- nrow(meta.mat);  # Store sig count for Arrow export
 
     if(paramSet$meta.method == "metap"){
         paramSet$metap.bhth <- BHth;

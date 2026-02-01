@@ -51,11 +51,62 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     #prepare pathways summary
     data.sorted = gs.POD$geneset.stats[order(gs.POD$geneset.stats$Adjusted.Pvalue),]
     details <- GetFunctionalDetails(data.sorted, gs.POD$geneset.matches)
+    details$gene.matches <- lapply(details$gene.matches, function(gm) {
+      if (is.null(gm)) {
+        character(0)
+      } else {
+        gm <- as.character(gm)
+        gm <- gm[!is.na(gm) & nzchar(gm)]
+        unique(gm)
+      }
+    })
 
-    # make out file
-    details.out <- as.data.frame(details[-7])
-    colnames(details.out) <- c("Name", "pathBMD", "pval", "adj.pval", "perc.path", "num.hits")
+    details.out <- data.frame(
+      Name = details$pathways,
+      pathBMD = details$pathways.bmd,
+      pval = details$pathways.pval,
+      adj.pval = details$pathways.adjpval,
+      perc.path = details$pathways.nodesz,
+      num.hits = details$pathways.observedhits
+    )
     data.table::fwrite(details.out, quote = FALSE, row.names = FALSE, sep = "\t", file="gse.txt");
+
+    # write enrichment csv with gene symbols for each pathway
+    csv.base <- gsub("\\.json$", "", fileNm)
+    csv.nm <- paste0(csv.base, "_pathway_enrichment.csv")
+    pathways <- details$pathways
+    genes.by.path <- lapply(pathways, function(pw) {
+      gm <- details$gene.matches[[pw]]
+      if (is.null(gm)) {
+        character(0)
+      } else {
+        gm <- as.character(gm)
+        gm <- gm[!is.na(gm) & nzchar(gm)]
+        unique(gm)
+      }
+    })
+    symbols.by.path <- lapply(genes.by.path, function(ids) {
+      if (length(ids) == 0) {
+        character(0)
+      } else {
+        syms <- doEntrez2SymbolMapping(ids)
+        syms[syms == ""] <- ids[syms == ""]
+        syms
+      }
+    })
+    enrich.csv <- data.frame(
+      Pathway = pathways,
+      BMD = details$pathways.bmd,
+      Pvalue = details$pathways.pval,
+      Adjusted.Pvalue = details$pathways.adjpval,
+      PathwayFraction = details$pathways.nodesz,
+      ObservedHits = details$pathways.observedhits,
+      GeneIDs = vapply(genes.by.path, function(x) paste(unique(x), collapse = ";"), character(1)),
+      GeneSymbols = vapply(symbols.by.path, function(x) paste(unique(x), collapse = ";"), character(1)),
+      stringsAsFactors = FALSE
+    )
+    data.table::fwrite(enrich.csv, file = csv.nm)
+    details$enrich_csv <- csv.nm
 
     resTable <- details.out;
     vis.type <- "curvefit";
@@ -72,6 +123,7 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     details.50 <- lapply(details.50, as.list)
     test <- reshape2::melt(details.50)[,c(1,3)]
     colnames(test) <- c("entrez", "pathway")
+    test <- unique(test)
     test$symbol <- doEntrez2SymbolMapping(test$entrez)
     dataSet$pathway.ids <- test
     
@@ -614,13 +666,558 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
 ###################
 ###################
 
+PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet  <- readDataset(paramSet$dataName)
+
+  require(ggplot2)
+  require(Cairo)
+
+  ## Get all BMDs that passed filters
+  bmd.data <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
+
+  if (nrow(bmd.data) == 0) {
+    return(0)
+  }
+
+  ## Sort BMDs in ascending order (keep raw for calculations)
+  bmd.vals.raw <- sort(bmd.data$bmd)
+
+  ## tPOD values (feat.20, feat.10th, mode) on requested scale
+  s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
+
+  ## LCRD on RAW scale, then convert to plot scale
+  lcrd_val <- NA_real_
+  probe <- if ("gene.id" %in% names(bmd.data)) as.character(bmd.data$gene.id) else
+           if ("probe"   %in% names(bmd.data)) as.character(bmd.data$probe)   else
+           if ("item"    %in% names(bmd.data)) as.character(bmd.data$item)    else
+           seq_len(nrow(bmd.data))
+  ok <- is.finite(bmd.data$bmd) & bmd.data$bmd > 0 & !is.na(probe)
+  if (sum(ok) >= 1) {
+    lcrd_raw <- LCRD(bmc = bmd.data$bmd[ok], probe = probe[ok])$LCRD_Result$BMC
+    lcrd_val <- switch(
+      scale,
+      log10 = log10(lcrd_raw),
+      log2  = log2(lcrd_raw),
+      lcrd_raw
+    )
+  }
+
+  ## Apply scale transformation if needed
+  bmd.vals <- bmd.vals.raw
+  if (scale == "log10") {
+    bmd.vals <- log10(bmd.vals)
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    bmd.vals <- log2(bmd.vals)
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  ## tPOD legend info
+  pod.cols <- c(
+    gene20         = "#D62728",
+    mode           = "#FF7F0E",
+    percentile10th = "#2CA02C",
+    lcrd           = "#1F77B4"
+  )
+  pod.breaks <- c("gene20", "mode", "percentile10th", "lcrd")
+  pod.labels <- c(
+    paste0("20th feature: ",    ifelse(is.finite(s.pods["feat.20"]),   signif(s.pods["feat.20"], 2), "NA")),
+    paste0("Max 1st peak: ",    ifelse(is.finite(s.pods["mode"]),      signif(s.pods["mode"],     2), "NA")),
+    paste0("10th percentile: ", ifelse(is.finite(s.pods["feat.10th"]), signif(s.pods["feat.10th"],2), "NA")),
+    paste0("LCRD: ",            ifelse(is.finite(lcrd_val),            signif(lcrd_val,           2), "NA"))
+  )
+
+  ## Calculate cumulative count (actual number of genes)
+  n_genes <- length(bmd.vals)
+  cumulative_count <- seq_len(n_genes)
+
+  ## Create data frame for plotting
+  accum.df <- data.frame(
+    bmd = bmd.vals,
+    cumulative = cumulative_count
+  )
+
+  ## Create the accumulation plot without markers
+  p <- ggplot(accum.df, aes(x = bmd, y = cumulative)) +
+    geom_line(color = "#2CA02C", size = 1.2) +
+    { if (is.finite(s.pods["feat.20"]))
+        geom_vline(aes(xintercept = s.pods["feat.20"], colour = "gene20"), size = 1) } +
+    { if (is.finite(s.pods["mode"]))
+        geom_vline(aes(xintercept = s.pods["mode"], colour = "mode"), size = 1) } +
+    { if (is.finite(s.pods["feat.10th"]))
+        geom_vline(aes(xintercept = s.pods["feat.10th"], colour = "percentile10th"), size = 1) } +
+    { if (is.finite(lcrd_val))
+        geom_vline(aes(xintercept = lcrd_val, colour = "lcrd"), size = 1) } +
+    scale_color_manual(
+      name   = "tPOD",
+      breaks = pod.breaks,
+      values = pod.cols,
+      labels = pod.labels
+    ) +
+    scale_y_continuous(
+      limits = c(0, n_genes),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.02, 0.02))) +
+    theme_bw(base_size = 11 * 1.3) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle(paste0("Gene Accumulation Plot - All Genes (n=", n_genes, ")")) +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  ## Save the plot
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+
+  Cairo(
+    file   = imgFile,
+    width  = 10,
+    height = 6,
+    unit   = "in",
+    dpi    = dpi,
+    type   = format,
+    bg     = "white"
+  )
+  print(p)
+  dev.off()
+
+  imgSet <- readSet(imgSet, "imgSet")
+  imgSet$PlotDRAccumulationAll <- imgFile
+  saveSet(imgSet, "imgSet")
+
+  return(1)
+}
+
+PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
+  paramSet <- readSet(paramSet, "paramSet")
+  dataSet  <- readDataset(paramSet$dataName)
+
+  require(ggplot2)
+  require(Cairo)
+
+  ## Get all BMDs that passed filters
+  bmd.data <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
+
+  if (nrow(bmd.data) == 0) {
+    return(0)
+  }
+
+  ## Sort BMDs in ascending order (keep raw values)
+  bmd.vals.raw <- sort(bmd.data$bmd)
+
+  ## Limit to top 100 genes with lowest BMDs
+  n_genes_total <- length(bmd.vals.raw)
+  n_genes <- min(100, n_genes_total)
+  bmd.vals.raw <- bmd.vals.raw[1:n_genes]
+
+  ## Apply scale transformation if needed
+  bmd.vals <- bmd.vals.raw
+  if (scale == "log10") {
+    bmd.vals <- log10(bmd.vals)
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    bmd.vals <- log2(bmd.vals)
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  ## Calculate cumulative count (actual number of genes)
+  cumulative_count <- seq_len(n_genes)
+
+  ## Create data frame for plotting
+  accum.df <- data.frame(
+    bmd = bmd.vals,
+    cumulative = cumulative_count
+  )
+
+  ## Calculate 20th gene marker position
+  gene_20_idx <- min(20, n_genes)
+  gene_20_bmd <- bmd.vals[gene_20_idx]
+  gene_20_count <- gene_20_idx
+
+  ## Create the accumulation plot with 20th gene marker
+  label_offset <- max(1, n_genes * 0.08)
+  p <- ggplot(accum.df, aes(x = bmd, y = cumulative)) +
+    geom_line(color = "#2CA02C", size = 1.2) +
+    ## 20th gene marker - horizontal dashed line only
+    geom_hline(yintercept = gene_20_count, linetype = "dashed", color = "#FF7F0E", size = 0.8) +
+    geom_point(aes(x = gene_20_bmd, y = gene_20_count), color = "#FF7F0E", size = 3.5, shape = 19) +
+    annotate("text", x = gene_20_bmd, y = gene_20_count + label_offset,
+             label = paste0("20th gene (", signif(bmd.vals.raw[gene_20_idx], 3), " ", units, ")"),
+             color = "#FF7F0E", fontface = "bold", size = 4) +
+    scale_y_continuous(
+      limits = c(0, n_genes),
+      breaks = scales::pretty_breaks(n = 5),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+    theme_bw(base_size = 11 * 1.3) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle(paste0("Gene Accumulation Plot - Top 100 Genes")) +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  ## Save the plot
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+
+  Cairo(
+    file   = imgFile,
+    width  = 8,
+    height = 6,
+    unit   = "in",
+    dpi    = dpi,
+    type   = format,
+    bg     = "white"
+  )
+  print(p)
+  dev.off()
+
+  imgSet <- readSet(imgSet, "imgSet")
+  imgSet$PlotDRAccumulationTop100 <- imgFile
+  saveSet(imgSet, "imgSet")
+
+  return(1)
+}
+
+## ---- Multi-dataset gene accumulation utilities -----------------------------
+AccuReadBmdFile <- function(file) {
+  if (!file.exists(file)) {
+    return(NULL)
+  }
+  sep <- ifelse(grepl("\\\\.csv$", file, ignore.case = TRUE), ",", "\t")
+  df <- tryCatch(
+    read.table(file, header = TRUE, sep = sep, quote = "", comment.char = "", stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(df) || !("bmd" %in% names(df))) {
+    return(NULL)
+  }
+  if ("all.pass" %in% names(df)) {
+    ap <- df$all.pass
+    if (!is.logical(ap)) {
+      ap <- tolower(as.character(ap)) %in% c("true", "t", "1", "yes")
+    }
+    df <- df[ap, , drop = FALSE]
+  }
+  df
+}
+
+AccuExtractBmd <- function(df) {
+  bmds <- suppressWarnings(as.numeric(df$bmd))
+  bmds <- bmds[is.finite(bmds) & !is.na(bmds) & bmds > 0]
+  bmds
+}
+
+AccuComputeTPods <- function(bmds_raw, probe, scale) {
+  pod <- c("feat.20", "feat.10th", "mode", "lcrd")
+  trans.pod <- rep(NA_real_, length(pod))
+  names(trans.pod) <- pod
+
+  bmds <- switch(
+    scale,
+    log10 = log10(bmds_raw),
+    log2  = log2(bmds_raw),
+    bmds_raw
+  )
+
+  if (length(bmds) == 0) {
+    return(trans.pod)
+  }
+
+  if (length(bmds) >= 20) {
+    bmd.sort <- sort(bmds)
+    trans.pod["feat.20"] <- bmd.sort[20]
+  }
+  trans.pod["feat.10th"] <- unname(quantile(bmds, 0.1, na.rm = TRUE))
+
+  if (length(bmds) > 1) {
+    density.bmd <- density(bmds, na.rm = TRUE)
+    X <- density.bmd$x; Y <- density.bmd$y
+    dY <- diff(Y) / diff(X); dX <- rowMeans(embed(X, 2))
+    dY.signs <- sign(dY); dY.signs.1 <- c(0, dY.signs[-length(dY.signs)])
+    sign.changes <- dY.signs - dY.signs.1
+    inds.maxes <- which(sign.changes == -2)
+    inds.mins  <- which(sign.changes ==  2)
+
+    bmd.temp <- bmds; bmds.tot <- length(bmd.temp)
+    if (length(inds.mins) > 0 && length(inds.maxes) > 0) {
+      mins <- dX[inds.mins]; maxes <- dX[inds.maxes]
+      mins.maxes <- sort(c(mins, maxes))
+      num.modes  <- length(mins.maxes) %/% 2
+      mins.maxes <- mins.maxes[1:(2 * num.modes)]
+      size.peaks <- per.peaks <- rep(NA_real_, num.modes)
+      for (i in seq_len(num.modes)) {
+        size.peaks[i] <- sum(bmd.temp < mins.maxes[2 * i])
+        per.peaks[i]  <- size.peaks[i] / bmds.tot
+        bmd.temp <- bmd.temp[!(bmd.temp < mins.maxes[2 * i])]
+      }
+      per.pass <- which(per.peaks > 0.05)
+    } else if (length(inds.mins) == 0 && length(inds.maxes) > 0) {
+      maxes <- dX[inds.maxes]
+      per.pass <- 1
+    } else {
+      per.pass <- integer(0)
+    }
+    trans.pod["mode"] <- if (length(per.pass) > 0) unname(maxes[per.pass[1]]) else NA_real_
+  }
+
+  if (!missing(probe) && length(probe) > 0) {
+    ok <- is.finite(bmds_raw) & bmds_raw > 0 & !is.na(probe)
+    if (sum(ok) >= 1 && exists("LCRD")) {
+      lcrd_raw <- tryCatch(LCRD(bmc = bmds_raw[ok], probe = probe[ok])$LCRD_Result$BMC, error = function(e) NA_real_)
+      trans.pod["lcrd"] <- switch(
+        scale,
+        log10 = log10(lcrd_raw),
+        log2  = log2(lcrd_raw),
+        lcrd_raw
+      )
+    }
+  }
+  trans.pod
+}
+
+WriteAccuSummary <- function(files, outFile, scale = "raw") {
+  res <- data.frame(
+    file = character(0),
+    n_genes = integer(0),
+    bmd_min = character(0),
+    bmd_median = character(0),
+    bmd_max = character(0),
+    tpod_feat20 = character(0),
+    tpod_feat10th = character(0),
+    tpod_mode = character(0),
+    tpod_lcrd = character(0),
+    stringsAsFactors = FALSE
+  )
+
+  for (i in seq_along(files)) {
+    df <- AccuReadBmdFile(files[i])
+    if (is.null(df)) {
+      next
+    }
+    bmds_raw <- AccuExtractBmd(df)
+    n_genes <- length(bmds_raw)
+    probe <- if ("gene.id" %in% names(df)) {
+      as.character(df$gene.id)
+    } else if ("probe" %in% names(df)) {
+      as.character(df$probe)
+    } else if ("item" %in% names(df)) {
+      as.character(df$item)
+    } else {
+      seq_along(bmds_raw)
+    }
+    tpods <- AccuComputeTPods(bmds_raw, probe, scale)
+    res <- rbind(res, data.frame(
+      file = basename(files[i]),
+      n_genes = n_genes,
+      bmd_min = ifelse(n_genes > 0, signif(min(bmds_raw, na.rm = TRUE), 4), NA),
+      bmd_median = ifelse(n_genes > 0, signif(median(bmds_raw, na.rm = TRUE), 4), NA),
+      bmd_max = ifelse(n_genes > 0, signif(max(bmds_raw, na.rm = TRUE), 4), NA),
+      tpod_feat20 = ifelse(is.finite(tpods["feat.20"]), signif(tpods["feat.20"], 4), NA),
+      tpod_feat10th = ifelse(is.finite(tpods["feat.10th"]), signif(tpods["feat.10th"], 4), NA),
+      tpod_mode = ifelse(is.finite(tpods["mode"]), signif(tpods["mode"], 4), NA),
+      tpod_lcrd = ifelse(is.finite(tpods["lcrd"]), signif(tpods["lcrd"], 4), NA),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (nrow(res) == 0) {
+    return(0)
+  }
+  write.csv(res, outFile, row.names = FALSE)
+  return(1)
+}
+
+PlotDRAccumulationAllMulti <- function(files, labels, tpodType, imgNm, dpi, format, units, scale) {
+  require(ggplot2)
+  require(Cairo)
+
+  plot.df <- data.frame()
+  tpod.df <- data.frame()
+  max_genes <- 0
+
+  for (i in seq_along(files)) {
+    df <- AccuReadBmdFile(files[i])
+    if (is.null(df)) {
+      next
+    }
+    bmds_raw <- AccuExtractBmd(df)
+    if (length(bmds_raw) == 0) {
+      next
+    }
+    bmds_raw <- sort(bmds_raw)
+    bmds <- switch(
+      scale,
+      log10 = log10(bmds_raw),
+      log2  = log2(bmds_raw),
+      bmds_raw
+    )
+    n_genes <- length(bmds)
+    max_genes <- max(max_genes, n_genes)
+    plot.df <- rbind(plot.df, data.frame(
+      dataset = labels[i],
+      bmd = bmds,
+      cumulative = seq_len(n_genes),
+      stringsAsFactors = FALSE
+    ))
+
+    probe <- if ("gene.id" %in% names(df)) {
+      as.character(df$gene.id)
+    } else if ("probe" %in% names(df)) {
+      as.character(df$probe)
+    } else if ("item" %in% names(df)) {
+      as.character(df$item)
+    } else {
+      seq_along(bmds_raw)
+    }
+    tpods <- AccuComputeTPods(bmds_raw, probe, scale)
+    if (!is.null(tpods[tpodType]) && is.finite(tpods[tpodType])) {
+      tpod.df <- rbind(tpod.df, data.frame(
+        dataset = labels[i],
+        tpod = tpods[tpodType],
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+
+  if (nrow(plot.df) == 0) {
+    return(0)
+  }
+
+  if (scale == "log10") {
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  p <- ggplot(plot.df, aes(x = bmd, y = cumulative, color = dataset)) +
+    geom_line(size = 1.1) +
+    scale_y_continuous(
+      limits = c(0, max_genes),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.02, 0.02))) +
+    theme_bw(base_size = 11 * 1.2) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle(paste0("Gene Accumulation Plot - All Genes (", tpodType, ")")) +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  if (nrow(tpod.df) > 0) {
+    p <- p + geom_vline(data = tpod.df, aes(xintercept = tpod, color = dataset), linetype = "dashed", size = 0.9)
+  }
+
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+  Cairo(file = imgFile, width = 10, height = 6, unit = "in", dpi = dpi, type = format, bg = "white")
+  print(p)
+  dev.off()
+
+  return(1)
+}
+
+PlotDRAccumulationTop100Multi <- function(files, labels, imgNm, dpi, format, units, scale) {
+  require(ggplot2)
+  require(Cairo)
+
+  plot.df <- data.frame()
+  max_genes <- 0
+
+  for (i in seq_along(files)) {
+    df <- AccuReadBmdFile(files[i])
+    if (is.null(df)) {
+      next
+    }
+    bmds_raw <- AccuExtractBmd(df)
+    if (length(bmds_raw) == 0) {
+      next
+    }
+    bmds_raw <- sort(bmds_raw)
+    n_genes <- min(100, length(bmds_raw))
+    bmds_raw <- bmds_raw[1:n_genes]
+    bmds <- switch(
+      scale,
+      log10 = log10(bmds_raw),
+      log2  = log2(bmds_raw),
+      bmds_raw
+    )
+    max_genes <- max(max_genes, n_genes)
+    plot.df <- rbind(plot.df, data.frame(
+      dataset = labels[i],
+      bmd = bmds,
+      cumulative = seq_len(n_genes),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (nrow(plot.df) == 0) {
+    return(0)
+  }
+
+  if (scale == "log10") {
+    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+  } else if (scale == "log2") {
+    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+  } else {
+    xTitle <- paste0("Feature-level BMD (", units, ")")
+  }
+
+  p <- ggplot(plot.df, aes(x = bmd, y = cumulative, color = dataset)) +
+    geom_line(size = 1.1) +
+    scale_y_continuous(
+      limits = c(0, max_genes),
+      expand = expansion(mult = c(0.01, 0.05))
+    ) +
+    scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+    theme_bw(base_size = 11 * 1.2) +
+    xlab(xTitle) +
+    ylab("Cumulative Number of Genes") +
+    ggtitle("Gene Accumulation Plot - Top 100 Genes") +
+    theme(
+      axis.text.x = element_text(face = "bold"),
+      axis.text.y = element_text(face = "bold"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+    )
+
+  if (max_genes >= 20) {
+    p <- p + geom_hline(yintercept = 20, linetype = "dashed", color = "#FF7F0E", size = 0.8)
+  }
+
+  imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
+  Cairo(file = imgFile, width = 10, height = 6, unit = "in", dpi = dpi, type = format, bg = "white")
+  print(p)
+  dev.off()
+
+  return(1)
+}
+
 PlotDRHistogramOld <- function(imgNm, dpi, format, units, scale){
   paramSet <- readSet(paramSet, "paramSet");
   dataSet <- readDataset(paramSet$dataName);
 
   require(ggplot2)
   s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
-  
+
   bmd.hist <- dataSet$bmdcalc.obj$bmdcalc.res[dataSet$bmdcalc.obj$bmdcalc.res$all.pass,]
 
   if(scale == "log10"){
@@ -633,22 +1230,22 @@ PlotDRHistogramOld <- function(imgNm, dpi, format, units, scale){
     dens <- density(bmd.hist$bmd);
     xTitle <- paste0("Gene-level BMD (", units, ")")
   }
-  
+
   dens <- data.frame(x = dens$x, y = dens$y)
-  
+
   require(ggplot2)
-  p <- ggplot(aes(x = x, y = y), data = dens) + 
+  p <- ggplot(aes(x = x, y = y), data = dens) +
     geom_area() +
     geom_vline(aes(xintercept = s.pods[2], colour = "percentile10th"), size = 1) +
     geom_vline(aes(xintercept = s.pods[3], colour = "mode"), size = 1) +
     geom_vline(aes(xintercept = s.pods[1], colour = "gene20"), size = 1) +
-    scale_color_manual(name = "tPOD", 
+    scale_color_manual(name = "tPOD",
                        values = c(gene20 = "#A7414A", percentile10th = "#6A8A82", mode = "#CC9B31"),
-                       labels = c(paste0("20th gene: ", signif(s.pods[1],2)), 
+                       labels = c(paste0("20th gene: ", signif(s.pods[1],2)),
                                   paste0("Max 1st peak: ", signif(s.pods[3],2)),
-                                  paste0("10th percentile: ", signif(s.pods[2],2)))) + 
+                                  paste0("10th percentile: ", signif(s.pods[2],2)))) +
     theme_bw()
-  p <- p + xlab(xTitle) + ylab("Density function") + 
+  p <- p + xlab(xTitle) + ylab("Density function") +
     theme(axis.text.x = element_text(face="bold"), legend.position = c(.95, .95),
           legend.justification = c("right", "top"),
           legend.box.just = "right")

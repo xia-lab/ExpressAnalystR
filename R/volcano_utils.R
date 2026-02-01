@@ -1,8 +1,98 @@
   ##################################################
-## R scripts for ExpressAnalyst 
+## R scripts for ExpressAnalyst
 ## Functions related to volcano plot
 ## Author: Guangyan Zhou, guangyan.zhou@mail.mcgill.ca
 ###################################################
+
+#' Read volcano data from Arrow file (memory-efficient, Java-compatible)
+#' @description Loads volcano data from volcano_data.arrow for zero-copy Java access
+#' @return volcano list object reconstructed from Arrow data
+#' @export
+readVolcano <- function() {
+  arrow_file <- "volcano_data.arrow"
+  meta_file <- "volcano_meta.qs"
+
+  if (file.exists(arrow_file)) {
+    # Read main data from Arrow
+    df <- arrow::read_feather(arrow_file)
+
+    # Reconstruct volcano list from data frame
+    vcn <- list(
+      fc.symb = df$gene_id,
+      fc.log = df$fc_log,
+      fc.log.uniq = df$fc_log_uniq,
+      p.log = df$p_log,
+      p.raw = df$p_raw,
+      inx.up = as.logical(df$inx_up),
+      inx.down = as.logical(df$inx_down),
+      inx.p = as.logical(df$inx_p)
+    )
+    names(vcn$fc.log) <- df$gene_id
+
+    # Load metadata (small, ~1KB)
+    if (file.exists(meta_file)) {
+      meta <- qs::qread(meta_file)
+      vcn <- c(vcn, meta)
+    }
+    return(vcn)
+  }
+
+  # Fallback: check analSet (legacy compatibility)
+  analSet <- readSet(analSet, "analSet")
+  if (!is.null(analSet$volcano)) {
+    return(analSet$volcano)
+  }
+  return(NULL)
+}
+
+#' Save volcano data to Arrow format (Java-compatible)
+#' @description Saves volcano data to Arrow for zero-copy Java access
+#' @param volcano The volcano list object
+#' @export
+saveVolcanoArrow <- function(volcano) {
+  # Create data frame with main vectors (bulk data ~11MB)
+  df <- data.frame(
+    gene_id = as.character(volcano$fc.symb),
+    fc_log = as.numeric(volcano$fc.log),
+    fc_log_uniq = as.numeric(volcano$fc.log.uniq),
+    p_log = as.numeric(volcano$p.log),
+    p_raw = as.numeric(volcano$p.raw),
+    inx_up = as.integer(volcano$inx.up),
+    inx_down = as.integer(volcano$inx.down),
+    inx_p = as.integer(volcano$inx.p),
+    stringsAsFactors = FALSE
+  )
+
+  # Add gene annotation if available
+  if (!is.null(volcano$conv)) {
+    df$symbol <- as.character(volcano$conv$symbol)
+    df$gene_name <- as.character(volcano$conv$name)
+  }
+
+  # Save main data to Arrow (zero-copy for Java)
+  arrow_path <- "volcano_data.arrow"
+  if (file.exists(arrow_path)) {
+    unlink(arrow_path)
+    Sys.sleep(0.01)
+  }
+  arrow::write_feather(df, arrow_path, compression = "uncompressed")
+
+  # Save small metadata to qs (~1KB)
+  meta <- list(
+    raw.threshx = volcano$raw.threshx,
+    raw.threshy = volcano$raw.threshy,
+    paired = volcano$paired,
+    thresh.y = volcano$thresh.y,
+    sig.mat = volcano$sig.mat,
+    analType = volcano$analType,
+    org = volcano$org,
+    dat.opt = volcano$dat.opt,
+    naviString = volcano$naviString
+  )
+  qs::qsave(meta, "volcano_meta.qs")
+
+  return(arrow_path)
+}
 
 #'Prepare data for volcano plot visualization
 #'@author Jeff Xia \email{jeff.xia@mcgill.ca}
@@ -143,12 +233,17 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
     naviString = "Volcano Plot"
   );
   
-  analSet$volcano <- volcano;
+  # Save volcano to Arrow for zero-copy Java access (saves ~11 MB memory)
+  saveVolcanoArrow(volcano)
+  analSet$volcano <- NULL  # Clear from memory, use readVolcano() to access
   saveSet(analSet, "analSet");
+
+  # Get IDs (these read from volcano_data.arrow)
   sigDownIds <- GetVolcanoUpLftIDs();
   sigUpIds <- GetVolcanoUpRgtIDs();
   nonSigIds <- GetVolcanoDnIDs();
-  
+
+  # Add IDs to local volcano object for JSON output
   volcano[["sigDownIds"]] <- sigDownIds;
   volcano[["sigUpIds"]] <- sigUpIds;
   volcano[["nonSigIds"]] <- nonSigIds;
@@ -247,8 +342,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
 
 
 GetVolcanoDnMat <- function(){
-  analSet <- readSet(analSet, "analSet");
-  vcn <- analSet$volcano;
+  vcn <- readVolcano();
   imp.inx <- (vcn$inx.up | vcn$inx.down) & vcn$inx.p;
   blue.inx <- which(!imp.inx);
   
@@ -263,8 +357,7 @@ GetVolcanoDnMat <- function(){
 
 
 GetVolcanoUpLftMat <- function(){
-  analSet <- readSet(analSet, "analSet");
-  vcn <- analSet$volcano;
+  vcn <- readVolcano();
   imp.inx <- vcn$inx.down & vcn$inx.p;
   red.inx <- which(imp.inx);
   if(sum(red.inx)>0){
@@ -277,8 +370,7 @@ GetVolcanoUpLftMat <- function(){
 }
 
 GetVolcanoUpRgtMat <- function(){
-  analSet <- readSet(analSet, "analSet");
-  vcn <- analSet$volcano;
+  vcn <- readVolcano();
   imp.inx <- vcn$inx.up & vcn$inx.p;
   red.inx <- which(imp.inx);
   if(sum(red.inx)>0){
@@ -291,8 +383,7 @@ GetVolcanoUpRgtMat <- function(){
 }
 
 GetVolcanoUpLftIDs <- function(){
-  analSet <- readSet(analSet, "analSet");
-  vcn <- analSet$volcano;
+  vcn <- readVolcano();
   imp.inx <- vcn$inx.down & vcn$inx.p;
   red.inx <- which(imp.inx);
   if(sum(red.inx)>0){
@@ -303,8 +394,7 @@ GetVolcanoUpLftIDs <- function(){
 }
 
 GetVolcanoUpRgtIDs <- function(){
-  analSet <- readSet(analSet, "analSet");
-  vcn <- analSet$volcano;
+  vcn <- readVolcano();
   imp.inx <- vcn$inx.up & vcn$inx.p;
   red.inx <- which(imp.inx);
   if(sum(red.inx)>0){
@@ -315,8 +405,7 @@ GetVolcanoUpRgtIDs <- function(){
 }
 
 GetVolcanoDnIDs <- function(){
-  analSet <- readSet(analSet, "analSet");
-  vcn <- analSet$volcano;
+  vcn <- readVolcano();
   imp.inx <- (vcn$inx.up | vcn$inx.down) & vcn$inx.p;
   blue.inx <- which(!imp.inx);
   if(sum(blue.inx)>0){
