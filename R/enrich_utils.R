@@ -299,9 +299,7 @@ PerformGSEA<- function(dataName, file.nm, fun.type, netNm, mType, selectedFactor
 
 ComputeRankedVec <- function(data, opt, inx = 1){
    if(!exists("my.compute.ranked.vec")){ 
-
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_gsea.Rc"));    
-        
     }
    return(my.compute.ranked.vec(data, opt, inx));
 }

@@ -263,7 +263,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   }
 
 
-  csvDf <- data.frame(Name=fgseaRes$pathway, Total=fgseaRes$total, Hits=fgseaRes$hits, NormalizedEnrichmentScore=fgseaRes$NES, Pval=fgseaRes$pval, Padj=fgseaRes$padj);
+  csvDf <- data.frame(Name=fgseaRes$pathway, Total=fgseaRes$total, Hits=fgseaRes$hits, NES=fgseaRes$NES, Pval=fgseaRes$pval, Padj=fgseaRes$padj);
   fun.ids <- as.vector(setres$current.setids[fgseaRes$pathway]); 
   csvDf$IDs <- fun.ids;
 
