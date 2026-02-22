@@ -185,33 +185,33 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
   df <- data.frame(Exposure = exposure, Expression = dataSet$data.norm[gene.id,])
   p <- ggplot(data=df, aes(x=Exposure, y=Expression)) + geom_point() + xlab("Concentration") +
     ggtitle(gene.symbol) + theme_bw() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-  
+
   if(model.nm == "Poly2"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 2))
   }else if(model.nm == "Poly3"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 3))
   }else if(model.nm == "Poly4"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 4))
-  }else if(model.nm == "Exp2"){
-    exp2fun <- function(e,b,x){return(e*exp(b*x))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp2fun(e,b,x), n = 1000)
-  }else if(model.nm == "Exp3"){
-    exp3fun <- function(e,b,x,d){return(e*(exp(sign(b)*(abs(b)*x)^d)))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp3fun(e,b,x,d), n = 1000)
-  }else if(model.nm == "Exp4"){
-    exp4fun <- function(e,c,b,x){return(e*(c - (c-1)*exp((-1)*b*x)))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp4fun(e,c,b,x), n = 1000)
-  }else if(model.nm == "Exp5"){
-    exp5fun <- function(e,c,b,x,d){return(e*(c - (c-1)*exp((-1)*(b*x)^d)))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp5fun(e,c,b,x,d), n = 1000)
   }else if(model.nm == "Lin"){
     p <- p + geom_smooth(method = "lm", formula = y ~ x)
+  }else if(model.nm == "Exp2"){
+    .b <- b; .e <- e
+    p <- p + stat_function(fun = function(x) .e * exp(.b * x), n = 1000)
+  }else if(model.nm == "Exp3"){
+    .b <- b; .d <- d; .e <- e
+    p <- p + stat_function(fun = function(x) .e * exp(sign(.b) * (abs(.b) * x)^.d), n = 1000)
+  }else if(model.nm == "Exp4"){
+    .b <- b; .c <- c; .e <- e
+    p <- p + stat_function(fun = function(x) .e * (.c - (.c - 1) * exp(-1 * .b * x)), n = 1000)
+  }else if(model.nm == "Exp5"){
+    .b <- b; .c <- c; .d <- d; .e <- e
+    p <- p + stat_function(fun = function(x) .e * (.c - (.c - 1) * exp(-1 * (.b * x)^.d)), n = 1000)
   }else if(model.nm == "Hill"){
-    hillfun <- function(c,d,x,e,b){return(c + (d - c) / (1 + (x/e)^b))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ hillfun(c,d,x,e,b), n = 1000)
+    .b <- b; .c <- c; .d <- d; .e <- e
+    p <- p + stat_function(fun = function(x) .c + (.d - .c) / (1 + (x / .e)^.b), n = 1000)
   }else if(model.nm == "Power"){
-    powerfun <- function(e,b,x,c){return(e + b*(x^c))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ powerfun(e,b,x,c), n = 1000)
+    .b <- b; .c <- c; .e <- e
+    p <- p + stat_function(fun = function(x) .e + .b * (x^.c), n = 1000)
   }
 
   p <- p + geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) + 
@@ -251,47 +251,68 @@ PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bm
 
   exposure <- dataSet$drcfit.obj$dose
   labels <- unique(exposure)
-  
+
   if(scale != "natural"){
     exposure[exposure == 0] <- dataSet$zero.log
   }
 
   df <- data.frame(Dose = exposure, Expression = dataSet$data.norm[gene.id,])
-  p <- ggplot(data=df, aes(x=Dose, y=Expression)) + geom_point() + ggtitle(gene.symbol) + 
+
+  # Look up SDres for this gene to draw CI ribbon on nonlinear models
+  fit.row <- dataSet$drcfit.obj$fitres.filt[dataSet$drcfit.obj$fitres.filt$gene.id == gene.id, ]
+  SDres <- if(nrow(fit.row) > 0) as.numeric(fit.row$SDres[1]) else NA
+
+  p <- ggplot(data=df, aes(x=Dose, y=Expression)) + geom_point() + ggtitle(gene.symbol) +
        theme_bw() +
        theme(plot.title = element_text(hjust = 0.5, face = "bold"),
-             axis.text.x = element_text(angle=90)) + 
+             axis.text.x = element_text(angle=90)) +
        xlab("Concentration") +
-       geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) + 
-       geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") + 
+       geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) +
+       geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") +
        geom_vline(xintercept = bmd, color = "red3") + geom_vline(xintercept = bmdu, linetype = "dashed", color = "red3")
-  
+
+  # Helper: add curve + CI ribbon for nonlinear models using a dense x grid
+  add_nl_curve <- function(p, fun, xseq, SDres) {
+    y    <- sapply(xseq, fun)
+    cdf  <- data.frame(Dose = xseq, fit = y)
+    if (!is.na(SDres) && is.finite(SDres)) {
+      cdf$lo <- y - 1.96 * SDres
+      cdf$hi <- y + 1.96 * SDres
+      p <- p + geom_ribbon(data = cdf, aes(x = Dose, ymin = lo, ymax = hi),
+                           inherit.aes = FALSE, fill = "steelblue", alpha = 0.2)
+    }
+    p <- p + geom_line(data = cdf, aes(x = Dose, y = fit), inherit.aes = FALSE)
+    return(p)
+  }
+
+  xseq <- seq(min(exposure), max(exposure), length.out = 500)
+
   if(model.nm == "Poly2"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 2))
   }else if(model.nm == "Poly3"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 3))
   }else if(model.nm == "Poly4"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 4))
-  }else if(model.nm == "Exp2"){
-    exp2fun <- function(e,b,x){return(e*exp(b*x))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp2fun(e,b,x), n = 1000)
-  }else if(model.nm == "Exp3"){
-    exp3fun <- function(e,b,x,d){return(e*(exp(sign(b)*(abs(b)*x)^d)))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp3fun(e,b,x,d), n = 1000)
-  }else if(model.nm == "Exp4"){
-    exp4fun <- function(e,c,b,x){return(e*(c - (c-1)*exp((-1)*b*x)))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp4fun(e,c,b,x), n = 1000)
-  }else if(model.nm == "Exp5"){
-    exp5fun <- function(e,c,b,x,d){return(e*(c - (c-1)*exp((-1)*(b*x)^d)))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ exp5fun(e,c,b,x,d), n = 1000)
   }else if(model.nm == "Lin"){
     p <- p + geom_smooth(method = "lm", formula = y ~ x)
+  }else if(model.nm == "Exp2"){
+    .b <- b; .e <- e
+    p <- add_nl_curve(p, function(x) .e * exp(.b * x), xseq, SDres)
+  }else if(model.nm == "Exp3"){
+    .b <- b; .d <- d; .e <- e
+    p <- add_nl_curve(p, function(x) .e * exp(sign(.b) * (abs(.b) * x)^.d), xseq, SDres)
+  }else if(model.nm == "Exp4"){
+    .b <- b; .c <- c; .e <- e
+    p <- add_nl_curve(p, function(x) .e * (.c - (.c - 1) * exp(-1 * .b * x)), xseq, SDres)
+  }else if(model.nm == "Exp5"){
+    .b <- b; .c <- c; .d <- d; .e <- e
+    p <- add_nl_curve(p, function(x) .e * (.c - (.c - 1) * exp(-1 * (.b * x)^.d)), xseq, SDres)
   }else if(model.nm == "Hill"){
-    hillfun <- function(c,d,x,e,b){return(c + (d - c) / (1 + (x/e)^b))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ hillfun(c,d,x,e,b), n = 1000)
+    .b <- b; .c <- c; .d <- d; .e <- e
+    p <- add_nl_curve(p, function(x) .c + (.d - .c) / (1 + (x / .e)^.b), xseq, SDres)
   }else if(model.nm == "Power"){
-    powerfun <- function(e,b,x,c){return(e + b*(x^c))}
-    p <- p + geom_smooth(method = "lm", formula = y ~ powerfun(e,b,x,c), n = 1000)
+    .b <- b; .c <- c; .e <- e
+    p <- add_nl_curve(p, function(x) .e + .b * (x^.c), xseq, SDres)
   }
 
   ## ── x-axis scaling ─────────────────────────────────────────────────────────

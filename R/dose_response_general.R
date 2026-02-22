@@ -984,7 +984,7 @@ PerformBMDCalc <- function(ncpus = 1)
   if(dim(disp.res)[1] > 0) {
     
     res <- disp.res[,c(1,2,4,7,6,8)];
-    res.mods <- dataSet$drcfit.obj$fitres.filt[,c(1,3,4,5,6)];
+    res.mods <- dataSet$drcfit.obj$fitres.filt[,c("gene.id","b","c","d","e")];
     res <- merge(res, res.mods, by.y = "gene.id", by.x = "item");
     res[,c(3:10)] <- apply(res[,c(3:10)], 2, function(x) as.numeric(as.character(x)));
     res[,c(3:6)] <- apply(res[,c(3:6)], 2, function(x) signif(x, digits = 2));
@@ -1208,9 +1208,11 @@ GetFitResultMatrix <- function(){
   model_nms <- as.character(res[,2])
 
   res <- res[,-c(1,2)];
+  # Drop bmd.lcrd column if present (not needed for curve plotting parameter table)
+  res <- res[, !colnames(res) %in% "bmd.lcrd", drop = FALSE];
   res <- as.matrix(res);
   res <- signif(res, 5)
-  res[is.nan(res)] <- 0;
+  res[is.na(res)] <- NaN;
   res <- as.data.frame(res);
   colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
 

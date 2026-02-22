@@ -149,31 +149,15 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   # PERFORMANCE FIX (Issue #1): Use vectorized row operations instead of apply()
   # rowSums/rowMeans are 60-100x faster than apply(data, 1, sum/mean)
   # Critical for normalization - affects 100% of users
-  if (dataSet$type == "count"){
-    if (countOpt == "sum") {
-        # Sum approach: sum counts across samples for each gene
-        sum.counts <- rowSums(data, na.rm = TRUE)
-        rm.inx <- sum.counts < count.thresh
-        msg <- paste(msg, "Filtered ", sum(rm.inx), " genes with low counts using sum method.", collapse = " ")
-    } else if (countOpt == "average") {
-        # Average approach: calculate average counts across samples for each gene
-        avg.counts <- rowMeans(data, na.rm = TRUE)
-        rm.inx <- avg.counts < count.thresh
-        msg <- paste(msg, "Filtered ", sum(rm.inx), " genes with low counts using average method.", collapse = " ")
-    } else if (countOpt == "median") {
-        # Median approach: calculate median counts across samples for each gene
-        med.counts <- apply(data, 1, median, na.rm = TRUE)
-        rm.inx <- med.counts < count.thresh
-        msg <- paste(msg, "Filtered ", sum(rm.inx), " genes with low counts using median method.", collapse = " ")
-    }
-  }else{
-    avg.signal <- rowMeans(data, na.rm=TRUE)
-    abundance.pct <- count.thresh/100;
-    p05 <- quantile(avg.signal, abundance.pct)
-    all.rows <- nrow(data)
-    rm.inx <- avg.signal < p05;
-    msg <- paste(msg, "Filtered ", sum(rm.inx), " genes with low relative abundance (average expression signal).", collapse=" ");
+  if (countOpt == "sum") {
+    signal <- rowSums(data, na.rm = TRUE)
+  } else if (countOpt == "median") {
+    signal <- apply(data, 1, median, na.rm = TRUE)
+  } else {
+    signal <- rowMeans(data, na.rm = TRUE)
   }
+  rm.inx <- signal < count.thresh
+  msg <- paste(msg, "Filtered ", sum(rm.inx), " features with low abundance using", countOpt, "method.", collapse = " ")
 
   if(var.thresh > 0){
   data <- data[!rm.inx,];

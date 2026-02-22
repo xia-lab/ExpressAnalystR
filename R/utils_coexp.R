@@ -53,7 +53,8 @@ my.build.cemi.net <- function(dataName,
                               min_ngen    = 30,
                               cor_method  = "pearson",
                               verbose     = FALSE,
-                              classCol    = NULL) {   # <-- optional argument
+                              classCol    = NULL,
+                              force_beta  = NULL) {   # <-- optional argument to force beta value
   tryCatch({
 
     ## 1 · load dataset -------------------------------------------------
@@ -78,31 +79,179 @@ my.build.cemi.net <- function(dataName,
                            check.names = FALSE,
                            stringsAsFactors = FALSE)
 
+    # PRACTICAL LIMIT: Cap at top 5000 features by IQR to ensure reasonable computation time
+    # Co-expression analysis is computationally expensive (O(n²) for correlation matrix)
+    MAX_FEATURES <- 5000
+    if (nrow(expr_mat) > MAX_FEATURES) {
+      message("Dataset contains ", nrow(expr_mat), " features, selecting top ", MAX_FEATURES, " by IQR...");
+
+      # Compute IQR for each feature
+      feature_iqr <- apply(expr_mat, 1, IQR, na.rm = TRUE)
+
+      # Select top features by IQR
+      top_features <- order(feature_iqr, decreasing = TRUE)[1:MAX_FEATURES]
+      expr_mat <- expr_mat[top_features, , drop = FALSE]
+
+      message("Selected top ", MAX_FEATURES, " features by IQR for co-expression analysis");
+    }
+
     ## 2 · run CEMiTool -------------------------------------------------
     suppressPackageStartupMessages({
       library(CEMiTool)
       library(WGCNA)
     })
 
+    # Log package versions for debugging
+    message("=== Environment Info ===")
+    message("CEMiTool version: ", as.character(packageVersion("CEMiTool")))
+    message("WGCNA version: ", as.character(packageVersion("WGCNA")))
+    message("R version: ", R.version.string)
+
 print("buildingceminet");
+
+    # Log data dimensions and quality for debugging
+    message("=== Data Info ===")
+    message("Data dimensions: ", nrow(expr_mat), " genes x ", ncol(expr_mat), " samples")
+    message("Number of samples: ", nrow(annot_df))
+    message("Filter: ", filter, ", min_ngen: ", min_ngen)
+    message("Class column: ", classCol)
+
+    # Data quality checks
+    message("Data range: [", min(expr_mat, na.rm = TRUE), ", ", max(expr_mat, na.rm = TRUE), "]")
+    message("NA values: ", sum(is.na(expr_mat)))
+    message("Infinite values: ", sum(is.infinite(as.matrix(expr_mat))))
+    message("Zero variance genes: ", sum(apply(expr_mat, 1, var, na.rm = TRUE) == 0))
+
+    # Check class column
+    class_vals <- annot_df[[classCol]]
+    message("Class column '", classCol, "' unique values: ", paste(unique(class_vals), collapse = ", "))
+    message("Class counts: ", paste(table(class_vals), collapse = ", "))
 
     # FIX: Suppress Quartz popup on macOS - completely disable plotting during cemitool
     # We'll generate plots separately using the other functions
-    cem <- cemitool(expr              = expr_mat,
-                    annot             = annot_df,
-                    filter            = filter,
-                    min_ngen          = min_ngen,
-                    cor_method        = match.arg(cor_method),
-                    class_column      = classCol,
-                    verbose           = verbose,
-                    plot              = FALSE,           # Disable all plotting
-                    plot_diagnostics  = FALSE)
+    message("=== Running CEMiTool ===")
+
+    # Capture warnings during cemitool execution
+    # If force_beta is specified, use it; otherwise let CEMiTool auto-select
+    if (!is.null(force_beta)) {
+      message("Using forced beta value: ", force_beta)
+      cem <- withCallingHandlers(
+        cemitool(expr              = expr_mat,
+                 annot             = annot_df,
+                 filter            = filter,
+                 min_ngen          = min_ngen,
+                 cor_method        = match.arg(cor_method),
+                 class_column      = classCol,
+                 verbose           = verbose,
+                 plot              = FALSE,           # Disable all plotting
+                 plot_diagnostics  = TRUE,            # Enable diagnostics to debug beta selection
+                 force_beta        = force_beta),     # Force specific beta value
+        warning = function(w) {
+          message("WARNING during cemitool: ", conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
+      )
+    } else {
+      message("Auto-selecting beta value")
+      cem <- withCallingHandlers(
+        cemitool(expr              = expr_mat,
+                 annot             = annot_df,
+                 filter            = filter,
+                 min_ngen          = min_ngen,
+                 cor_method        = match.arg(cor_method),
+                 class_column      = classCol,
+                 verbose           = verbose,
+                 plot              = FALSE,           # Disable all plotting
+                 plot_diagnostics  = TRUE),           # Enable diagnostics to debug beta selection
+        warning = function(w) {
+          message("WARNING during cemitool: ", conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
+      )
+    }
 
     ## 3 · save & return -----------------------------------------------
+
+    # Log diagnostic information before trimming
+    message("CEMiTool analysis completed")
+
+    # Check if fit_indices exist and extract beta information
+    if (!is.null(cem@fit_indices) && nrow(cem@fit_indices) > 0) {
+      message("Fit indices available: ", nrow(cem@fit_indices), " rows")
+      message("Beta values tested: ", paste(head(cem@fit_indices$beta, 10), collapse = ", "))
+
+      # Try to find selected beta from fit_indices
+      if ("selected" %in% colnames(cem@fit_indices)) {
+        selected_row <- cem@fit_indices[cem@fit_indices$selected == TRUE, ]
+        if (nrow(selected_row) > 0) {
+          message("Selected beta: ", selected_row$beta[1])
+        } else {
+          message("WARNING: No beta marked as selected in fit_indices")
+        }
+      } else if ("beta" %in% colnames(cem@fit_indices)) {
+        message("Beta range: ", min(cem@fit_indices$beta), " to ", max(cem@fit_indices$beta))
+      }
+    } else {
+      message("WARNING: No fit indices found - beta selection may have failed")
+    }
+
+    # Check parameters slot if it exists
+    if (length(slotNames(cem)) > 0 && "parameters" %in% slotNames(cem)) {
+      params <- slot(cem, "parameters")
+      if (is.list(params) && "beta" %in% names(params)) {
+        message("Beta from parameters: ", params$beta)
+      }
+    }
+
+    mod <- attr(cem, "module")
+    if (!is.null(mod) && is.data.frame(mod) && nrow(mod) > 0) {
+      message("Modules found: ", length(unique(mod$modules)))
+      message("Genes in modules: ", nrow(mod))
+    } else {
+      message("ERROR: No modules detected")
+
+      # If auto-selection failed and no forced beta was used, try with a reasonable beta value
+      if (is.null(force_beta) && !is.null(cem@fit_indices) && nrow(cem@fit_indices) > 0) {
+        message("=== Attempting retry with best available beta ===")
+
+        # Find beta with highest SFT.R.sq that's >= 0.75 (slightly relaxed threshold)
+        fit_df <- cem@fit_indices
+        rsq_col <- NULL
+
+        # Check for both possible column names
+        if ("SFT.R.sq" %in% colnames(fit_df)) {
+          rsq_col <- "SFT.R.sq"
+        } else if ("R.sq" %in% colnames(fit_df)) {
+          rsq_col <- "R.sq"
+        }
+
+        if (!is.null(rsq_col)) {
+          message("Using R-squared column: ", rsq_col)
+          good_fits <- fit_df[fit_df[[rsq_col]] >= 0.75, ]
+
+          if (nrow(good_fits) > 0) {
+            # Choose lowest beta among good fits (more conservative, larger modules)
+            best_idx <- which.min(good_fits$Power)
+            best_beta <- good_fits$Power[best_idx]
+            best_rsq <- good_fits[[rsq_col]][best_idx]
+
+            message("Retrying with beta = ", best_beta, " (", rsq_col, " = ", best_rsq, ")")
+
+            # Recursive call with forced beta
+            return(my.build.cemi.net(dataName, filter, min_ngen, cor_method, verbose, classCol, force_beta = best_beta))
+          } else {
+            message("No beta values with ", rsq_col, " >= 0.75 found")
+            message("Available R.sq values: ", paste(fit_df[[rsq_col]], collapse = ", "))
+          }
+        } else {
+          message("Could not find R.sq column in fit_indices")
+          message("Available columns: ", paste(colnames(fit_df), collapse = ", "))
+        }
+      }
+    }
+
     cem <- .trim_cem_object_for_save(cem)
     qs::qsave(cem, "cem.qs")
-
-  mod <- attr(cem, "module")
 
    if (is.null(mod) || !is.data.frame(mod) || nrow(mod) == 0 || !("modules" %in% colnames(mod))) {
       if(nrow(cem@sample_annotation) < 25){
@@ -116,7 +265,27 @@ print("buildingceminet");
       return("OK")
     }
   }, error = function(e) {
-    return(paste("Error:", conditionMessage(e)))
+    error_msg <- paste("Error:", conditionMessage(e))
+    message("=== ERROR DETAILS ===")
+    message(error_msg)
+    message("Stack trace:")
+    message(paste(capture.output(traceback()), collapse = "\n"))
+
+    # Try to get more context
+    if (exists("expr_mat")) {
+      message("expr_mat exists: dim = ", paste(dim(expr_mat), collapse = " x "))
+    }
+    if (exists("annot_df")) {
+      message("annot_df exists: dim = ", paste(dim(annot_df), collapse = " x "))
+    }
+    if (exists("cem")) {
+      message("cem object exists: class = ", class(cem))
+      if (inherits(cem, "CEMiTool")) {
+        message("cem slots: ", paste(slotNames(cem), collapse = ", "))
+      }
+    }
+
+    return(error_msg)
   })
 }
 
@@ -197,7 +366,10 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
   # ── MODULE dendrogram ────────────────────────────────────────────
   if (mode == "module") {
-    ME  <- moduleEigengenes(t(expr[mod$genes, ]),
+    # Detect feature column name (genes vs features)
+    feature_col_dendro <- if ("genes" %in% colnames(mod)) "genes" else "features";
+
+    ME  <- moduleEigengenes(t(expr[mod[[feature_col_dendro]], ]),
                             colors = mod$modules)$eigengenes
     hc  <- hclust(as.dist(1 - cor(ME)), method = "average")
 
@@ -285,14 +457,53 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 
     sa <- cem@sample_annotation
     ## ── 1 · validate factorName  ----------------------------------
-    if (is.numeric(factorName)) {
-      stopifnot(factorName >= 2, factorName <= ncol(sa))
+    # Default: use first metadata column (column 2, since column 1 is SampleName)
+    if (is.na(factorName) || is.null(factorName) || factorName == "NA" || factorName == "") {
+      message("factorName is NA/NULL/empty, using first metadata column");
+      if (ncol(sa) < 2) {
+        stop("Sample annotation has no metadata columns (only SampleName)");
+      }
+      colLabel <- colnames(sa)[2]
+      fac <- sa[[2]]
+      message("Auto-selected column: '", colLabel, "'");
+    } else if (is.numeric(factorName)) {
+      message("factorName is numeric: ", factorName);
+      if (factorName < 2 || factorName > ncol(sa)) {
+        stop("Numeric factorName (", factorName, ") is out of range. Must be between 2 and ", ncol(sa),
+             ". Available columns: ", paste(colnames(sa), collapse=", "));
+      }
       fac      <- sa[[factorName]]
       colLabel <- colnames(sa)[factorName]
     } else {
-      stopifnot(factorName %in% colnames(sa), factorName != "SampleName")
-      fac      <- sa[[factorName]]
-      colLabel <- factorName
+      message("factorName is character: '", factorName, "'");
+
+      # Validate column exists - try case-insensitive match
+      available_cols <- colnames(sa)
+
+      if (factorName %in% available_cols) {
+        # Exact match
+        fac      <- sa[[factorName]]
+        colLabel <- factorName
+      } else {
+        # Try case-insensitive match
+        matched_col <- available_cols[tolower(available_cols) == tolower(factorName)]
+
+        if (length(matched_col) > 0) {
+          message("Found case-insensitive match: '", matched_col[1], "' for requested '", factorName, "'");
+          fac <- sa[[matched_col[1]]]
+          colLabel <- matched_col[1]
+        } else {
+          # No match - provide helpful error
+          stop("factorName '", factorName, "' not found in sample annotation (case-insensitive search failed). ",
+               "Available columns: ", paste(available_cols, collapse=", "), ". ",
+               "Please check that your metadata column name matches exactly.");
+        }
+      }
+
+      if (colLabel == "SampleName") {
+        stop("factorName cannot be 'SampleName'. Available columns: ",
+               paste(available_cols[available_cols != "SampleName"], collapse=", "));
+      }
     }
     fac <- as.factor(fac)
 
@@ -304,8 +515,19 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     ## ── 3 · module eigengenes  ------------------------------------
     expr   <- attr(cem, "expression")
     modTbl <- attr(cem, "module")
-    g      <- intersect(rownames(expr), modTbl$genes)
-    colors <- modTbl$modules[match(g, modTbl$genes)]
+
+    # CRITICAL FIX: CEMiTool uses different column names in different versions
+    feature_col <- if ("genes" %in% colnames(modTbl)) {
+      "genes"
+    } else if ("features" %in% colnames(modTbl)) {
+      "features"
+    } else {
+      stop("Module table has no 'genes' or 'features' column. Available: ",
+           paste(colnames(modTbl), collapse=", "));
+    }
+
+    g      <- intersect(rownames(expr), modTbl[[feature_col]])
+    colors <- modTbl$modules[match(g, modTbl[[feature_col]])]
     MEs    <- moduleEigengenes(t(expr[g, , drop = FALSE]), colors)$eigengenes
 
     mm <- mm[rownames(MEs), , drop = FALSE]

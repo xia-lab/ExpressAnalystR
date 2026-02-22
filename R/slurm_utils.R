@@ -293,6 +293,21 @@ submitMysqlJobRename <- function(userDir, jobID, aligner){
       file.path(userDir, "*.fastq.gz;"),
       "echo Finish zip files $(date);",
       sep = " ");
+  } else if(aligner == "DePlexer") {
+    deplexJobOutput <- file.path(pDir, paste0("job_", jobID), "output")
+    str_mysql1 <- paste(
+      "echo Starting zip files $(date);",
+      "zip -r",
+      file.path(userDir, "Download.zip"),
+      file.path(userDir, "output"),
+      deplexJobOutput,
+      file.path(userDir, "*_deplexer_out"),
+      file.path(userDir, "*.html"),
+      file.path(userDir, "analysis_parameters.txt"),
+      "-x",
+      file.path(userDir, "*.fastq.gz;"),
+      "echo Finish zip files $(date);",
+      sep = " ")
   } else {
     str_mysql1 <- paste(
       "echo Starting zip files $(date);",
@@ -339,6 +354,21 @@ submitMysqlJobRenamePro <- function(userDir, jobID, aligner){
       file.path(userDir, "*.fastq.gz;"),
       "echo Finish zip files $(date);",
       sep = " ");
+  } else if(aligner == "DePlexer") {
+    deplexJobOutput <- file.path(pDir, paste0("job_", jobID), "output")
+    str_mysql1 <- paste(
+      "echo Starting zip files $(date);",
+      "zip -r",
+      file.path(userDir, "Download.zip"),
+      file.path(userDir, "output"),
+      deplexJobOutput,
+      file.path(userDir, "*_deplexer_out"),
+      file.path(userDir, "*.html"),
+      file.path(userDir, "analysis_parameters.txt"),
+      "-x",
+      file.path(userDir, "*.fastq.gz;"),
+      "echo Finish zip files $(date);",
+      sep = " ")
   } else {
     str_mysql1 <- paste(
       "echo Starting zip files $(date);",
@@ -831,6 +861,219 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
   }
   
   return(1);
+}
+
+SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscriptDir, deplexerExecutable, barcodeRead, barcodeStart, barcodeLength, maxMismatch, trimLeft, sampleIdFile, threads, maxMemory){
+  isSlurm <- FALSE
+  if(grepl("glassfish", userDir)){
+    isSlurm <- TRUE
+  }
+  
+  if(is.null(deplexerExecutable) || deplexerExecutable %in% c("", "NA", "AUTO", "auto")){
+    if(file.exists("/home/zgy/NetBeansProjects/")){
+      deplexerExecutable <- "/data/glassfish/seq_software/deplexer_source/deplexer"
+      isSlurm <- FALSE
+    } else if(grepl("glassfish", userDir)){
+      deplexerExecutable <- "/data/glassfish/seq_software/deplexer_source/deplexer"
+      isSlurm <- TRUE
+    } else if(grepl("jeffxia/Dropbox", userDir)) {
+      deplexerExecutable <- "/Users/xia/Dropbox/resources/eoa/software/deplexer_source/deplexer"
+      isSlurm <- FALSE
+    } else {
+      deplexerExecutable <- "/home/peng/software/deplexer/deplexer"
+      isSlurm <- FALSE
+    }
+  }
+  
+  if(readEnds != "pe"){
+    stop("DePlexer requires paired-end reads (readEnds == 'pe').")
+  }
+  
+  sampleIdFileNorm <- ifelse(is.null(sampleIdFile), "AUTO", trimws(sampleIdFile))
+  if(nchar(sampleIdFileNorm) == 0){
+    sampleIdFileNorm <- "AUTO"
+  }
+  autoSampleId <- tolower(sampleIdFileNorm) == "auto"
+  sampleIdPath <- if(grepl("^/", sampleIdFileNorm)) sampleIdFileNorm else file.path(userDir, sampleIdFileNorm)
+  sampleIdPathDefault <- file.path(userDir, "Sample_IDs.tsv")
+  
+  if(isSlurm){
+    conf_inf <- paste(
+      "#!/bin/bash",
+      "#",
+      "#SBATCH --job-name=DePlexer_Processing",
+      "#",
+      "#SBATCH --ntasks=1",
+      "#SBATCH --time=14400:00",
+      "#SBATCH --mem-per-cpu=5000",
+      "#SBATCH --cpus-per-task=4",
+      paste0("#SBATCH --mail-user=", email),
+      "#SBATCH --mail-type=BEGIN",
+      "#SBATCH --mail-type=END",
+      "#SBATCH --mail-type=FAIL",
+      "#SBATCH --mail-type=REQUEUE",
+      "#SBATCH --mail-type=ALL",
+      paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+      sep = "\n"
+    )
+    
+    if(file.exists("/docker_marker")){
+      conf_inf <- paste(
+        "#!/bin/bash",
+        "#",
+        "#SBATCH --job-name=DePlexer_Processing",
+        "#",
+        "#SBATCH --ntasks=1",
+        "#SBATCH --time=28800:00",
+        paste0("#SBATCH --output=", file.path(userDir, "slurm_logout.txt")),
+        sep = "\n"
+      )
+    }
+  }
+  
+  sidMode <- if(autoSampleId) "1" else "0"
+  sampleIdPathEsc <- gsub("\"", "\\\\\"", sampleIdPath)
+  sampleIdPathDefaultEsc <- gsub("\"", "\\\\\"", sampleIdPathDefault)
+  sampleIdFileNormEsc <- gsub("\"", "\\\\\"", sampleIdFileNorm)
+  userDirEsc <- gsub("\"", "\\\\\"", userDir)
+  
+  str <- paste(
+    sprintf("cd \"%s\" || exit 1;", userDirEsc),
+    "cat", file.path(userDir, "sampleTable.txt"),
+    "| while read fn ff rf grp; do echo processing sample ${fn};",
+    sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", dirname(userDirEsc), userDirEsc),
+    "mkdir -p \"${out_root}\";",
+    "sample_base=$(basename \"${fn}\");",
+    "echo [DePlexer] $(date) sample=${fn} input_R1=${ff} input_R2=${rf};",
+    "echo [DePlexer] $(date) sample=${fn} resolving_sample_ids;",
+    "sample_dir=$(dirname \"${ff}\");",
+    sprintf("user_sid_dir=\"%s\";", userDirEsc),
+    "sid_file='';",
+    sprintf("if [ \"%s\" = \"1\" ]; then", sidMode),
+    "pool=$(echo \"${fn}\" | sed -E 's/^.*\\.([Hh][0-9]+)$/\\1/' | tr '[:upper:]' '[:lower:]');",
+    "for d in \"${sample_dir}\" \"${user_sid_dir}\"; do",
+    "[ -d \"${d}\" ] || continue;",
+    "for p in \"${d}\"/*; do",
+    "[ -f \"${p}\" ] || continue;",
+    "bn=$(basename \"${p}\");",
+    "bn_l=$(printf '%s' \"${bn}\" | tr '[:upper:]' '[:lower:]');",
+    "case \"${bn_l}\" in",
+    "\"${pool}.sample_ids.tsv\"|\"${pool}.sample_ids.txt\"|\"${pool}.sample_ids.csv\"|\"sample_ids.tsv\"|\"sample_ids.txt\"|\"sample_ids.csv\")",
+    "sid_file=\"${p}\"; break;;",
+    "esac;",
+    "done;",
+    "[ -n \"${sid_file}\" ] && break;",
+    "done;",
+    sprintf("if [ -z \"${sid_file}\" ]; then echo \"ERROR: Missing Sample_IDs file (.tsv/.txt/.csv) for sample ${fn} under ${sample_dir} or %s\"; exit 1; fi;", userDirEsc),
+    sprintf("else sid_file=\"%s\";", sampleIdPathEsc),
+    "if [ ! -f \"${sid_file}\" ]; then",
+    sprintf("sid_file_alt=\"${sample_dir}/%s\";", sampleIdFileNormEsc),
+    "if [ -f \"${sid_file_alt}\" ]; then sid_file=\"${sid_file_alt}\"; fi;",
+    "if [ ! -f \"${sid_file}\" ]; then",
+    "sid_base=$(basename \"${sid_file}\"); sid_base_l=$(printf '%s' \"${sid_base}\" | tr '[:upper:]' '[:lower:]');",
+    "for p in \"${sample_dir}\"/*; do [ -f \"${p}\" ] || continue; bn=$(basename \"${p}\"); bn_l=$(printf '%s' \"${bn}\" | tr '[:upper:]' '[:lower:]'); if [ \"${bn_l}\" = \"${sid_base_l}\" ]; then sid_file=\"${p}\"; break; fi; done;",
+    "fi;",
+    "fi;",
+    "if [ ! -f \"${sid_file}\" ]; then echo ERROR: Missing DePlexer sample IDs file ${sid_file}; exit 1; fi;",
+    "fi;",
+    "echo [DePlexer] $(date) sample=${fn} sample_ids=${sid_file};",
+    "start_ts=$(date +%s);",
+    "echo [DePlexer] $(date) sample=${fn} deplexer_start;",
+    deplexerExecutable,
+    "-1 ${ff} -2 ${rf}",
+    "-b", barcodeRead,
+    "-s", barcodeStart,
+    "-l", barcodeLength,
+    "-i \"${sid_file}\"",
+    "-a", maxMismatch,
+    "--trim_left", trimLeft,
+    "--prefix ${sample_base}",
+    "-o \"${out_root}/${sample_base}_deplexer_out\"",
+    "-n", threads,
+    "-m", maxMemory,
+    "> \"${out_root}/${sample_base}_deplexer_stdout.log\" 2>&1 &",
+    "dpid=$!;",
+    "echo [DePlexer] $(date) sample=${fn} deplexer_pid=${dpid};",
+    "while kill -0 ${dpid} 2>/dev/null; do",
+    "if [ -d \"${out_root}/${sample_base}_deplexer_out\" ]; then",
+    "n_files=$(find \"${out_root}/${sample_base}_deplexer_out\" -type f | wc -l);",
+    "out_sz=$(du -sh \"${out_root}/${sample_base}_deplexer_out\" 2>/dev/null | awk '{print $1}');",
+    "else n_files=0; out_sz=0; fi;",
+    "echo [DePlexer] $(date) sample=${fn} heartbeat pid=${dpid} out_files=${n_files} out_size=${out_sz};",
+    "sleep 30;",
+    "done;",
+    "wait ${dpid}; status=$?;",
+    "end_ts=$(date +%s);",
+    "echo [DePlexer] $(date) sample=${fn} deplexer_end status=${status} elapsed_seconds=$((end_ts-start_ts));",
+    "if [ ${status} -ne 0 ]; then exit ${status}; fi;",
+    "if [ -f \"${out_root}/${sample_base}_deplexer_out/${sample_base}.html\" ]; then",
+    "cp -f \"${out_root}/${sample_base}_deplexer_out/${sample_base}.html\" \"${out_root}/${sample_base}_deplexer_report.html\";",
+    "echo [DePlexer] $(date) sample=${fn} native_html=${out_root}/${sample_base}_deplexer_out/${sample_base}.html;",
+    "echo [DePlexer] $(date) sample=${fn} report_html=${out_root}/${sample_base}_deplexer_report.html;",
+    "else echo [DePlexer] $(date) sample=${fn} native_html_missing expected=${out_root}/${sample_base}_deplexer_out/${sample_base}.html; fi;",
+    "echo DePlexer finish sample ${fn}; done",
+    "&& echo DePlexer have processed all samples",
+    "&& echo [DePlexer] $(date) indexing_html_reports;",
+    "printf '<html><head><meta charset=\"UTF-8\"><title>DePlexer Reports</title></head><body><h2>DePlexer Reports</h2><ul>' > \"${out_root}/DePlexer_reports_index.html\";",
+    "for report in ${out_root}/*_deplexer_report.html; do [ -f \"${report}\" ] && bname=$(basename \"${report}\") && printf '<li><a href=\"%s\">%s</a></li>' \"${bname}\" \"${bname}\" >> \"${out_root}/DePlexer_reports_index.html\"; done;",
+    "printf '</ul></body></html>' >> \"${out_root}/DePlexer_reports_index.html\";",
+    "echo [DePlexer] $(date) generated_report=${out_root}/DePlexer_reports_index.html;",
+    sep = " "
+  )
+  
+  strcmd <- paste0("deplexer: ", deplexerExecutable,
+                   "\ndatabase: ", database,
+                   "\nbarcode_location: ", barcodeRead,
+                   "\nbarcode_start: ", barcodeStart,
+                   "\nbarcode_length: ", barcodeLength,
+                   "\nbarcode_mismatch: ", maxMismatch,
+                   "\ntrim_left: ", trimLeft,
+                   "\nsample_ids: ", sampleIdFileNorm,
+                   "\nthreads: ", threads,
+                   "\nmax_memory: ", maxMemory,
+                   "\nproject_description: ", des)
+  
+  str_checMysql1 <- paste("if ! [[ -x ",
+                          file.path(userDir, "renameDirFromMysql.sh"),
+                          " ]]; then chmod +x ",
+                          file.path(userDir, "renameDirFromMysql.sh"),
+                          "; fi;",
+                          sep = " ")
+  
+  str_runMysql1 <- paste("bash ",
+                         file.path(userDir, "renameDirFromMysql.sh"),
+                         ";",
+                         sep = " ")
+  
+  sink(file.path(userDir, "ExecuteRawSeq.sh"))
+  if(isSlurm){
+    cat(conf_inf, "\n\n")
+  }
+  cat(str, "\n\n")
+  cat(str_checMysql1, "\n\n")
+  cat(str_runMysql1, "\n\n")
+  sink()
+  
+  sink(file.path(userDir, "analysis_parameters.txt"))
+  cat(strcmd, "\n")
+  sink()
+  
+  if(!isSlurm){
+    str_sh <- "#!/bin/sh\n"
+    str_sh <- paste0(str_sh,
+                     "chmod +x ",
+                     file.path(userDir, "ExecuteRawSeq.sh; "),
+                     "nohup bash ",
+                     file.path(userDir, "ExecuteRawSeq.sh > "),
+                     file.path(userDir, "slurm_logout.txt 2>&1 &\n"),
+                     "echo $! > ",
+                     file.path(userDir, "jobid_pid.txt;"))
+    sink(file.path(userDir, "launcher.sh"))
+    cat(str_sh, "\n")
+    sink()
+  }
+  
+  return(1)
 }
 
 UpdatePcaKls <- function(minReads = 20, projectDirStr, ...) {

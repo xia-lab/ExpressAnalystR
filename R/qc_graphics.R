@@ -2242,10 +2242,22 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   }
 
   df <- pca.res
-  ax1 <- axis_class(setNames(df$PC1, df$sample_id))
-  ax2 <- axis_class(setNames(df$PC2, df$sample_id))
-  df$ax_PC1 <- ax1[df$sample_id]
-  df$ax_PC2 <- ax2[df$sample_id]
+
+  # Always classify axis separation within dose subsets.
+  # Missing/empty doses are grouped together under a sentinel key.
+  use_per_dose_axis <- TRUE
+  dose_key <- ifelse(is.na(df$dose) | df$dose == "", "__MISSING_DOSE__", df$dose)
+  df$ax_PC1 <- "none"
+  df$ax_PC2 <- "none"
+  for (dk in unique(dose_key)) {
+    idx <- which(dose_key == dk)
+    if (length(idx) == 0) next
+    sub_pc1 <- axis_class(setNames(df$PC1[idx], df$sample_id[idx]))
+    sub_pc2 <- axis_class(setNames(df$PC2[idx], df$sample_id[idx]))
+    df$ax_PC1[idx] <- unname(sub_pc1[df$sample_id[idx]])
+    df$ax_PC2[idx] <- unname(sub_pc2[df$sample_id[idx]])
+  }
+
   df$axis_class <- ifelse(df$ax_PC1 == "strong" | df$ax_PC2 == "strong", "strong",
                           ifelse(df$ax_PC1 == "moderate" | df$ax_PC2 == "moderate", "moderate", "none"))
   df$moderate_both_axes <- (df$ax_PC1 == "moderate" & df$ax_PC2 == "moderate")
@@ -2257,7 +2269,7 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
 
   df$reason  <- NA_character_
   df$exclude <- df$axis_class == "strong"
-  df$reason[df$exclude] <- "Strong axis separation vs. core (>2× core span)"
+  df$reason[df$exclude] <- "Strong axis separation vs. dose core (>2x core span)"
 
   # Only the strong axis-separation criterion is used for Excluded.
 
@@ -2280,8 +2292,8 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   mod_idx <- mod_idx[df$.__status__[mod_idx] == "Moderate"]
   if (length(mod_idx)) {
     df$reason[mod_idx] <- ifelse(df$moderate_both_axes[mod_idx],
-                                 "Moderate separation on both axes vs. core",
-                                 "Moderate separation on one axis vs. core")
+                                 "Moderate separation on both axes vs. dose core",
+                                 "Moderate separation on one axis vs. dose core")
   }
 
   status_styles <- list(
