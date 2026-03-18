@@ -103,7 +103,12 @@ Init.Data <-function(onWeb=T, dataPath="data/"){
   }
 
   if(!.on.public.web) {
-    paramSet$sqlite.path <- paste0(getwd(), "/");
+    # Use detected local sqlite path if available, otherwise fall back to getwd for on-demand download
+    if(nzchar(sqlite.path) && dir.exists(sqlite.path)) {
+      paramSet$sqlite.path <- sqlite.path;
+    } else {
+      paramSet$sqlite.path <- paste0(getwd(), "/");
+    }
     paramSet$lib.path <- "https://www.expressanalyst.ca/ExpressAnalyst/resources/data/";
     paramSet <<- paramSet;
   }else{

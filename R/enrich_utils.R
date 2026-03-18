@@ -162,19 +162,30 @@
   msgSet$current.msg <- "Functional enrichment analysis was completed";
   
   # write json
-  fun.anot <- hits.query; 
+  fun.anot <- hits.query;
+
+  # also include original IDs per pathway (for s2f/ko data where symbols differ from fc.log keys)
+  hits.ids <- lapply(current.geneset,
+                     function(x) {
+                       ora.vec[ora.vec %in% unlist(x)];
+                     }
+  );
+  names(hits.ids) <- names(current.geneset);
+  hits.ids <- hits.ids[names(fun.anot)];
+
   total <- resTable$Total; if(length(total) ==1) { total <- matrix(total) };
   fun.pval <- resTable$Pval; if(length(fun.pval) ==1) { fun.pval <- matrix(fun.pval) };
   fun.padj <- resTable$FDR; if(length(fun.padj) ==1) { fun.padj <- matrix(fun.padj) };
   #print(resTable$Hits);
   hit.num <- paste0(resTable$Hits,"/",resTable$Total); if(length(hit.num) ==1) { hit.num <- matrix(hit.num) };
-  fun.ids <- as.vector(setres$current.setids[resTable$Pathway]); 
-  
+  fun.ids <- as.vector(setres$current.setids[resTable$Pathway]);
+
   resTable$IDs <- fun.ids;
   if(length(fun.ids) ==1) { fun.ids <- matrix(fun.ids) };
   json.res <- list(
     fun.link = setres$current.setlink[1],
     fun.anot = fun.anot,
+    fun.anot.ids = hits.ids,
     fun.ids = fun.ids,
     fun.pval = fun.pval,
     fun.padj = fun.padj,
