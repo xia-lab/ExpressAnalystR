@@ -689,13 +689,15 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
   sink();
 
   paramSet$GSEAPathway <- cmpdNm;
+  if (is.null(paramSet$GSEAPathwayList)) paramSet$GSEAPathwayList <- list()
+  paramSet$GSEAPathwayList[[cmpdNm]] <- json.nm
   paramSet$jsonNms$heatmapGSEA <- json.nm
   saveSet(paramSet, "paramSet");
 
   return(json.nm)
 }
 
-plot.gs.view <-function(fileName, format="png", dpi=72, width=NA, imgName=NA){
+plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgName=NA){
   require("ggplot2");
   require("fgsea");
   current.geneset <- qs::qread("current_geneset.qs");

@@ -350,7 +350,7 @@ PlotCochranQ <- function(imgNm){
 
     Qvals <- f.Q.NA(ES[,3,],ES[,4,]);
 
-    Cairo(file=imgNm, width=400, height=400, type="png", bg="white");
+    Cairo(file=imgNm, unit="in", dpi=96, width=5.6, height=5.6, type="png", bg="white");
     # histgram
     # hist(Qvals, breaks = 50, col = "red");
     # QQ plot

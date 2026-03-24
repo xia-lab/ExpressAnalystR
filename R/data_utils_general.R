@@ -30,7 +30,8 @@ Set.Config <-function(anal.mode="web"){
 #'License: MIT
 #'@export
 #'
-Init.Data <-function(onWeb=T, dataPath="data/"){
+Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
+  default.dpi <<- default.dpi;
   path = "../../";
   resource.dir <<- "../../";
   adj.vec <<- "";

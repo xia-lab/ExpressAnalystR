@@ -6,7 +6,7 @@
 ## Jessica Ewald, jessica.ewald@mail.mcgill.ca
 ##################################################
 
-compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=72, format="png", fun.type = "kegg", ridgeType = "ora", ridgeColor = "teal",rankOpt="fc", sigLevel = 0.05, pwNum=20, inx = 1){
+compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="png", fun.type = "kegg", ridgeType = "ora", ridgeColor = "teal",rankOpt="fc", sigLevel = 0.05, pwNum=20, inx = 1){
   
   #save.image("ridge.RData");
   paramSet <- readSet(paramSet, "paramSet");

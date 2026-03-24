@@ -12,7 +12,7 @@ PlotDataBox <- function(fileName, boxplotName, dpi, format){
   return("NA");
 }
 
-qc.boxplot <- function(dat, imgNm, dpi=72, format="png", interactive=F){
+qc.boxplot <- function(dat, imgNm, dpi=default.dpi, format="png", interactive=F){
   dpi <- as.numeric(dpi)
   require('ggplot2')
   require('lattice');
@@ -103,7 +103,7 @@ PlotDataDensity <- function(fileName, imgNm, dpi,format){
   return(res);
 }
 
-qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
+qc.density<- function(dataSet, imgNm="abc", dpi=default.dpi, format, interactive){
   require("ggplot2")
   dat <- dataSet$data.norm
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
@@ -217,7 +217,7 @@ qc.density<- function(dataSet, imgNm="abc", dpi=72, format, interactive){
 }
 
 
-PlotLibSizeView<-function(fileName, imgNm,dpi=72, format="png"){
+PlotLibSizeView<-function(fileName, imgNm,dpi=default.dpi, format="png"){
   library("ggrepel");
   require("ggplot2");
 
@@ -380,7 +380,7 @@ PlotDataMeanStd <- function(fileName, imgName, dpi,format){
   return(res);
 }
 
-qc.meanstd <- function(dat, imgNm,dpi=72, format="png"){
+qc.meanstd <- function(dat, imgNm,dpi=default.dpi, format="png"){
   dpi <- as.numeric(dpi)
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
   imgNm <- paste0(fileNm, format, sep="");
@@ -487,7 +487,7 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 }
 
 
-qc.pcaplot <- function(dataSet, x, imgNm, dpi=72, format="png", interactive=FALSE) {
+qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interactive=FALSE) {
   dpi <- as.numeric(dpi)
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="")
   imgNm <- paste0(fileNm, format, sep="")
@@ -858,7 +858,7 @@ qc.ncov5.plot <- function(ncov5_df,
                           imgNm = "NCov5_plot",
                           lower,
                           upper,
-                          dpi = 72,
+                          dpi = default.dpi,
                           format = "png",
                           interactive = FALSE) {
   require(ggplot2)
@@ -933,7 +933,7 @@ qc.nsig.plot <- function(nsig_df,
                          imgNm = "NSig80_plot",
                          lower,
                          upper,
-                         dpi = 72,
+                         dpi = default.dpi,
                          format = "png",
                          interactive = FALSE) {
   require("ggplot2")
@@ -1007,7 +1007,7 @@ PlotDataDendrogram <- function(fileName, imgName, threshold, dpi, format){
 qc.dendrogram.plot <- function(dendro_df,
                                threshold = 0.1,
                                imgNm = "Dendrogram_plot",
-                               dpi = 72,
+                               dpi = default.dpi,
                                format = "png",
                                interactive = FALSE) {
   require(ggplot2)
@@ -1375,7 +1375,7 @@ PlotDataGini <- function(fileName, imgName, threshold, dpi, format){
 qc.gini.plot <- function(gini_df,
                          imgNm   = "Gini_plot",
                          threshold = 0.95,
-                         dpi     = 72,
+                         dpi = default.dpi,
                          format  = "png",
                          interactive = FALSE) {
   require(ggplot2)

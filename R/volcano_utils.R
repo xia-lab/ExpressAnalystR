@@ -100,7 +100,7 @@ saveVolcanoArrow <- function(volcano) {
 #'License: MIT
 #'@export
 #'
-Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, threshp=0.05, analType="NA", inx=1, dpi=72, format="png"){
+Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, threshp=0.05, analType="NA", inx=1, dpi=default.dpi, format="png"){
   #save.image('volc.RData');
 
   paramSet <- readSet(paramSet, "paramSet");
@@ -332,7 +332,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
     imgSet$volcanoPlotly <- NULL;
   }
 
-  Cairo::Cairo(file = imgSet$volcanoPlot, unit="px", dpi=dpi, width=1000, height=800, type=format, bg="white");
+  Cairo::Cairo(file = imgSet$volcanoPlot, unit="in", dpi=96, width=13.9, height=11.1, type=format, bg="white");
   print(gg_volcano_labeled)
   dev.off()
 
