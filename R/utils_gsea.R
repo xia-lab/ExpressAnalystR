@@ -61,7 +61,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- qs:::qread("inmex_meta.qs");
+      inmex <- qs::qread("inmex_meta.qs");
       sampleNms <- colnames(inmex$plot_data);
       colnums <- dim(inmex$plot.data)[2]
       inx  <- rep(T, colnums)
@@ -213,7 +213,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     res.mat <- res.mat
   }
 
-    qs:::qsave(res.mat, "enr.mat.qs");
+    qs::qsave(res.mat, "enr.mat.qs");
 
   imgSet <- readSet(imgSet, "imgSet");
   if(mType == "network"){
@@ -582,7 +582,7 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- qs:::qread("inmex_meta.qs");
+      inmex <- qs::qread("inmex_meta.qs");
       dat <- inmex$plot.data
       gene.map <- data.frame(gene_id=names(inmex$gene.symbls), symbol=unname(inmex$gene.symbls));
     }else{

@@ -402,7 +402,7 @@ PerformBatchCorrection <- function(){
         qs::qsave(inmex.meta, "inmex_meta.qs");
     }
     dat.in <- list(my.fun=my.fun);
-    qs:::qsave(dat.in, file="dat.in.qs");
+    qs::qsave(dat.in, file="dat.in.qs");
     return(1);
 }
 

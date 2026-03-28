@@ -158,7 +158,7 @@
   }
   
   resTable <- data.frame(Pathway=rownames(res.mat), res.mat);
-  qs:::qsave(res.mat, "enr.mat.qs");
+  qs::qsave(res.mat, "enr.mat.qs");
   msgSet$current.msg <- "Functional enrichment analysis was completed";
   
   # write json

@@ -906,9 +906,9 @@ saveSet <- function(obj=NA, set="", output=1){
       }else if(set == "cmdSet"){
         cmdSet <<- obj;
       }
-      qs:::qsave(obj, paste0(set, ".qs"));
+      qs::qsave(obj, paste0(set, ".qs"));
       # CRITICAL: Prevent race condition - allow file system to sync before Java reads
-      Sys.sleep(0.15);
+      Sys.sleep(0.05);
 
       return(output);
 }
