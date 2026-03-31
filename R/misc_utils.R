@@ -528,11 +528,94 @@ PerformSetOperation_DataEnr <- function(nms, operation, refNm){
   return(com.symbols);
 }
 
-# in public web, this is done by microservice
+# =============================================================================
+# RSclient subprocess execution (Rserve fork — shared by Public and Pro)
+# =============================================================================
+# RSclient comes with Rserve. Child forks from warm master (~50ms startup).
+# On deployments without Rserve, these functions won't be called because
+# the exists() guards in leaf isolation blocks will fall through.
+# =============================================================================
+
+#' Execute function+args in RSclient child process
+#' @param func Function to run in forked Rserve child
+#' @param args List of arguments passed via do.call
+#' @param timeout_sec Hard timeout before child is killed
+#' @return Result of do.call(func, args)
+run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
+  conn <- RSclient::RS.connect(host = "localhost", port = 6311)
+  on.exit(try(RSclient::RS.close(conn), silent = TRUE))
+  RSclient::RS.assign(conn, ".exec_wd", getwd())
+  RSclient::RS.assign(conn, ".exec_func", func)
+  RSclient::RS.assign(conn, ".exec_args", args)
+  RSclient::RS.assign(conn, ".exec_timeout", timeout_sec)
+  RSclient::RS.eval(conn, quote({
+    setwd(.exec_wd)
+    setTimeLimit(elapsed = .exec_timeout, transient = TRUE)
+    on.exit(setTimeLimit(elapsed = Inf))
+    do.call(.exec_func, .exec_args)
+  }))
+}
+
+#' Execute heavy package function in isolated RSclient fork
+#' @param func_body Function(input_data) to run in child
+#' @param input_data List serialized via qs to child
+#' @param packages Packages to load in child before execution
+#' @param timeout Timeout in seconds
+#' @param output_type "qs" for complex objects, "arrow" for data frames
+#' @return Result from child process
+rsclient_isolated_exec <- function(func_body, input_data, packages = character(0),
+                                   timeout = 180, output_type = "qs") {
+  bridge_tmp <- file.path(tempdir(), "rsclient_bridge")
+  if (!dir.exists(bridge_tmp)) dir.create(bridge_tmp, recursive = TRUE)
+  uid <- paste0(sample(letters, 6), collapse = "")
+  input_path <- file.path(bridge_tmp, paste0(uid, "_in.qs"))
+  output_path <- file.path(bridge_tmp, paste0(uid, "_out.qs"))
+
+  qs::qsave(input_data, input_path, preset = "fast")
+  Sys.sleep(0.02)
+
+  on.exit({
+    for (p in c(input_path, output_path)) if (file.exists(p)) unlink(p)
+  }, add = TRUE)
+
+  result <- run_func_via_rsclient(
+    func = function(input_path, output_path, func_body, pkgs) {
+      tryCatch({
+        for (pkg in pkgs) suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+        input_data <- qs::qread(input_path)
+        res <- func_body(input_data)
+        qs::qsave(res, output_path, preset = "fast")
+        Sys.sleep(0.02)
+        list(success = TRUE)
+      }, error = function(e) {
+        list(success = FALSE, message = e$message)
+      })
+    },
+    args = list(input_path = input_path, output_path = output_path,
+                func_body = func_body, pkgs = packages),
+    timeout_sec = timeout
+  )
+
+  if (isTRUE(result$success) && file.exists(output_path)) {
+    return(qs::qread(output_path))
+  }
+  msg <- if (!is.null(result$message)) result$message else "RSclient subprocess failed"
+  message("[rsclient_isolated_exec] ", msg)
+  return(list(success = FALSE, message = msg))
+}
+
+# Run prepared closure from dat.in.qs in RSclient child
 .perform.computing <- function(){
-  dat.in <- qs::qread("dat.in.qs"); 
-  dat.in$my.res <- dat.in$my.fun();
-  qs::qsave(dat.in, file="dat.in.qs");    
+  run_func_via_rsclient(
+    func = function(wd) {
+      setwd(wd)
+      dat.in <- qs::qread("dat.in.qs")
+      dat.in$my.res <- dat.in$my.fun()
+      qs::qsave(dat.in, file = "dat.in.qs")
+    },
+    args = list(wd = getwd()),
+    timeout_sec = 300
+  )
 }
 
 fast.write <- function(dat, file, row.names=TRUE){
@@ -681,6 +764,7 @@ GetDatNms <- function(){
 AddErrMsg <- function(msg){
   msgSet <- readSet(msgSet, "msgSet");
   msgSet$current.msg <- c(msgSet$current.msg, msg);
+  message("[ERROR] ", msg);
   saveSet(msgSet, "msgSet");
 }
 
@@ -893,23 +977,18 @@ saveSet <- function(obj=NA, set="", output=1){
         set <- obj$objName;
       }
 
-      if(set == "dataSet"){
-        dataSet <<- obj;
-      }else if(set == "analSet"){
-        analSet <<- obj;
-      }else if(set == "imgSet"){
-        imgSet <<- obj;
-      }else if(set == "paramSet"){
+      # Only update globals for small objects (paramSet, msgSet, cmdSet)
+      # imgSet (~55MB), analSet (~8MB), dataSet (~6MB) are read from disk by readSet
+      if(set == "paramSet"){
         paramSet <<- obj;
       }else if(set == "msgSet"){
         msgSet <<- obj;
       }else if(set == "cmdSet"){
         cmdSet <<- obj;
       }
-      qs::qsave(obj, paste0(set, ".qs"));
-      # CRITICAL: Prevent race condition - allow file system to sync before Java reads
-      Sys.sleep(0.05);
 
+      qs::qsave(obj, paste0(set, ".qs"));
+      Sys.sleep(0.05);
       return(output);
 }
 

@@ -383,6 +383,16 @@ PlotCochranQ <- function(imgNm){
 #' @export
 #' @license MIT License
 #'
+ApplyMetaAutoScale <- function(apply = "true") {
+  inmex.meta <- qs::qread("inmex_meta.qs")
+  if (apply == "true") {
+    inmex.meta$data <- t(scale(t(inmex.meta$data), center = TRUE, scale = TRUE))
+    inmex.meta$data[is.nan(inmex.meta$data)] <- 0
+  }
+  qs::qsave(inmex.meta, "inmex_meta.qs")
+  return(1)
+}
+
 PerformBatchCorrection <- function(){
     .prepare.batch();
     .perform.computing();

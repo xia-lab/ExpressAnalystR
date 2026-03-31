@@ -285,7 +285,7 @@
 
 GetRidgePlot <- function(dataName, imgNm = "abc", dpi=default.dpi, format="png", fun.type = "kegg", ridgeType = "ora", ridgeColor = "teal", gseaRankOpt="", sigLevel = 0.05, pwNum=20, inx = 1){
     dataSet <- readDataset(dataName);
-    if(!exists("compute.ridgeline")){ # public web on same user dir
+    if(!exists("compute.ridgeline")){
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_ridgeline.Rc"));    
     }
     return(compute.ridgeline(dataSet, imgNm, dpi, format, fun.type, ridgeType, ridgeColor,gseaRankOpt, sigLevel, pwNum, inx));

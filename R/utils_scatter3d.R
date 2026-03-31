@@ -39,9 +39,7 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   }
   
   reductionSet <- dataSet;
-  Sys.setenv(RGL_USE_NULL = TRUE);
-  require(rgl);
-  require(igraph);
+  # rgl/igraph not needed — 3D rendering is handled by the browser (three.js)
   pca3d<-qs::qread("pca3d.qs");
   pos.xyz <-qs::qread("score_pos_xyz.qs");
 

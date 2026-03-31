@@ -15,7 +15,6 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
   imageName <- paste0(imgNm, "dpi" , dpi, ".", format);
   anal.type <- paramSet$anal.type;
   require("dplyr");
-  require("fgsea");
   require("reshape");
   require("ggplot2");
   require("ggridges");
@@ -119,22 +118,26 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
 names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, paramSet$data.idType);
 
 
-    if(fun.type %in% c("go_bp", "go_mf", "go_cc")){
-      res <- fgsea::fgsea(pathways = current.geneset.symb, 
-                          stats    = rankedVec,
-                          minSize  = 5,
-                          maxSize = 500,
-                          scoreType = "std",
-                          nperm=10000)    
-    }else{
-      res <- fgsea::fgsea(pathways = current.geneset.symb, 
-                          stats    = rankedVec,
-                          minSize  = 5,
-                          maxSize = 500,
-                          scoreType = "std")   
-      
-    }
-
+    use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
+    response <- rsclient_isolated_exec(
+      func_body = function(input_data) {
+        require(fgsea)
+        set.seed(123)
+        if (input_data$use_nperm) {
+          fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+                       minSize = 5, maxSize = 500, scoreType = "std", nperm = 10000)
+        } else {
+          fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+                       minSize = 5, maxSize = 500, scoreType = "std")
+        }
+      },
+      input_data = list(geneset = current.geneset.symb, ranked = rankedVec, use_nperm = use_nperm),
+      packages = c("fgsea", "qs"),
+      timeout = 600,
+      output_type = "qs"
+    )
+    if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+    res <- response
 
   }
   res <- .signif_df(res, 4);
