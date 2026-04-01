@@ -149,7 +149,11 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   # PERFORMANCE FIX (Issue #1): Use vectorized row operations instead of apply()
   # rowSums/rowMeans are 60-100x faster than apply(data, 1, sum/mean)
   # Critical for normalization - affects 100% of users
-  if (countOpt == "sum") {
+  if (countOpt == "cpm") {
+    lib.sizes <- colSums(data, na.rm = TRUE)
+    cpm <- t(t(data) / lib.sizes) * 1e6
+    signal <- rowMeans(cpm, na.rm = TRUE)
+  } else if (countOpt == "sum") {
     signal <- rowSums(data, na.rm = TRUE)
   } else if (countOpt == "median") {
     signal <- apply(data, 1, median, na.rm = TRUE)
