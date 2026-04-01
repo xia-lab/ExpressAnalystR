@@ -371,11 +371,7 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
 }
 
 .perform_limma_edger <- function(dataSet, robustTrend = FALSE) {
-  ## ------------------------------------------------------------------ ##
-  ## 1 · Input checks & dependencies                                    ##
-  ## ------------------------------------------------------------------ ##
   require(limma)
-  require(edgeR)
 
   if (is.null(dataSet$design) || is.null(dataSet$contrast.matrix)) {
     stop("design and/or contrast.matrix missing in dataSet. Run prepareEdgeRContrast() first.")
@@ -401,81 +397,93 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
       corfit <- duplicateCorrelation(data.norm, design, block = dataSet$block)
       fit <- lmFit(data.norm, design, block = dataSet$block, correlation = corfit$consensus)
     }
-    
+
     if (!is.fullrank(design)) {
       msgSet$current.msg <- "This metadata combination is not full rank! Please use other combination.";
-      saveSet(msgSet, "msgSet");  
+      saveSet(msgSet, "msgSet");
       return(0)
     }
-    
+
     df.residual <- fit$df.residual
     if (all(df.residual == 0)) {
       msgSet$current.msg <- "All residuals equal 0. There is not enough replicates in each group (no residual degrees of freedom)!";
-      saveSet(msgSet, "msgSet");  
+      saveSet(msgSet, "msgSet");
       return(0);
     }
     fit2 <- contrasts.fit(fit, contrast.matrix);
     fit2 <- eBayes(fit2, trend=robustTrend, robust=robustTrend);
 
-result.list <- list()
-for (nm in colnames(contrast.matrix)) {
-  tbl <- topTable(fit2, coef = nm, number = Inf, adjust.method = "fdr")
-  colnames(tbl)[colnames(tbl) == "FDR"] <- "adj.P.Val"
-  result.list[[nm]] <- tbl
-}
+    result.list <- list()
+    for (nm in colnames(contrast.matrix)) {
+      tbl <- topTable(fit2, coef = nm, number = Inf, adjust.method = "fdr")
+      colnames(tbl)[colnames(tbl) == "FDR"] <- "adj.P.Val"
+      result.list[[nm]] <- tbl
+    }
 
-dataSet$comp.res.list      <- result.list     
-  dataSet$comp.res <- result.list[[1]]
+    dataSet$comp.res.list <- result.list
+    dataSet$comp.res <- result.list[[1]]
 
   } else if (dataSet$de.method == "edger") {
 
     set.seed(1)
-
-    # Retrieve the raw (un‑normalised) count matrix
     cnt.mat <- .get.annotated.data()
     if (length(dataSet$rmidx) > 0)
       cnt.mat <- cnt.mat[, -dataSet$rmidx, drop = FALSE]
 
-    grp.fac <- factor(dataSet$cls)
+    cls <- if (length(dataSet$rmidx) > 0) dataSet$cls[-dataSet$rmidx] else dataSet$cls
+    block <- dataSet$block
 
-    if (!is.null(dataSet$block)) {
-      blk.fac <- factor(dataSet$block)
-      design  <- model.matrix(~ grp.fac + blk.fac)
-    } else {
-      # Use the stored design if created with ~0+grp.fac; otherwise rebuild
-      if (is.null(attr(design, "assign")))
-        design <- model.matrix(~ 0 + grp.fac)
-    }
+    response <- rsclient_isolated_exec(
+      func_body = function(input_data) {
+        require(edgeR); require(limma)
+        set.seed(1)
+        cnt.mat <- input_data$cnt_mat
+        design <- input_data$design
+        contrast_matrix <- input_data$contrast_matrix
+        cls <- input_data$cls
+        block <- input_data$block
 
-    y <- DGEList(counts = cnt.mat, group = grp.fac)
-    y <- calcNormFactors(y)
+        grp.fac <- factor(cls)
+        if (!is.null(block)) {
+          blk.fac <- factor(block)
+          design <- model.matrix(~ grp.fac + blk.fac)
+        } else if (is.null(attr(design, "assign"))) {
+          design <- model.matrix(~ 0 + grp.fac)
+        }
 
-    ## Dispersions
-    y <- estimateGLMCommonDisp(y, design, verbose = FALSE)
-    y <- tryCatch(
-      estimateGLMTrendedDisp(y, design),
-      error   = function(e) { msgSet$current.msg <- e$message ; saveSet(msgSet, "msgSet"); return(0) },
-      warning = function(w) { msgSet$current.msg <- c(msgSet$current.msg, w$message); saveSet(msgSet, "msgSet"); }
+        y <- edgeR::DGEList(counts = cnt.mat, group = grp.fac)
+        y <- edgeR::calcNormFactors(y)
+        y <- edgeR::estimateGLMCommonDisp(y, design, verbose = FALSE)
+        y <- edgeR::estimateGLMTrendedDisp(y, design)
+        y <- edgeR::estimateGLMTagwiseDisp(y, design)
+        fit <- edgeR::glmFit(y, design)
+
+        contrast_names <- colnames(contrast_matrix)
+        result.list <- vector("list", length(contrast_names))
+        names(result.list) <- contrast_names
+        for (nm in contrast_names) {
+          lrt <- edgeR::glmLRT(fit, contrast = contrast_matrix[, nm])
+          tbl <- edgeR::topTags(lrt, n = Inf)$table
+          colnames(tbl)[colnames(tbl) == "FDR"]    <- "adj.P.Val"
+          colnames(tbl)[colnames(tbl) == "PValue"] <- "P.Value"
+          result.list[[nm]] <- tbl
+        }
+        return(result.list)
+      },
+      input_data = list(cnt_mat = cnt.mat, design = design,
+                        contrast_matrix = contrast.matrix, cls = cls, block = block),
+      packages = c("edgeR", "limma", "qs"),
+      timeout = 300,
+      output_type = "qs"
     )
-    y <- estimateGLMTagwiseDisp(y, design)
+    if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+    result.list <- response
 
-    fit <- glmFit(y, design)
+    dataSet$comp.res.list <- result.list
+    dataSet$comp.res <- result.list[[1]]
+  }
 
-    result.list <- vector("list", length(contrast.names))
-    names(result.list) <- contrast.names
-    for (nm in contrast.names) {
-      lrt <- glmLRT(fit, contrast = contrast.matrix[, nm])
-      tbl <- topTags(lrt, n = Inf)$table
-      colnames(tbl)[colnames(tbl) == "FDR"]    <- "adj.P.Val"
-      colnames(tbl)[colnames(tbl) == "PValue"] <- "P.Value"
-      result.list[[nm]] <- tbl
-    }
-  dataSet$comp.res.list <- result.list
-  dataSet$comp.res <- result.list[[1]]
-
-}
   return(dataSet);
-
 }
 .perform_williams_trend <- function(dataSet,
                                     robustTrend = FALSE,

@@ -244,6 +244,7 @@ PerformMetaDeAnal <- function(paramSet){
   analSet <- .performEachDEAnal(paramSet$meta.upload);
   paramSet$performedDE <- TRUE;
   saveSet(paramSet, "paramSet");
+  saveSet(analSet, "analSet");
   return(analSet);
 }
 

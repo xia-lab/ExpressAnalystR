@@ -6,7 +6,7 @@
 ## Guangyan Zhou, guangyan.zhou@mail.mcgill.ca
 ###################################################
 # given a gene id, plot its expression profile as violin plot
-PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolcano", format="png", dpi=72, fc = T){
+PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolcano", format="png", dpi=default.dpi, fc = T){
 
   require(see)
   require(ggplot2)
@@ -238,7 +238,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
   }
 }
 
-UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png", dpi=72){
+UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png", dpi=default.dpi){
   
   require(ggplot2);
   require(see);
@@ -321,7 +321,7 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
   }
 }
 
-PlotSelectedGeneRaw <- function(gene.id="",imgName="", format="png", dpi=72) {
+PlotSelectedGeneRaw <- function(gene.id="",imgName="", format="png", dpi=default.dpi) {
 
   library(ggplot2)
   library(Cairo)

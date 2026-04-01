@@ -943,7 +943,7 @@ PlotMetaPCA <- function(imgNm, dpi, format, interactive=F){
 }
 
 
-PlotMetaDensity<- function(imgNm, dpi=72, format, interactive=F){
+PlotMetaDensity<- function(imgNm, dpi=default.dpi, format, interactive=F){
   require("ggplot2")
   inmex.meta <- qs::qread("inmex_meta.qs");
   dat <- inmex.meta$data;

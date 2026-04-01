@@ -234,7 +234,7 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
   }
   
   imgName <- paste("Gene_bmd_", gene.id, ".png", sep="");
-  Cairo(file = imgName, width=280, height=320, type="png", bg="white");
+  Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
   print(p)
   dev.off();
 
@@ -336,7 +336,7 @@ if (scale == "log2") {
 
   
   imgName <- paste("Gene_", gene.symbol, "_", model.nm, "_", scale,".png", sep="");
-  Cairo(file = imgName, width=280, height=320, type="png", bg="white");
+  Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
   print(p)
   dev.off();
 
@@ -379,7 +379,7 @@ PlotDRModelBars <- function(imgNm, dpi, format){
     saveSet(imgSet, "imgSet");
 }
 
-PlotDRFilterSummary <- function(imgNm, dpi = 72, format = "png") {
+PlotDRFilterSummary <- function(imgNm, dpi = default.dpi, format = "png") {
 
   ## 1 ── Load data -----------------------------------------------------------
   paramSet <- readSet(paramSet, "paramSet")

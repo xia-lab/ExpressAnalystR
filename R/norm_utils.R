@@ -72,31 +72,27 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
 
   if (identical(norm.opt, "MORlog")) {
 
-    if (!requireNamespace("DESeq2", quietly = TRUE)) {
-      AddErrMsg("MORlog normalization requires the 'DESeq2' package. Please install it.")
-      return(0)
-    }
-
     m <- as.matrix(data)
-
-    # basic checks for counts
     if (any(m < 0, na.rm = TRUE)) {
       AddErrMsg("MORlog expects non-negative count data.")
       return(0)
     }
-    # ensure integer-like counts for DESeq2
-    if (!is.integer(m)) {
-      m <- round(m)
-    }
+    if (!is.integer(m)) m <- round(m)
 
-    # minimal colData (no outcome needed for size factors)
-    # rownames must match sample names (columns of count matrix)
-    cd <- S4Vectors::DataFrame(row.names = colnames(m))
-
-    dds <- DESeq2::DESeqDataSetFromMatrix(countData = m, colData = cd, design = ~ 1)
-    dds <- DESeq2::estimateSizeFactors(dds)
-    norm_counts <- DESeq2::counts(dds, normalized = TRUE)
-    data <- log2(norm_counts + 1)
+    response <- rsclient_isolated_exec(
+      func_body = function(input_data) {
+        require(DESeq2)
+        cd <- S4Vectors::DataFrame(row.names = colnames(input_data$m))
+        dds <- DESeq2::DESeqDataSetFromMatrix(countData = input_data$m, colData = cd, design = ~ 1)
+        dds <- DESeq2::estimateSizeFactors(dds)
+        norm_counts <- DESeq2::counts(dds, normalized = TRUE)
+        log2(norm_counts + 1)
+      },
+      input_data = list(m = m),
+      packages = c("DESeq2", "qs"), timeout = 300, output_type = "qs"
+    )
+    if (is.list(response) && isFALSE(response$success)) { AddErrMsg(response$message); return(0) }
+    data <- response
 
     msg <- paste("[MORlog] Applied DESeq2 median-of-ratios size-factor normalization and log2(x+1).", msg)
   } else {
@@ -273,24 +269,23 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     require('preprocessCore');
     data <- normalize.quantiles(as.matrix(data), copy=TRUE);
     msg <- paste(msg, "VSN followed by quantile normalization.", collapse=" ");
-  }else if(norm.opt=="logcount"){ # for count data, do it in DE analysis, as it is dependent on design matrix
-    require(edgeR);
-    nf <- calcNormFactors(data, method = "none");
-    y <- voom(data,plot=F,lib.size=colSums(data)*nf);
-    data <- y$E; # copy per million
-    msg <- paste(msg, "Limma based on log2-counts per million transformation.", collapse=" ");
-  } else if(norm.opt=="RLE"){
-    suppressMessages(require(edgeR))
-    nf <- calcNormFactors(data,method="RLE");
-    y <- voom(data,plot=F,lib.size=colSums(data)*nf);
-    data <- y$E; # copy per million
-    msg <- c(msg, paste("Performed RLE Normalization"));
-  }else if(norm.opt=="TMM"){
-    suppressMessages(require(edgeR))
-    nf <- calcNormFactors(data,method="TMM");
-    y <- voom(data,plot=F,lib.size=colSums(data)*nf);
-    data <- y$E; # copy per million
-    msg <- c(msg, paste("Performed TMM Normalization"));
+  }else if(norm.opt %in% c("logcount", "RLE", "TMM")){
+    cnf_method <- c(logcount = "none", RLE = "RLE", TMM = "TMM")[norm.opt]
+    response <- rsclient_isolated_exec(
+      func_body = function(input_data) {
+        require(edgeR)
+        edgeR::calcNormFactors(input_data$data, method = input_data$method)
+      },
+      input_data = list(data = data, method = cnf_method),
+      packages = c("edgeR", "qs"), timeout = 120, output_type = "qs"
+    )
+    if (is.list(response) && isFALSE(response$success)) { AddErrMsg(response$message); return(0) }
+    nf <- response
+    y <- limma::voom(data, plot = FALSE, lib.size = colSums(data) * nf)
+    data <- y$E
+    norm_msgs <- c(logcount = "Limma based on log2-counts per million transformation.",
+                   RLE = "Performed RLE Normalization", TMM = "Performed TMM Normalization")
+    msg <- c(msg, norm_msgs[norm.opt]);
   }else if(norm.opt=="clr"){
     data <- apply(data, 2, clr_transform);
     msg <- "Performed centered-log-ratio normalization.";
@@ -333,10 +328,18 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     data <- data*10000000;
     msg <- c(msg, paste("Performed total sum normalization."));
   }else if(scaleNorm=="upperquartile" || norm.opt == "upperquartile"){
-    suppressMessages(require(edgeR))
-    nf <- calcNormFactors(data,method="upperquartile");
-    y <- voom(data,plot=F,lib.size=colSums(data)*nf);
-    data <- y$E; # copy per million
+    response <- rsclient_isolated_exec(
+      func_body = function(input_data) {
+        require(edgeR)
+        edgeR::calcNormFactors(input_data$data, method = "upperquartile")
+      },
+      input_data = list(data = data),
+      packages = c("edgeR", "qs"), timeout = 120, output_type = "qs"
+    )
+    if (is.list(response) && isFALSE(response$success)) { AddErrMsg(response$message); return(0) }
+    nf <- response
+    y <- limma::voom(data, plot = FALSE, lib.size = colSums(data) * nf)
+    data <- y$E
     msg <- c(msg, paste("Performed upper quartile normalization"));
   }else if(scaleNorm=="CSS"){
     suppressMessages(require(metagenomeSeq))

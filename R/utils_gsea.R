@@ -50,8 +50,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
                        }
   );
 
-  require("fgsea");
-  
+
   if(anal.type == "onedata"){
     datnorm <- dataSet$data.norm;
     inx  <- order(dataSet$fst.cls)
@@ -61,7 +60,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- qs:::qread("inmex_meta.qs");
+      inmex <- qs::qread("inmex_meta.qs");
       sampleNms <- colnames(inmex$plot_data);
       colnums <- dim(inmex$plot.data)[2]
       inx  <- rep(T, colnums)
@@ -86,21 +85,26 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   }
 
   set.seed(123)
-  if(fun.type %in% c("go_bp", "go_mf", "go_cc")){
-      fgseaRes <- fgsea::fgsea(pathways = current.geneset, 
-                          stats    = rankedVec,
-                          minSize  = 5,
-                          maxSize = 500,
-                          scoreType = "std",
-                          nperm=1000)    
-    }else{
-      fgseaRes <- fgsea::fgsea(pathways = current.geneset, 
-                          stats    = rankedVec,
-                          minSize  = 5,
-                          maxSize = 500,
-                          scoreType = "std")   
-     
-    }
+  use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
+  response <- rsclient_isolated_exec(
+    func_body = function(input_data) {
+      require(fgsea)
+      set.seed(123)
+      if (input_data$use_nperm) {
+        fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+                     minSize = 5, maxSize = 500, scoreType = "std", nperm = 1000)
+      } else {
+        fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+                     minSize = 5, maxSize = 500, scoreType = "std")
+      }
+    },
+    input_data = list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
+    packages = c("fgsea", "qs"),
+    timeout = 600,
+    output_type = "qs"
+  )
+  if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+  fgseaRes <- response
   
   fgseaRes <- fgseaRes[!duplicated(fgseaRes$pathway),]
   
@@ -213,7 +217,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     res.mat <- res.mat
   }
 
-    qs:::qsave(res.mat, "enr.mat.qs");
+    qs::qsave(res.mat, "enr.mat.qs");
 
   imgSet <- readSet(imgSet, "imgSet");
   if(mType == "network"){
@@ -263,7 +267,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   }
 
 
-  csvDf <- data.frame(Name=fgseaRes$pathway, Total=fgseaRes$total, Hits=fgseaRes$hits, NormalizedEnrichmentScore=fgseaRes$NES, Pval=fgseaRes$pval, Padj=fgseaRes$padj);
+  csvDf <- data.frame(Name=fgseaRes$pathway, Total=fgseaRes$total, Hits=fgseaRes$hits, NES=fgseaRes$NES, Pval=fgseaRes$pval, Padj=fgseaRes$padj);
   fun.ids <- as.vector(setres$current.setids[fgseaRes$pathway]); 
   csvDf$IDs <- fun.ids;
 
@@ -582,7 +586,7 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- qs:::qread("inmex_meta.qs");
+      inmex <- qs::qread("inmex_meta.qs");
       dat <- inmex$plot.data
       gene.map <- data.frame(gene_id=names(inmex$gene.symbls), symbol=unname(inmex$gene.symbls));
     }else{
@@ -689,15 +693,16 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
   sink();
 
   paramSet$GSEAPathway <- cmpdNm;
+  if (is.null(paramSet$GSEAPathwayList)) paramSet$GSEAPathwayList <- list()
+  paramSet$GSEAPathwayList[[cmpdNm]] <- json.nm
   paramSet$jsonNms$heatmapGSEA <- json.nm
   saveSet(paramSet, "paramSet");
 
   return(json.nm)
 }
 
-plot.gs.view <-function(fileName, format="png", dpi=72, width=NA, imgName=NA){
+plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgName=NA){
   require("ggplot2");
-  require("fgsea");
   current.geneset <- qs::qread("current_geneset.qs");
   analSet <- readSet(analSet, "analSet");
   if(is.na(imgName)){
@@ -709,12 +714,31 @@ plot.gs.view <-function(fileName, format="png", dpi=72, width=NA, imgName=NA){
   imgName <- paste(imgName, "_dpi", dpi, ".", format, sep="");
 
   cmpdNm <- gsub("barcode_", "",fileName);
-  Cairo(file = imgName, dpi=dpi, width=340, height=300, type="png", bg="transparent");
-  g <- plotEnrichment(current.geneset[[cmpdNm]], analSet$rankedVec)
-  print(g)
-  dev.off();
+
+  rsclient_isolated_exec(
+    func_body = function(input_data) {
+      require(fgsea); require(ggplot2); require(Cairo)
+      Cairo::Cairo(file = input_data$imgName, dpi = input_data$dpi,
+                   width = 5, height = 4, unit = "in",
+                   type = input_data$format, bg = "transparent")
+      g <- fgsea::plotEnrichment(input_data$geneset, input_data$ranked)
+      print(g)
+      dev.off()
+      return(input_data$imgName)
+    },
+    input_data = list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
+                      imgName = imgName, dpi = dpi, format = format),
+    packages = c("fgsea", "ggplot2", "Cairo", "qs"),
+    timeout = 120,
+    output_type = "qs"
+  )
+  # plot/write failure is non-fatal
+
   imgSet <- readSet(imgSet, "imgSet");
   imgSet$GSEAbarcode <- imgName;
-    saveSet(imgSet, "imgSet");
+  if (is.null(imgSet$GSEAbarcodeList)) imgSet$GSEAbarcodeList <- list()
+  pathwayName <- gsub("barcode_", "", fileName)
+  imgSet$GSEAbarcodeList[[pathwayName]] <- imgName
+  saveSet(imgSet, "imgSet");
   return(imgName);
 }

@@ -100,7 +100,7 @@ saveVolcanoArrow <- function(volcano) {
 #'License: MIT
 #'@export
 #'
-Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, threshp=0.05, analType="NA", inx=1, dpi=72, format="png"){
+Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, threshp=0.05, analType="NA", inx=1, dpi=default.dpi, format="png"){
   #save.image('volc.RData');
 
   paramSet <- readSet(paramSet, "paramSet");
@@ -117,7 +117,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
          paramSet$fc.thresh <- 0; 
        }
 
-      data <- qs:::qread("allMeta.mat.qs")    
+      data <- qs::qread("allMeta.mat.qs")    
       p.value <- data[, 2]
       data <- cbind(unname(analSet$meta.avgFC[rownames(data)]), data);
       fcthresh <- paramSet$fc.thresh;
@@ -257,7 +257,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   if(paramSet$init.lib == "NA"){
     enr.mat <- "NA"
   }else{
-    enr.mat <- qs:::qread("enr.mat.qs");
+    enr.mat <- qs::qread("enr.mat.qs");
     #fast.write(enr.mat, file="enrichment_result.csv", row.names=T);
   }
   sink("enrichment_result.json");
@@ -332,7 +332,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
     imgSet$volcanoPlotly <- NULL;
   }
 
-  Cairo::Cairo(file = imgSet$volcanoPlot, unit="px", dpi=dpi, width=1000, height=800, type=format, bg="white");
+  Cairo::Cairo(file = imgSet$volcanoPlot, unit="in", dpi=96, width=13.9, height=11.1, type=format, bg="white");
   print(gg_volcano_labeled)
   dev.off()
 
@@ -605,7 +605,7 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
     res.mat <- res.mat
   }
 
-  qs:::qsave(res.mat, "enr.mat.qs");
+  qs::qsave(res.mat, "enr.mat.qs");
   msgSet$current.msg <- "Functional enrichment analysis was completed";
   
   # write json
