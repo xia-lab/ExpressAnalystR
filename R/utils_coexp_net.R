@@ -507,7 +507,7 @@ PerformNetEnrichment <- function(dataName="", file.nm, fun.type, IDs){
 }
 
 PerformRegEnrichAnalysis <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
-    if(!exists("my.reg.enrich")){ # public web on same user dir
+    if(!exists("my.reg.enrich")){
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/_utils_regenrich.Rc"));    
     }
     return(my.reg.enrich(dataSet, file.nm, fun.type, ora.vec, netInv));

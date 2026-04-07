@@ -205,7 +205,7 @@ invert_named_vector <- function(input_named_vec) {
 }
 
 
-PlotCovariateMap <- function(dataName, theme="default", imgName="NA", format="png", dpi=72){
+PlotCovariateMap <- function(dataName, theme="default", imgName="NA", format="png", dpi=default.dpi){
   dataSet <- readDataset(dataName);
   both.mat <- dataSet$cov.mat
   both.mat <- both.mat[order(-both.mat[,"pval.adj"]),]
@@ -291,7 +291,7 @@ AddMsg <- function(msg){
 #'License: GPL-3 License
 #'@export
 #'
-PlotMultiFacCmpdSummary <- function(dataName,imgName,name, id, meta, version, format="png", dpi=72, width=NA){
+PlotMultiFacCmpdSummary <- function(dataName,imgName,name, id, meta, version, format="png", dpi=default.dpi, width=NA){
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
 

@@ -350,7 +350,7 @@ PlotCochranQ <- function(imgNm){
 
     Qvals <- f.Q.NA(ES[,3,],ES[,4,]);
 
-    Cairo(file=imgNm, width=400, height=400, type="png", bg="white");
+    Cairo(file=imgNm, unit="in", dpi=96, width=5.6, height=5.6, type="png", bg="white");
     # histgram
     # hist(Qvals, breaks = 50, col = "red");
     # QQ plot
@@ -383,6 +383,16 @@ PlotCochranQ <- function(imgNm){
 #' @export
 #' @license MIT License
 #'
+ApplyMetaAutoScale <- function(apply = "true") {
+  inmex.meta <- qs::qread("inmex_meta.qs")
+  if (apply == "true") {
+    inmex.meta$data <- t(scale(t(inmex.meta$data), center = TRUE, scale = TRUE))
+    inmex.meta$data[is.nan(inmex.meta$data)] <- 0
+  }
+  qs::qsave(inmex.meta, "inmex_meta.qs")
+  return(1)
+}
+
 PerformBatchCorrection <- function(){
     .prepare.batch();
     .perform.computing();
@@ -402,7 +412,7 @@ PerformBatchCorrection <- function(){
         qs::qsave(inmex.meta, "inmex_meta.qs");
     }
     dat.in <- list(my.fun=my.fun);
-    qs:::qsave(dat.in, file="dat.in.qs");
+    qs::qsave(dat.in, file="dat.in.qs");
     return(1);
 }
 

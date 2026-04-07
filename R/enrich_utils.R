@@ -158,23 +158,34 @@
   }
   
   resTable <- data.frame(Pathway=rownames(res.mat), res.mat);
-  qs:::qsave(res.mat, "enr.mat.qs");
+  qs::qsave(res.mat, "enr.mat.qs");
   msgSet$current.msg <- "Functional enrichment analysis was completed";
   
   # write json
-  fun.anot <- hits.query; 
+  fun.anot <- hits.query;
+
+  # also include original IDs per pathway (for s2f/ko data where symbols differ from fc.log keys)
+  hits.ids <- lapply(current.geneset,
+                     function(x) {
+                       ora.vec[ora.vec %in% unlist(x)];
+                     }
+  );
+  names(hits.ids) <- names(current.geneset);
+  hits.ids <- hits.ids[names(fun.anot)];
+
   total <- resTable$Total; if(length(total) ==1) { total <- matrix(total) };
   fun.pval <- resTable$Pval; if(length(fun.pval) ==1) { fun.pval <- matrix(fun.pval) };
   fun.padj <- resTable$FDR; if(length(fun.padj) ==1) { fun.padj <- matrix(fun.padj) };
   #print(resTable$Hits);
   hit.num <- paste0(resTable$Hits,"/",resTable$Total); if(length(hit.num) ==1) { hit.num <- matrix(hit.num) };
-  fun.ids <- as.vector(setres$current.setids[resTable$Pathway]); 
-  
+  fun.ids <- as.vector(setres$current.setids[resTable$Pathway]);
+
   resTable$IDs <- fun.ids;
   if(length(fun.ids) ==1) { fun.ids <- matrix(fun.ids) };
   json.res <- list(
     fun.link = setres$current.setlink[1],
     fun.anot = fun.anot,
+    fun.anot.ids = hits.ids,
     fun.ids = fun.ids,
     fun.pval = fun.pval,
     fun.padj = fun.padj,
@@ -272,9 +283,9 @@
   return(res);
 }
 
-GetRidgePlot <- function(dataName, imgNm = "abc", dpi=72, format="png", fun.type = "kegg", ridgeType = "ora", ridgeColor = "teal", gseaRankOpt="", sigLevel = 0.05, pwNum=20, inx = 1){
+GetRidgePlot <- function(dataName, imgNm = "abc", dpi=default.dpi, format="png", fun.type = "kegg", ridgeType = "ora", ridgeColor = "teal", gseaRankOpt="", sigLevel = 0.05, pwNum=20, inx = 1){
     dataSet <- readDataset(dataName);
-    if(!exists("compute.ridgeline")){ # public web on same user dir
+    if(!exists("compute.ridgeline")){
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_ridgeline.Rc"));    
     }
     return(compute.ridgeline(dataSet, imgNm, dpi, format, fun.type, ridgeType, ridgeColor,gseaRankOpt, sigLevel, pwNum, inx));
@@ -299,14 +310,12 @@ PerformGSEA<- function(dataName, file.nm, fun.type, netNm, mType, selectedFactor
 
 ComputeRankedVec <- function(data, opt, inx = 1){
    if(!exists("my.compute.ranked.vec")){ 
-
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_gsea.Rc"));    
-        
     }
    return(my.compute.ranked.vec(data, opt, inx));
 }
 
-PlotGSView <-function(cmpdNm, format="png", dpi=72, width=NA){
+PlotGSView <-function(cmpdNm, format="png", dpi=default.dpi, width=NA){
    if(!exists("plot.gs.view")){ 
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_gsea.Rc"));    
    }
@@ -314,7 +323,7 @@ PlotGSView <-function(cmpdNm, format="png", dpi=72, width=NA){
 
 }
 
-PlotGSViewNew <-function(cmpdNm, format="png", dpi=72, imgName){
+PlotGSViewNew <-function(cmpdNm, format="png", dpi=default.dpi, imgName){
    if(!exists("plot.gs.view")){ 
         compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_gsea.Rc"));    
    }

@@ -431,11 +431,6 @@ getEntrezTableName <- function(data.org, data.idType){
 
 
 doEntrez2SymbolMapping <- function(entrez.vec,data.org="NA", data.idType="NA"){
-
-  if(data.idType == "symbol"){
-    return(entrez.vec); # nothing to do
-  }
-
   if(data.org == "NA" && data.idType=="NA"){
     paramSet <- readSet(paramSet, "paramSet");
     data.org <- paramSet$data.org;
@@ -448,6 +443,9 @@ doEntrez2SymbolMapping <- function(entrez.vec,data.org="NA", data.idType="NA"){
   tblNm <- getEntrezTableName(data.org, data.idType);
   gene.map <-  queryGeneDB(tblNm, data.org);
   gene.map[] <- lapply(gene.map, as.character)
+  if("accession" %in% colnames(gene.map) && !"symbol" %in% colnames(gene.map)) {
+    colnames(gene.map)[colnames(gene.map) == "accession"] <- "symbol"
+  }
 
   # Handle case where gene.map might not have proper dimensions
   symbols <- entrez.vec;  # Default to using original IDs
@@ -493,6 +491,9 @@ doEntrezIDAnot <- function(entrez.vec,
   tblNm   <- getEntrezTableName(data.org, data.idType)
   gene.map <- queryGeneDB(tblNm, data.org)
   gene.map[] <- lapply(gene.map, as.character)  # uniform character columns
+  if("accession" %in% colnames(gene.map) && !"symbol" %in% colnames(gene.map)) {
+    colnames(gene.map)[colnames(gene.map) == "accession"] <- "symbol"
+  }
 
   # Handle case where gene.map might not have proper dimensions
   anot.mat <- NULL

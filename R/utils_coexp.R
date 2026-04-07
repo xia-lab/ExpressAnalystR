@@ -293,7 +293,7 @@ print("buildingceminet");
 PlotCEMiDendro <- function(mode      = c("sample", "module"),
                            metaClass = "NA",
                            imgName   = "cem_dendro",
-                           dpi       = 72,
+                           dpi = default.dpi,
                            format    = "png") {
 
   library(Cairo); library(WGCNA)
@@ -563,6 +563,7 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
             units  = "in")
     } else {
       Cairo(file   = outFile,
+            unit   = "in",
             width  = width_in,
             height = height_in,
             bg     = "white",
@@ -607,7 +608,7 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
 }
 
 PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
-                                     dpi = 72,
+                                     dpi = default.dpi,
                                      format = "png") {
   library(Cairo); library(CEMiTool)
 
