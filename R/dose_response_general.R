@@ -735,6 +735,12 @@ PerformBMDCalc <- function(ncpus = 1)
   f.its <- dataSet$itemselect;
 
   num.sds <- as.numeric(num.sds);
+
+  # Convert constrain.bmd.range from string to logical
+  if (exists("constrain.bmd.range")) {
+    constrain.bmd.range <- as.logical(constrain.bmd.range)
+  }
+
   # Checks
   if (!inherits(f.drc, "drcfit"))
     stop("Use only with 'drcfit' objects, created with the function drcfit")
@@ -932,11 +938,22 @@ PerformBMDCalc <- function(ncpus = 1)
   # is the bmd < lowest dose/10?
   low.dose <- sort(unique(dose))[2]
   dres$ld.pass <- dres$bmdl > (low.dose/10)
-  
+
+  # optional: constrain BMD within tested dose range
+  # check if constrain.bmd.range variable exists and is TRUE
+  if (exists("constrain.bmd.range") && constrain.bmd.range) {
+    min.dose <- min(dose)
+    max.dose <- max(dose)
+    dres$range.pass <- (dres$bmd >= min.dose & dres$bmd <= max.dose)
+  } else {
+    # if not constraining, all genes pass this filter
+    dres$range.pass <- TRUE
+  }
+
   # aggregate all filters
-  # flag genes that don't pass low dose condition by keeping the column, but do 
+  # flag genes that don't pass low dose condition by keeping the column, but do
   # not use for the final filtering
-  dres$all.pass <- (dres$conv.pass & dres$hd.pass & dres$CI.pass & dres$CI.pass2)
+  dres$all.pass <- (dres$conv.pass & dres$hd.pass & dres$CI.pass & dres$CI.pass2 & dres$range.pass)
   
   # update the data
   data.select <- data[dres$all.pass, ]
@@ -1046,13 +1063,9 @@ sensPOD <- function(pod = c("feat.20", "feat.10th", "mode", "lcrd"), scale) {
   bmd.res  <- FilterBMDResults(dataSet)            # expect at least columns: bmd, (gene.id|probe)
   bmds_raw <- as.numeric(bmd.res$bmd)
 
-  # vector used by the existing POD methods (on the requested scale)
-  bmds <- switch(
-    scale,
-    log10 = log10(bmds_raw),
-    log2  = log2(bmds_raw),
-    bmds_raw
-  )
+  # Keep BMDs in natural scale - axis transformation will handle display
+  # The scale parameter is kept for backward compatibility but not used for transformation
+  bmds <- bmds_raw
 
   # ---- prepare result vector -------------------------------------------------
   trans.pod <- rep(NA_real_, length(pod))

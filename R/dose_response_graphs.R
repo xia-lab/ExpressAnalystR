@@ -482,6 +482,7 @@ PlotDRHistogram <- function(imgNm,
                             format,
                             units,
                             scale,
+                            doseLabel = "Dose",
                             width = NA) {
 
   paramSet <- readSet(paramSet, "paramSet")
@@ -497,7 +498,7 @@ PlotDRHistogram <- function(imgNm,
   bmd.hist <- subset(dataSet$bmdcalc.obj$bmdcalc.res, all.pass)
   bmd.vals <- bmd.hist$bmd
 
-  ## ---- LCRD on RAW scale, then convert to plot scale -----------------------
+  ## ---- LCRD on RAW scale (keep in natural scale) -----------------------
   lcrd_val <- NA_real_
   # pick an ID column to pair with BMDs (fallbacks are fine)
   probe <- if ("gene.id" %in% names(bmd.hist)) as.character(bmd.hist$gene.id) else
@@ -508,26 +509,17 @@ PlotDRHistogram <- function(imgNm,
   ok <- is.finite(bmd.vals) & bmd.vals > 0 & !is.na(probe)
   if (sum(ok) >= 1) {
     lcrd_raw <- LCRD(bmc = bmd.vals[ok], probe = probe[ok])$LCRD_Result$BMC
-    lcrd_val <- switch(
-      scale,
-      log10 = log10(lcrd_raw),
-      log2  = log2(lcrd_raw),
-      lcrd_raw
-    )
+    # Keep lcrd_val in natural scale - axis transformation will handle display
+    lcrd_val <- lcrd_raw
   }
 
-  ## ---- apply plot scale to BMDs and (if needed) to s.pods ------------------
+  ## ---- Set axis title based on scale and doseLabel (data stays in natural scale) ------------------
   if (scale == "log10") {
-    bmd.vals <- log10(bmd.vals)
-    # uncomment the next line ONLY if sensPOD() returns RAW values
-    # s.pods   <- log10(s.pods)
-    xTitle   <- "log10(Feature-level BMD)"
+    xTitle   <- paste0("log10(", doseLabel, ") (", units, ")")
   } else if (scale == "log2") {
-    bmd.vals <- log2(bmd.vals)
-    # s.pods   <- log2(s.pods)
-    xTitle   <- "log2(Feature-level BMD)"
+    xTitle   <- paste0("log2(", doseLabel, ") (", units, ")")
   } else {
-    xTitle <- "Feature-level BMD"
+    xTitle <- paste0(doseLabel, " (", units, ")")
   }
 
   bmd.df <- data.frame(bmd = bmd.vals)
@@ -582,6 +574,38 @@ PlotDRHistogram <- function(imgNm,
       legend.title      = element_text(size = rel(1)),
       legend.text       = element_text(size = rel(0.9))
     )
+
+  ## ---- Apply x-axis scale transformation (changes axis scale, not data) -------
+  if (scale == "log10") {
+    # Define nice breaks for log10 scale
+    # Get data range to determine appropriate breaks
+    data_range <- range(bmd.vals, na.rm = TRUE, finite = TRUE)
+    log_min <- floor(log10(data_range[1]))
+    log_max <- ceiling(log10(data_range[2]))
+
+    # Create breaks: powers of 10 and intermediate values (0.5, 2, 5)
+    breaks <- c()
+    for (i in log_min:log_max) {
+      breaks <- c(breaks, 10^i, 2*10^i, 5*10^i)
+    }
+    breaks <- sort(unique(breaks[breaks >= data_range[1] & breaks <= data_range[2] * 1.1]))
+
+    p <- p + scale_x_log10(breaks = breaks, labels = scales::label_number())
+  } else if (scale == "log2") {
+    # Define nice breaks for log2 scale
+    data_range <- range(bmd.vals, na.rm = TRUE, finite = TRUE)
+    log_min <- floor(log2(data_range[1]))
+    log_max <- ceiling(log2(data_range[2]))
+
+    # Create breaks: powers of 2 and intermediate values
+    breaks <- c()
+    for (i in log_min:log_max) {
+      breaks <- c(breaks, 2^i, 1.5*2^i)
+    }
+    breaks <- sort(unique(breaks[breaks >= data_range[1] & breaks <= data_range[2] * 1.1]))
+
+    p <- p + scale_x_continuous(trans = scales::log2_trans(), breaks = breaks, labels = scales::label_number())
+  }
 
   ## ---- Output ----------------------------------------------------------------
   if (is.na(width) || width <= 0) {
@@ -687,7 +711,7 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
 ###################
 ###################
 
-PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
+PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale, doseLabel = "Dose") {
   paramSet <- readSet(paramSet, "paramSet")
   dataSet  <- readDataset(paramSet$dataName)
 
@@ -707,7 +731,7 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
   ## tPOD values (feat.20, feat.10th, mode) on requested scale
   s.pods <- sensPOD(pod = c("feat.20", "feat.10th", "mode"), scale)
 
-  ## LCRD on RAW scale, then convert to plot scale
+  ## LCRD on RAW scale (keep in natural scale)
   lcrd_val <- NA_real_
   probe <- if ("gene.id" %in% names(bmd.data)) as.character(bmd.data$gene.id) else
            if ("probe"   %in% names(bmd.data)) as.character(bmd.data$probe)   else
@@ -716,24 +740,18 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
   ok <- is.finite(bmd.data$bmd) & bmd.data$bmd > 0 & !is.na(probe)
   if (sum(ok) >= 1) {
     lcrd_raw <- LCRD(bmc = bmd.data$bmd[ok], probe = probe[ok])$LCRD_Result$BMC
-    lcrd_val <- switch(
-      scale,
-      log10 = log10(lcrd_raw),
-      log2  = log2(lcrd_raw),
-      lcrd_raw
-    )
+    # Keep lcrd_val in natural scale - axis transformation will handle display
+    lcrd_val <- lcrd_raw
   }
 
-  ## Apply scale transformation if needed
+  ## Keep BMD values in natural scale, set title based on scale and doseLabel
   bmd.vals <- bmd.vals.raw
   if (scale == "log10") {
-    bmd.vals <- log10(bmd.vals)
-    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+    xTitle <- paste0("log10(", doseLabel, ") (", units, ")")
   } else if (scale == "log2") {
-    bmd.vals <- log2(bmd.vals)
-    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+    xTitle <- paste0("log2(", doseLabel, ") (", units, ")")
   } else {
-    xTitle <- paste0("Feature-level BMD (", units, ")")
+    xTitle <- paste0(doseLabel, " (", units, ")")
   }
 
   ## tPOD legend info
@@ -794,6 +812,37 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
       plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
     )
 
+  ## Apply x-axis scale transformation for PlotDRAccumulationAll (changes axis scale, not data)
+  if (scale == "log10") {
+    # Define nice breaks for log10 scale
+    data_range <- range(bmd.vals, na.rm = TRUE, finite = TRUE)
+    log_min <- floor(log10(data_range[1]))
+    log_max <- ceiling(log10(data_range[2]))
+
+    # Create breaks: powers of 10 and intermediate values (0.5, 2, 5)
+    breaks <- c()
+    for (i in log_min:log_max) {
+      breaks <- c(breaks, 10^i, 2*10^i, 5*10^i)
+    }
+    breaks <- sort(unique(breaks[breaks >= data_range[1] & breaks <= data_range[2] * 1.1]))
+
+    p <- p + scale_x_log10(breaks = breaks, labels = scales::label_number())
+  } else if (scale == "log2") {
+    # Define nice breaks for log2 scale
+    data_range <- range(bmd.vals, na.rm = TRUE, finite = TRUE)
+    log_min <- floor(log2(data_range[1]))
+    log_max <- ceiling(log2(data_range[2]))
+
+    # Create breaks: powers of 2 and intermediate values
+    breaks <- c()
+    for (i in log_min:log_max) {
+      breaks <- c(breaks, 2^i, 1.5*2^i)
+    }
+    breaks <- sort(unique(breaks[breaks >= data_range[1] & breaks <= data_range[2] * 1.1]))
+
+    p <- p + scale_x_continuous(trans = scales::log2_trans(), breaks = breaks, labels = scales::label_number())
+  }
+
   ## Save the plot
   imgFile <- paste0(imgNm, "dpi", dpi, ".", format)
 
@@ -816,7 +865,7 @@ PlotDRAccumulationAll <- function(imgNm, dpi, format, units, scale) {
   return(1)
 }
 
-PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
+PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale, doseLabel = "Dose") {
   paramSet <- readSet(paramSet, "paramSet")
   dataSet  <- readDataset(paramSet$dataName)
 
@@ -838,16 +887,14 @@ PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
   n_genes <- min(100, n_genes_total)
   bmd.vals.raw <- bmd.vals.raw[1:n_genes]
 
-  ## Apply scale transformation if needed
+  ## Keep BMD values in natural scale, set title based on scale and doseLabel
   bmd.vals <- bmd.vals.raw
   if (scale == "log10") {
-    bmd.vals <- log10(bmd.vals)
-    xTitle <- paste0("log10(Feature-level BMD) (", units, ")")
+    xTitle <- paste0("log10(", doseLabel, ") (", units, ")")
   } else if (scale == "log2") {
-    bmd.vals <- log2(bmd.vals)
-    xTitle <- paste0("log2(Feature-level BMD) (", units, ")")
+    xTitle <- paste0("log2(", doseLabel, ") (", units, ")")
   } else {
-    xTitle <- paste0("Feature-level BMD (", units, ")")
+    xTitle <- paste0(doseLabel, " (", units, ")")
   }
 
   ## Calculate cumulative count (actual number of genes)
@@ -890,6 +937,37 @@ PlotDRAccumulationTop100 <- function(imgNm, dpi, format, units, scale) {
       plot.title = element_text(hjust = 0.5, face = "bold", size = rel(1.1)),
       plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
     )
+
+  ## Apply x-axis scale transformation for PlotDRAccumulationTop100 (changes axis scale, not data)
+  if (scale == "log10") {
+    # Define nice breaks for log10 scale
+    data_range <- range(bmd.vals, na.rm = TRUE, finite = TRUE)
+    log_min <- floor(log10(data_range[1]))
+    log_max <- ceiling(log10(data_range[2]))
+
+    # Create breaks: powers of 10 and intermediate values (0.5, 2, 5)
+    breaks <- c()
+    for (i in log_min:log_max) {
+      breaks <- c(breaks, 10^i, 2*10^i, 5*10^i)
+    }
+    breaks <- sort(unique(breaks[breaks >= data_range[1] & breaks <= data_range[2] * 1.1]))
+
+    p <- p + scale_x_log10(breaks = breaks, labels = scales::label_number())
+  } else if (scale == "log2") {
+    # Define nice breaks for log2 scale
+    data_range <- range(bmd.vals, na.rm = TRUE, finite = TRUE)
+    log_min <- floor(log2(data_range[1]))
+    log_max <- ceiling(log2(data_range[2]))
+
+    # Create breaks: powers of 2 and intermediate values
+    breaks <- c()
+    for (i in log_min:log_max) {
+      breaks <- c(breaks, 2^i, 1.5*2^i)
+    }
+    breaks <- sort(unique(breaks[breaks >= data_range[1] & breaks <= data_range[2] * 1.1]))
+
+    p <- p + scale_x_continuous(trans = scales::log2_trans(), breaks = breaks, labels = scales::label_number())
+  }
 
   ## Save the plot
   imgFile <- paste0(imgNm, "dpi", dpi, ".", format)

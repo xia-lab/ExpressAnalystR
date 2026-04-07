@@ -302,6 +302,7 @@ submitMysqlJobRename <- function(userDir, jobID, aligner){
       file.path(userDir, "output"),
       deplexJobOutput,
       file.path(userDir, "*_deplexer_out"),
+      file.path(userDir, "All_samples_deplexer_*.txt"),
       file.path(userDir, "*.html"),
       file.path(userDir, "analysis_parameters.txt"),
       "-x",
@@ -363,6 +364,7 @@ submitMysqlJobRenamePro <- function(userDir, jobID, aligner){
       file.path(userDir, "output"),
       deplexJobOutput,
       file.path(userDir, "*_deplexer_out"),
+      file.path(userDir, "All_samples_deplexer_*.txt"),
       file.path(userDir, "*.html"),
       file.path(userDir, "analysis_parameters.txt"),
       "-x",
@@ -863,7 +865,28 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
   return(1);
 }
 
-SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscriptDir, deplexerExecutable, barcodeRead, barcodeStart, barcodeLength, maxMismatch, trimLeft, sampleIdFile, threads, maxMemory){
+SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscriptDir, deplexerExecutable, barcodeRead, barcodeStart, barcodeLength, maxMismatch, trimLeft, sampleIdFile, threads, maxMemory, runKallisto=FALSE, kallistoDatabase="NA", kallistoAvgFragLen=200, kallistoStdFragLen=30, kallistoMinScore=25, databasePath="/data/glassfish/seq_software/kallisto_database", kallistoPath="/data/glassfish/seq_software/kallisto_source/kallisto"){
+  # Validate Kallisto paths early - handle NULL, missing, empty string, or "/" cases
+  cat(sprintf("[DEBUG] Initial kallistoPath='%s', databasePath='%s'\n",
+              ifelse(missing(kallistoPath) || is.null(kallistoPath), "NULL/MISSING", as.character(kallistoPath)),
+              ifelse(missing(databasePath) || is.null(databasePath), "NULL/MISSING", as.character(databasePath))))
+
+  if(missing(kallistoPath) || is.null(kallistoPath) || length(kallistoPath) == 0 || nchar(trimws(kallistoPath)) == 0 || kallistoPath == "/"){
+    cat("[DEBUG] Validation FAILED for kallistoPath, using default\n")
+    kallistoPath <- "/data/glassfish/seq_software/kallisto_source/kallisto"
+  } else {
+    cat("[DEBUG] Validation PASSED for kallistoPath\n")
+  }
+
+  if(missing(databasePath) || is.null(databasePath) || length(databasePath) == 0 || nchar(trimws(databasePath)) == 0 || databasePath == "/"){
+    cat("[DEBUG] Validation FAILED for databasePath, using default\n")
+    databasePath <- "/data/glassfish/seq_software/kallisto_database"
+  } else {
+    cat("[DEBUG] Validation PASSED for databasePath\n")
+  }
+
+  cat(sprintf("[DEBUG] Final kallistoPath='%s', databasePath='%s'\n", kallistoPath, databasePath))
+
   isSlurm <- FALSE
   if(grepl("glassfish", userDir)){
     isSlurm <- TRUE
@@ -935,13 +958,15 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
   sampleIdPathEsc <- gsub("\"", "\\\\\"", sampleIdPath)
   sampleIdPathDefaultEsc <- gsub("\"", "\\\\\"", sampleIdPathDefault)
   sampleIdFileNormEsc <- gsub("\"", "\\\\\"", sampleIdFileNorm)
+  userDirParent <- dirname(userDir)
+  userDirParentEsc <- gsub("\"", "\\\\\"", userDirParent)
   userDirEsc <- gsub("\"", "\\\\\"", userDir)
   
   str <- paste(
     sprintf("cd \"%s\" || exit 1;", userDirEsc),
     "cat", file.path(userDir, "sampleTable.txt"),
     "| while read fn ff rf grp; do echo processing sample ${fn};",
-    sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", dirname(userDirEsc), userDirEsc),
+    sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", userDirParentEsc, userDirEsc),
     "mkdir -p \"${out_root}\";",
     "sample_base=$(basename \"${fn}\");",
     "echo [DePlexer] $(date) sample=${fn} input_R1=${ff} input_R2=${rf};",
@@ -1020,7 +1045,66 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
     "echo [DePlexer] $(date) generated_report=${out_root}/DePlexer_reports_index.html;",
     sep = " "
   )
-  
+
+  # Add Kallisto quantification if enabled
+  str_kallisto <- ""
+  if(runKallisto && kallistoDatabase != "NA"){
+    if(readEnds == "pe"){
+      # Hardcode paths to ensure they're set correctly
+      kpath <- "/data/glassfish/seq_software/kallisto_source/kallisto"
+      dbpath <- "/data/glassfish/seq_software/kallisto_database"
+
+      str_kallisto <- paste(
+        "echo [DePlexer+Kallisto] $(date) starting_kallisto_quantification;",
+        sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", userDirParentEsc, userDirEsc),
+        "for deplexer_dir in ${out_root}/*_deplexer_out; do",
+        "[ -d \"${deplexer_dir}\" ] || continue;",
+        "sample_base=$(basename \"${deplexer_dir}\" _deplexer_out);",
+        "echo [DePlexer+Kallisto] $(date) processing_demultiplexed_pool=${sample_base};",
+        sprintf("for r1 in ${deplexer_dir}/*.R1.fastq.gz; do [ -f \"${r1}\" ] || continue; r2=\"${r1%%.R1.fastq.gz}.R2.fastq.gz\"; [ -f \"${r2}\" ] || continue; sample_id=$(basename \"${r1}\" .R1.fastq.gz); echo [DePlexer+Kallisto] $(date) quantifying_sample=${sample_id}; %s quant -i %s -o \"${out_root}/${sample_id}_kallisto\" -b 100 -t 4 \"${r1}\" \"${r2}\" && mv \"${out_root}/${sample_id}_kallisto/abundance.tsv\" \"${out_root}/${sample_id}_kallisto_quant.tsv\" && mv \"${out_root}/${sample_id}_kallisto/run_info.json\" \"${out_root}/${sample_id}_kallisto_log.json\" && rm -rf \"${out_root}/${sample_id}_kallisto\" && echo [DePlexer+Kallisto] $(date) completed_sample=${sample_id}; done;", kpath, file.path(dbpath, kallistoDatabase, "index/transcripts.idx")),
+        "done;",
+        "echo [DePlexer+Kallisto] $(date) completed_all_kallisto_quantifications;",
+        sep = " "
+      )
+    } else {
+      # Hardcode paths to ensure they're set correctly
+      kpath <- "/data/glassfish/seq_software/kallisto_source/kallisto"
+      dbpath <- "/data/glassfish/seq_software/kallisto_database"
+
+      str_kallisto <- paste(
+        "echo [DePlexer+Kallisto] $(date) starting_kallisto_quantification;",
+        sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", userDirParentEsc, userDirEsc),
+        "for deplexer_dir in ${out_root}/*_deplexer_out; do",
+        "[ -d \"${deplexer_dir}\" ] || continue;",
+        "sample_base=$(basename \"${deplexer_dir}\" _deplexer_out);",
+        "echo [DePlexer+Kallisto] $(date) processing_demultiplexed_pool=${sample_base};",
+        sprintf("for r1 in ${deplexer_dir}/*.R1.fastq.gz; do [ -f \"${r1}\" ] || continue; sample_id=$(basename \"${r1}\" .R1.fastq.gz); echo [DePlexer+Kallisto] $(date) quantifying_sample=${sample_id}; %s quant -i %s -o \"${out_root}/${sample_id}_kallisto\" --single -l %s -s %s -b 100 -t 4 \"${r1}\" && mv \"${out_root}/${sample_id}_kallisto/abundance.tsv\" \"${out_root}/${sample_id}_kallisto_quant.tsv\" && mv \"${out_root}/${sample_id}_kallisto/run_info.json\" \"${out_root}/${sample_id}_kallisto_log.json\" && rm -rf \"${out_root}/${sample_id}_kallisto\" && echo [DePlexer+Kallisto] $(date) completed_sample=${sample_id}; done;", kpath, file.path(dbpath, kallistoDatabase, "index/transcripts.idx"), kallistoAvgFragLen, kallistoStdFragLen),
+        "done;",
+        "echo [DePlexer+Kallisto] $(date) completed_all_kallisto_quantifications;",
+        sep = " "
+      )
+    }
+  }
+
+  # Add R processing script to generate expression matrix
+  str_R_script <- if(runKallisto && kallistoDatabase != "NA") {
+    # Use Kallisto processing script
+    paste("echo Starting process Kallisto tables in R $(date);",
+          "Rscript --vanilla",
+          file.path(shellscriptDir, "run_process_kallisto.R"),
+          userDir,
+          "; echo Finish process Kallisto tables in R $(date);",
+          sep = " ")
+  } else {
+    # Use DePlexer processing script (though it won't work without quantification)
+    paste("echo Starting process DePlexer tables in R $(date);",
+          "Rscript --vanilla",
+          file.path(shellscriptDir, "run_process_deplexer.R"),
+          userDir,
+          "; echo Finish process DePlexer tables in R $(date);",
+          sep = " ")
+  }
+
   strcmd <- paste0("deplexer: ", deplexerExecutable,
                    "\ndatabase: ", database,
                    "\nbarcode_location: ", barcodeRead,
@@ -1031,6 +1115,8 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
                    "\nsample_ids: ", sampleIdFileNorm,
                    "\nthreads: ", threads,
                    "\nmax_memory: ", maxMemory,
+                   "\nrun_kallisto: ", runKallisto,
+                   if(runKallisto && kallistoDatabase != "NA") paste0("\nkallisto_database: ", kallistoDatabase) else "",
                    "\nproject_description: ", des)
   
   str_checMysql1 <- paste("if ! [[ -x ",
@@ -1050,6 +1136,10 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
     cat(conf_inf, "\n\n")
   }
   cat(str, "\n\n")
+  if(nchar(str_kallisto) > 0){
+    cat(str_kallisto, "\n\n")
+  }
+  cat(str_R_script, "\n\n")
   cat(str_checMysql1, "\n\n")
   cat(str_runMysql1, "\n\n")
   sink()
@@ -1092,8 +1182,10 @@ UpdatePcaKls <- function(minReads = 20, projectDirStr, ...) {
 
   countfile <- if (file.exists(file.path(projectDirStr, "All_samples_salmon_txi_counts.txt"))) {
     file.path(projectDirStr, "All_samples_salmon_txi_counts.txt")
-  } else {
+  } else if (file.exists(file.path(projectDirStr, "All_samples_kallisto_txi_counts.txt"))) {
     file.path(projectDirStr, "All_samples_kallisto_txi_counts.txt")
+  } else {
+    file.path(projectDirStr, "All_samples_deplexer_txi_counts.txt")
   }
   
   allSamKOAbunDF2 <- fread(countfile) %>% 
@@ -1205,8 +1297,10 @@ library(tidyverse);
   countfile = "";
   if(file.exists(file.path(projectDirStr, "All_samples_salmon_txi_counts.txt"))){
     countfile = file.path(projectDirStr, "All_samples_salmon_txi_counts.txt");
-  } else {
+  } else if(file.exists(file.path(projectDirStr, "All_samples_kallisto_txi_counts.txt"))){
     countfile = file.path(projectDirStr, "All_samples_kallisto_txi_counts.txt")
+  } else {
+    countfile = file.path(projectDirStr, "All_samples_deplexer_txi_counts.txt")
   }
   allSamKOAbunDF2 <- fread(countfile) %>% 
     dplyr::slice(2:nrow(.)) %>% 
