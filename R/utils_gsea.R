@@ -61,9 +61,13 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   }else{
     if(paramSet$selDataNm == "meta_default"){
       inmex <- qs::qread("inmex_meta.qs");
-      sampleNms <- colnames(inmex$plot_data);
+      sampleNms <- colnames(inmex$plot.data);
       colnums <- dim(inmex$plot.data)[2]
       inx  <- rep(T, colnums)
+      if(is.null(analSet$meta.mat.all) || nrow(analSet$meta.mat.all) == 0){
+        AddErrMsg("Meta-analysis results are not available. Please perform meta-analysis first.");
+        return(0);
+      }
       rankedVec <- analSet$meta.mat.all[,1];
       names(rankedVec) <- rownames(analSet$meta.mat.all);
     }else{
@@ -184,6 +188,18 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   
   fgseaRes <- .signif_df(fgseaRes, 4);
 
+  # Build cls: for meta_default use inmex metadata, otherwise use dataSet
+  if(anal.type == "metadata" && paramSet$selDataNm == "meta_default"){
+    inmex.meta <- qs::qread("inmex_meta.qs");
+    cls.info <- data.frame(class = as.character(inmex.meta$cls.lbl), dataset = as.character(inmex.meta$data.lbl), stringsAsFactors = FALSE);
+    rownames(cls.info) <- colnames(inmex.meta$plot.data);
+  } else if(!is.null(dataSet$meta.info)){
+    cls.info <- dataSet$meta.info[inx,,drop=FALSE];
+  } else {
+    cls.info <- data.frame(class = as.character(dataSet$fst.cls[inx]), stringsAsFactors = FALSE);
+    rownames(cls.info) <- sampleNms;
+  }
+
   json.res <- list(
     fun.link = setres$current.setlink[1],
     fun.anot = fun.anot,
@@ -194,7 +210,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     es.num = es.num,
     hits = fgseaRes[,"hits"],
     total = fgseaRes[,"total"],
-    cls = dataSet$meta.info[inx,],
+    cls = cls.info,
     sample.nms = sampleNms
   );
 

@@ -1,9 +1,30 @@
 ##################################################
-## R script for ExpressAnalyst 
+## R script for ExpressAnalyst
 ## Description: Arrow utilities for zero-copy data exchange with Java
 ## Author: ExpressAnalyst Team
 ## Part of the Rserve/qs to Apache Arrow migration
 ###################################################
+
+# Convenience alias used by helper_functions.R
+arrow_save <- function(obj, file) {
+  tryCatch({
+    df <- as.data.frame(obj)
+    for (col in names(df)) {
+      if (is.factor(df[[col]])) df[[col]] <- as.character(df[[col]])
+    }
+    rn <- rownames(obj)
+    if (!is.null(rn) && length(rn) > 0 && !all(rn == as.character(seq_len(nrow(df))))) {
+      df <- cbind(row_names_id = as.character(rn), df)
+    }
+    if (file.exists(file)) { unlink(file); Sys.sleep(0.01) }
+    arrow::write_feather(df, file, compression = "uncompressed")
+    Sys.sleep(0.02)
+    return(base::normalizePath(file, mustWork = TRUE))
+  }, error = function(e) {
+    warning(paste("Arrow save failed:", e$message))
+    return(NULL)
+  })
+}
 
 #' Sync file to disk and verify existence (Safe-Handshake pattern)
 #'

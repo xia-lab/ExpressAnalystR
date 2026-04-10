@@ -13,20 +13,18 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   seeds <- vector();
   if(anal.type == "metadata"){
     sel.nms <- names(mdata.all)[mdata.all==1];
-    # OPTIMIZED: Collect in lists instead of growing with rbind/c
     seeds_list <- vector("list", length(sel.nms));
-    meta_list <- vector("list", length(sel.nms));
-
     for(i in 1:length(sel.nms)){
       dataSet <- readDataset(sel.nms[i]);
       seeds_list[[i]] <- rownames(dataSet$sig.mat);
-      meta_list[[i]] <- dataSet$meta.info;
-      #meta_list[[i]]$dataSet <- rep(sel.nms[i], nrow(dataSet$meta.info));
     }
-
-    # OPTIMIZED: Combine once at the end
     seeds <- unlist(seeds_list);
-    meta <- do.call(rbind, meta_list);
+
+    # Use inmex_meta for sample metadata — matches PCA sample order
+    inmex.meta <- qs::qread("inmex_meta.qs");
+    dat.inx <- inmex.meta$data.lbl %in% sel.nms;
+    meta <- paramSet$dataSet$meta.info[dat.inx,,drop=FALSE];
+
     sig.tbl <- qs::qread("meta.resTable.qs");
     sig.tbl$id <- rownames(sig.tbl);
     sig.mats[[1]] <- sig.tbl;
@@ -45,6 +43,11 @@ my.json.scatter <- function(dataSet, filenm="abc"){
 
   nodes <- vector(mode="list");
   names <- c(rownames(pos.xyz));
+
+  # Align meta to match pos.xyz samples (PCA may have removed samples via na.omit)
+  if(nrow(meta) != length(names)){
+    meta <- meta[match(names, rownames(meta)),,drop=FALSE];
+  }
   metadf <- meta;
   
   
@@ -100,18 +103,42 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   require(RJSONIO);
   
   
-  metadf < meta;
-  
   loading.data <- qs::qread("loading_pos_xyz.qs");
   aLoading<-list();
   aLoading$objects <- "NA";
-  
-  de <- dataSet$comp.res;
-  de <- de[which(rownames(de) %in% rownames(loading.data)),]
-  ids <- rownames(de);
-  de[de == "NaN"] = 1;
-  pv <- as.numeric(de[,"P.Value"]);
+
+  if(anal.type == "metadata"){
+    # For metadata, use the meta results table for p-values
+    meta.res <- qs::qread("allMeta.mat.qs");
+    common.ids <- intersect(rownames(meta.res), rownames(loading.data));
+    if (length(common.ids) == 0) {
+      # No overlap — use all loading features with uniform p-values
+      ids <- rownames(loading.data);
+      pv <- rep(0.5, nrow(loading.data));
+    } else {
+      loading.data <- loading.data[common.ids,,drop=FALSE];
+      ids <- common.ids;
+      if (!is.null(dim(meta.res)) && ncol(meta.res) >= 2) {
+        # Effect-size or combine-p methods: column 2 is p-value
+        pv <- as.numeric(meta.res[common.ids, 2]);
+      } else {
+        # Vote counting: single column (VoteCounts), convert to pseudo p-values
+        votes <- abs(as.numeric(meta.res[common.ids, 1]));
+        max.vote <- max(votes, na.rm = TRUE);
+        pv <- ifelse(max.vote > 0, 1 - votes / (max.vote + 1), rep(0.5, length(votes)));
+      }
+    }
+    pv[is.na(pv)] <- 1;
+  } else {
+    de <- dataSet$comp.res;
+    de <- de[which(rownames(de) %in% rownames(loading.data)),,drop=FALSE]
+    loading.data <- loading.data[rownames(de),,drop=FALSE];
+    ids <- rownames(de);
+    de[de == "NaN"] = 1;
+    pv <- as.numeric(de[,"P.Value"]);
+  }
   pv_no_zero <- pv[pv != 0];
+  if(length(pv_no_zero) == 0) pv_no_zero <- 1;
   minval <- min(pv_no_zero);
   pv[pv == 0] <- minval/2;
   pvals <- -log10(pv);
@@ -120,10 +147,9 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   colorb <- colors;
   sizes <- as.numeric(rescale2NewRange(-log10(pv), 15, 25));
   nodes2 <- vector(mode="list");
-  
-  
-  seed.inx <- names %in% unique(seeds);
-  seed_arr <- rep("notSeed",length(names));
+
+  seed.inx <- ids %in% unique(seeds);
+  seed_arr <- rep("notSeed",length(ids));
   seed_arr[seed.inx] <- "seed";
   names <- doEntrez2SymbolMapping(ids, paramSet$data.org, paramSet$data.idType);
   for(i in 1:nrow(loading.data)){

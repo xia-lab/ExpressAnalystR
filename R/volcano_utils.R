@@ -441,20 +441,24 @@ PerformVolcanoEnrichment<-function(dataName="", file.nm, fun.type, IDs, type, in
       sigmat <- cbind(unname(analSet$meta.avgFC[rownames(sigmat)]), sigmat);
       inx <- 1;
     }else{
-      sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),];
+      sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),,drop=FALSE];
     }
   }
-  
+
+  if(!is.matrix(sigmat)) sigmat <- as.matrix(sigmat);
+
   if(type == "focus"){
     gene.vec <- unlist(strsplit(IDs, "; "));
+  }else if(nrow(sigmat) == 0){
+    gene.vec <- character(0);
   }else if(type == "all"){
-    gene.vecup <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),]);
-    gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),]);
+    gene.vecup <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),,drop=FALSE]);
+    gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),,drop=FALSE]);
     gene.vec <- c(gene.vecup, gene.vecdown);
   }else if(type == "up"){
-    gene.vec <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),]);
+    gene.vec <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),,drop=FALSE]);
   }else{
-    gene.vec <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),]);
+    gene.vec <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),,drop=FALSE]);
   }
   sym.vec <- doEntrez2SymbolMapping(gene.vec, paramSet$data.org, paramSet$data.idType);
   names(gene.vec) <- sym.vec;
@@ -481,13 +485,20 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
       sigmat <- dataSet$sig.mat
     }
   }else{
-    sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),];
+    sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),,drop=FALSE];
   }
-  
+
+  if(!is.matrix(sigmat)) sigmat <- as.matrix(sigmat);
+
   one.path.vec <- unlist(strsplit(IDs, "; "));
-  
-  gene.vecup <- rownames(sigmat[which(sigmat[,inx] > paramSet$fcthreshu),]);
-  gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -paramSet$fcthreshu),]);
+
+  if(nrow(sigmat) == 0){
+    gene.vecup <- character(0);
+    gene.vecdown <- character(0);
+  }else{
+    gene.vecup <- rownames(sigmat[which(sigmat[,inx] > paramSet$fcthreshu),,drop=FALSE]);
+    gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -paramSet$fcthreshu),,drop=FALSE]);
+  }
   ora.vec <- c(gene.vecup, gene.vecdown);
   
   

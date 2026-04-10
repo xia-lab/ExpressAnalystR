@@ -37,49 +37,35 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
     inmex.meta <- qs::qread("inmex_meta.qs");
     datanm.vec <- names(mdata.all)[mdata.all==1];
 
-    dat.inx <- inmex.meta$data.lbl %in% datanm.vec;
-    dat <- inmex.meta$data[, dat.inx, drop=F]; 
+    if(length(datanm.vec) == 0){
+        msgSet$current.msg <- "No datasets are selected for analysis!";
+        saveSet(msgSet, "msgSet");
+        return(0);
+    }
 
-    # need to deal with missing values 
+    dat.inx <- inmex.meta$data.lbl %in% datanm.vec;
+    dat <- inmex.meta$data[, dat.inx, drop=F];
+
+    # need to deal with missing values
     dat <- na.omit(dat);
 
-    pca3d <- list();
-    if(clustOpt == "pca"){
-        if(opt == "all"){
-            pca <- prcomp(t(dat), center=T, scale=T);
-            }else{
-            dat <- dat[which(rownames(dat) %in% analSet$loadEntrez),]
-            pca <- prcomp(t(dat), center=T, scale=T);
-            }
-
-        imp.pca<-summary(pca)$importance;
-        pca3d$score$axis <- paste("PC", 1:3, " (", 100*round(imp.pca[2,][1:3], 3), "%)", sep="");
-        coords <- data.frame(t(signif(pca$x[,1:3], 5)));
-    }else if(clustOpt == "umap"){
-        require('uwot');
-        # OPTIMIZED: Calculate ncol once
-        n_cols <- ncol(dat)
-        if(n_cols < 100){
-            neighbor_num <- n_cols
-        }else{
-            neighbor_num <- 100;
-        }
-
-        ndat <- as.matrix(t(dat));
-        res <- umap(ndat, n_components=3, n_neighbors=neighbor_num);
-        pca3d$score$axis <- paste("UMAP dim ", 1:3, sep="");
-        coords <- data.frame(t(signif(res, 5)));
-    }else{
-        require('Rtsne');
-        ndat <- as.matrix(t(dat));
-        max.perx <- floor((nrow(ndat)-1)/3);
-        if(max.perx > 30){
-            max.perx <- 30;
-        }
-        res <- Rtsne(ndat, dims = 3, perplexity=max.perx);
-        pca3d$score$axis <- paste("t-SNE dim ", 1:3, sep="");
-        coords <- data.frame(t(signif(res$Y, 5)));
+    if(ncol(dat) < 3){
+        msgSet$current.msg <- "Not enough samples for PCA (need at least 3)!";
+        saveSet(msgSet, "msgSet");
+        return(0);
     }
+
+    pca3d <- list();
+    if(opt == "all"){
+        pca <- prcomp(t(dat), center=T, scale=T);
+    }else{
+        dat <- dat[which(rownames(dat) %in% analSet$loadEntrez),,drop=FALSE]
+        pca <- prcomp(t(dat), center=T, scale=T);
+    }
+
+    imp.pca<-summary(pca)$importance;
+    pca3d$score$axis <- paste("PC", 1:3, " (", 100*round(imp.pca[2,][1:3], 3), "%)", sep="");
+    coords <- data.frame(t(signif(pca$x[,1:3], 5)));
 
     colnames(coords) <- NULL; 
     pca3d$score$xyz <- coords;
@@ -264,41 +250,10 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   pca3d <- list();
   dat <- na.omit(dat);
   
-  if(clustOpt == "pca"){
-    #if(opt == "all"){
-      pca <- prcomp(t(dat));
-   #}else{
-    #  dat <- dat[which(rownames(dat) %in% analSet$loadEntrez),]
-    #  pca <- prcomp(t(dat), center=T, scale=T);
-    #}
-    imp.pca<-summary(pca)$importance;
-    pca3d$score$axis <- paste("PC", 1:3, " (", 100*round(imp.pca[2,][1:3], 3), "%)", sep="");
-    coords <- data.frame(t(signif(pca$x[,1:3], 5)));
-  }else if(clustOpt == "umap"){
-    require('uwot');
-    # OPTIMIZED: Calculate ncol once
-    n_cols <- ncol(dat)
-    if(n_cols < 100){
-      neighbor_num <- n_cols
-    }else{
-      neighbor_num <- 100;
-    }
-    dat <- as.matrix(t(dat));
-    res <- umap(dat, n_components=3, n_neighbors=neighbor_num);
-    pca3d$score$axis <- paste("UMAP dim ", 1:3, sep="");
-    coords <- data.frame(t(signif(res, 5)));
-    
-  }else{ # tsne
-    require('Rtsne');
-    dat <- as.matrix(t(dat));
-    max.perx <- floor((nrow(dat)-1)/3);
-    if(max.perx > 30){
-      max.perx <- 30;
-    }
-    res <- Rtsne(dat, dims = 3, perplexity=max.perx);
-    pca3d$score$axis <- paste("t-SNE dim ", 1:3, sep="");
-    coords <- data.frame(t(signif(res$Y, 5)));
-  }
+  pca <- prcomp(t(dat));
+  imp.pca<-summary(pca)$importance;
+  pca3d$score$axis <- paste("PC", 1:3, " (", 100*round(imp.pca[2,][1:3], 3), "%)", sep="");
+  coords <- data.frame(t(signif(pca$x[,1:3], 5)));
   
   colnames(coords) <- NULL; 
   pca3d$score$xyz <- coords;
@@ -403,6 +358,70 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
   }, error = function(e) {
     message("[ComputeEncasing] ", e$message)
     sink(filenm); cat("{}"); sink()
+  })
+  return(filenm)
+}
+
+# Batch version: compute encasing for all groups in one R call
+# groups.json: JSON string [{"grpName":"...", "names":"id1; id2; ..."}, ...]
+# Returns JSON array of output filenames
+ComputeEncasingBatch <- function(filenm, type, groups_json, level = 0.95, omics = "NA") {
+  tryCatch({
+    level <- as.numeric(level)
+
+    if (!file.exists("score_pos_xyz.qs")) {
+      sink(filenm); cat("{}"); sink()
+      return(filenm)
+    }
+    pos.xyz <- qs::qread("score_pos_xyz.qs")
+
+    groups_list <- RJSONIO::fromJSON(groups_json)
+    if (is.data.frame(groups_list)) {
+      groups_list <- split(groups_list, seq_len(nrow(groups_list)))
+    }
+
+    group_data <- lapply(seq_along(groups_list), function(i) {
+      g <- groups_list[[i]]
+      if (is.character(g)) { gn <- unname(g["grpName"]); ids <- unname(g["names"]) }
+      else if (is.data.frame(g)) { gn <- g$grpName[1]; ids <- g$names[1] }
+      else { gn <- g$grpName; ids <- g$names }
+      nms <- strsplit(ids, "; ")[[1]]
+      inx <- rownames(pos.xyz) %in% nms
+      list(group = gn, coords = as.matrix(pos.xyz[inx, c(1:3)]))
+    })
+
+    result_list <- rsclient_isolated_exec(
+      func_body = function(input_data) {
+        Sys.setenv(RGL_USE_NULL = TRUE)
+        lapply(input_data$groups, function(g) {
+          coords <- g$coords
+          if (nrow(coords) < 4) return(list(group = g$group, mesh = list(), error = "Insufficient points"))
+          tryCatch({
+            pos <- cov(coords, y = NULL, use = "everything")
+            center <- colMeans(coords)
+            t_val <- sqrt(qchisq(input_data$level, 3))
+            mesh <- list()
+            mesh[[1]] <- rgl::ellipse3d(x = as.matrix(pos), centre = center, t = t_val)
+            list(group = g$group, mesh = mesh, error = NULL)
+          }, error = function(e) {
+            list(group = g$group, mesh = list(), error = e$message)
+          })
+        })
+      },
+      input_data = list(groups = group_data, level = level),
+      packages = c("rgl", "qs"),
+      timeout = 120,
+      output_type = "qs"
+    )
+
+    if (is.list(result_list) && !isFALSE(result_list$success)) {
+      sink(filenm); cat(RJSONIO::toJSON(result_list)); sink()
+    } else {
+      sink(filenm); cat("[]"); sink()
+    }
+  }, error = function(e) {
+    message("[ComputeEncasingBatch] ", e$message)
+    sink(filenm); cat("[]"); sink()
   })
   return(filenm)
 }

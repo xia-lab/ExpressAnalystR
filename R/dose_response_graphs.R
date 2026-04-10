@@ -235,7 +235,9 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
   
   imgName <- paste("Gene_bmd_", gene.id, ".png", sep="");
   Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
-  print(p)
+  tryCatch(print(p), error = function(err) {
+    warning(paste("PlotGeneBMD error:", err$message))
+  })
   dev.off();
 
   imgSet <- readSet(imgSet, "imgSet");
@@ -358,7 +360,9 @@ if (scale == "log2") {
   
   imgName <- paste("Gene_", gene.symbol, "_", model.nm, "_", scale,".png", sep="");
   Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
-  print(p)
+  tryCatch(print(p), error = function(err) {
+    warning(paste("PlotGeneDRCurve error:", err$message))
+  })
   dev.off();
 
   imgSet <- readSet(imgSet, "imgSet");

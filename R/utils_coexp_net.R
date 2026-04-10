@@ -370,8 +370,10 @@ FilterNetByThresh <- function(thresh      = 0.05,
   analSet  <- readSet(analSet,  "analSet")
   overall.graph <- analSet$overall.graph;
   g <- overall.graph;
-  if (!"weight" %in% edge_attr_names(g))
-    stop("edge attribute 'weight' not found")
+  if (!"weight" %in% edge_attr_names(g)) {
+    AddErrMsg("edge attribute 'weight' not found");
+    return(0);
+  }
 
   # ── 1 · keep only edges above threshold ───────────────────────────
   g <- subgraph_from_edges(g, E(g)[weight > thresh], delete.vertices = FALSE)
@@ -507,9 +509,6 @@ PerformNetEnrichment <- function(dataName="", file.nm, fun.type, IDs){
 }
 
 PerformRegEnrichAnalysis <- function(dataSet, file.nm, fun.type, ora.vec, netInv){
-    if(!exists("my.reg.enrich")){
-        compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/_utils_regenrich.Rc"));    
-    }
     return(my.reg.enrich(dataSet, file.nm, fun.type, ora.vec, netInv));
 }
 

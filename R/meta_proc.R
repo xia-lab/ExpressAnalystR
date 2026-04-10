@@ -951,6 +951,16 @@ PlotMetaDensity<- function(imgNm, dpi=default.dpi, format, interactive=F){
   dpi <- as.numeric(dpi);
   plotlyNm <- paste0(imgNm, ".rda");
 
+  # Subsample to 100 samples if too many (for performance)
+  max.samp <- 100
+  if(ncol(dat) > max.samp){
+    set.seed(42)
+    sel.inx <- sort(sample(1:ncol(dat), max.samp))
+    dat <- dat[, sel.inx, drop=FALSE]
+    inmex.meta$data <- dat
+    inmex.meta$data.lbl <- inmex.meta$data.lbl[sel.inx]
+  }
+
   df <- data.frame(inmex.meta$data, stringsAsFactors = FALSE);
   df <- stack(df);
 

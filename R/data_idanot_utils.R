@@ -406,7 +406,8 @@ queryGeneDB <- function(db.nm, org){
     
     db.path <- paste(paramSet$sqlite.path, org, "_genes.sqlite", sep="")
     if(!PrepareSqliteDB(db.path, paramSet$on.public.web)){
-      stop("Sqlite database is missing, please check your internet connection!");
+      AddErrMsg("Sqlite database is missing, please check your internet connection!");
+      return(0);
     }
     conv.db <- dbConnect(SQLite(), db.path); 
     tbls <- dbListTables(conv.db)

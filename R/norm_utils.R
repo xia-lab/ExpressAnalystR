@@ -503,7 +503,7 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   m  <- as.matrix(di[[expr_field]])
 
   # basic checks
-  if (any(m < 0, na.rm = TRUE)) stop("MORlog expects non-negative counts")
+  if (any(m < 0, na.rm = TRUE)) { AddErrMsg("MORlog expects non-negative counts"); return(0); }
   if (!is.integer(m)) m <- round(m)
 
   # minimal DESeq2 object
@@ -719,7 +719,8 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
 
     # Check if batch variable exists in metadata
     if (!batchVar %in% colnames(meta.info)) {
-      stop(paste("Batch variable", batchVar, "not found in metadata"));
+      AddErrMsg(paste("Batch variable", batchVar, "not found in metadata"));
+      return(0);
     }
 
     # Align metadata rows to data columns when possible
@@ -731,15 +732,18 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
     batch <- meta.info[[batchVar]];
 
     if (length(batch) != ncol(data)) {
-      stop("Batch vector length does not match number of samples");
+      AddErrMsg("Batch vector length does not match number of samples");
+      return(0);
     }
     if (any(is.na(batch))) {
-      stop("Batch variable has NA values for some samples");
+      AddErrMsg("Batch variable has NA values for some samples");
+      return(0);
     }
 
     # Check if batch has at least 2 levels
     if (length(unique(batch)) < 2) {
-      stop("Batch variable must have at least 2 different levels");
+      AddErrMsg("Batch variable must have at least 2 different levels");
+      return(0);
     }
 
     # Create model matrix (null model, no covariates to preserve)
