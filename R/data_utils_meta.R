@@ -394,26 +394,41 @@ ApplyMetaAutoScale <- function(apply = "true") {
 }
 
 PerformBatchCorrection <- function(){
-    .prepare.batch();
-    .perform.computing();
+    inmex.meta <- qs::qread("inmex_meta.qs")
+
+    bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
+    qs::qsave(list(
+      data = inmex.meta$data,
+      data.lbl = inmex.meta$data.lbl,
+      cls.lbl = inmex.meta$cls.lbl
+    ), bridge_in, preset = "fast")
+    on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
+
+    run_func_via_rsclient(
+      func = function(wd, bridge_in, bridge_out) {
+        setwd(wd)
+        require(sva)
+        input <- qs::qread(bridge_in)
+        dat <- input$data
+        data.lbl <- input$data.lbl
+        cls.lbl <- input$cls.lbl
+        pheno <- data.frame(cbind(cls.lbl, data.lbl))
+        modcombat <- model.matrix(~1, data = pheno)
+        result <- ComBat(dat = dat, batch = data.lbl, mod = modcombat,
+                         par.prior = TRUE, prior.plots = FALSE)
+        qs::qsave(result, bridge_out, preset = "fast")
+      },
+      args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
+      timeout_sec = 300
+    )
+
+    corrected_data <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+
+    inmex.meta$data <- corrected_data
+    qs::qsave(inmex.meta, "inmex_meta.qs")
     .finalizeBatchCorrection();
     return(dataSets);
-}
-
-.prepare.batch<-function(){
-    my.fun <- function(){
-        require('sva');
-        inmex.meta <- qs::qread("inmex_meta.qs");
-        data.lbl <- inmex.meta$data.lbl
-        pheno <- data.frame(cbind(inmex.meta$cls.lbl, data.lbl));
-        modcombat <- model.matrix(~1, data=pheno)
-        batch <- data.lbl;
-        inmex.meta$data <- ComBat(dat=inmex.meta$data, batch=batch, mod=modcombat, par.prior=TRUE, prior.plots=FALSE);
-        qs::qsave(inmex.meta, "inmex_meta.qs");
-    }
-    dat.in <- list(my.fun=my.fun);
-    qs::qsave(dat.in, file="dat.in.qs");
-    return(1);
 }
 
 #' Restore raw metadata (undo ComBat)

@@ -119,24 +119,33 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
 
 
     use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
-    response <- rsclient_isolated_exec(
-      func_body = function(input_data) {
+    bridge_in_rl <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_out_rl <- sub("_in.qs", "_out.qs", bridge_in_rl)
+    qs::qsave(list(geneset = current.geneset.symb, ranked = rankedVec, use_nperm = use_nperm),
+              bridge_in_rl, preset = "fast")
+    on.exit(unlink(c(bridge_in_rl, bridge_out_rl)), add = TRUE)
+
+    run_func_via_rsclient(
+      func = function(wd, bridge_in, bridge_out) {
+        setwd(wd)
         require(fgsea)
         set.seed(123)
-        if (input_data$use_nperm) {
-          fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+        input <- qs::qread(bridge_in)
+        result <- if (input$use_nperm) {
+          fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                        minSize = 5, maxSize = 500, scoreType = "std", nperm = 10000)
         } else {
-          fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+          fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                        minSize = 5, maxSize = 500, scoreType = "std")
         }
+        qs::qsave(result, bridge_out, preset = "fast")
       },
-      input_data = list(geneset = current.geneset.symb, ranked = rankedVec, use_nperm = use_nperm),
-      packages = c("fgsea", "qs"),
-      timeout = 600,
-      output_type = "qs"
+      args = list(wd = getwd(), bridge_in = bridge_in_rl, bridge_out = bridge_out_rl),
+      timeout_sec = 600
     )
-    if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+
+    response <- if (file.exists(bridge_out_rl)) qs::qread(bridge_out_rl) else NULL
+    if (is.null(response)) { msgSet$current.msg <- "fGSEA ridgeline analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
     res <- response
 
   }

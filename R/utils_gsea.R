@@ -86,24 +86,33 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
 
   set.seed(123)
   use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
-  response <- rsclient_isolated_exec(
-    func_body = function(input_data) {
+  bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+  bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
+  qs::qsave(list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
+            bridge_in, preset = "fast")
+  on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
+
+  run_func_via_rsclient(
+    func = function(wd, bridge_in, bridge_out) {
+      setwd(wd)
       require(fgsea)
       set.seed(123)
-      if (input_data$use_nperm) {
-        fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+      input <- qs::qread(bridge_in)
+      result <- if (input$use_nperm) {
+        fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                      minSize = 5, maxSize = 500, scoreType = "std", nperm = 1000)
       } else {
-        fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+        fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                      minSize = 5, maxSize = 500, scoreType = "std")
       }
+      qs::qsave(result, bridge_out, preset = "fast")
     },
-    input_data = list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
-    packages = c("fgsea", "qs"),
-    timeout = 600,
-    output_type = "qs"
+    args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
+    timeout_sec = 600
   )
-  if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+
+  response <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+  if (is.null(response)) { msgSet$current.msg <- "fGSEA analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
   fgseaRes <- response
   
   fgseaRes <- fgseaRes[!duplicated(fgseaRes$pathway),]
@@ -715,22 +724,28 @@ plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgNa
 
   cmpdNm <- gsub("barcode_", "",fileName);
 
-  rsclient_isolated_exec(
-    func_body = function(input_data) {
+  bridge_in_gs <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+  bridge_out_gs <- sub("_in.qs", "_out.qs", bridge_in_gs)
+  qs::qsave(list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
+                 imgName = imgName, dpi = dpi, format = format),
+            bridge_in_gs, preset = "fast")
+  on.exit(unlink(c(bridge_in_gs, bridge_out_gs)), add = TRUE)
+
+  run_func_via_rsclient(
+    func = function(wd, bridge_in, bridge_out) {
+      setwd(wd)
       require(fgsea); require(ggplot2); require(Cairo)
-      Cairo::Cairo(file = input_data$imgName, dpi = input_data$dpi,
+      input <- qs::qread(bridge_in)
+      Cairo::Cairo(file = input$imgName, dpi = input$dpi,
                    width = 5, height = 4, unit = "in",
-                   type = input_data$format, bg = "transparent")
-      g <- fgsea::plotEnrichment(input_data$geneset, input_data$ranked)
+                   type = input$format, bg = "transparent")
+      g <- fgsea::plotEnrichment(input$geneset, input$ranked)
       print(g)
       dev.off()
-      return(input_data$imgName)
+      qs::qsave(input$imgName, bridge_out, preset = "fast")
     },
-    input_data = list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
-                      imgName = imgName, dpi = dpi, format = format),
-    packages = c("fgsea", "ggplot2", "Cairo", "qs"),
-    timeout = 120,
-    output_type = "qs"
+    args = list(wd = getwd(), bridge_in = bridge_in_gs, bridge_out = bridge_out_gs),
+    timeout_sec = 120
   )
   # plot/write failure is non-fatal
 
