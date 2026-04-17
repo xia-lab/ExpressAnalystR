@@ -214,9 +214,9 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
     p <- p + geom_smooth(method = "lm", formula = y ~ powerfun(e,b,x,c), n = 1000)
   }
 
-  p <- p + geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) + 
-    geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") + 
-    geom_vline(xintercept = bmd, color = "red3") + 
+  p <- p + geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) +
+    geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") +
+    geom_vline(xintercept = bmd, color = "red3") +
     geom_vline(xintercept = bmdu, linetype = "dashed", color = "red3")
 
   if(scale == "log2"){
@@ -251,21 +251,21 @@ PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bm
 
   exposure <- dataSet$drcfit.obj$dose
   labels <- unique(exposure)
-  
+
   if(scale != "natural"){
     exposure[exposure == 0] <- dataSet$zero.log
   }
 
   df <- data.frame(Dose = exposure, Expression = dataSet$data.norm[gene.id,])
-  p <- ggplot(data=df, aes(x=Dose, y=Expression)) + geom_point() + ggtitle(gene.symbol) + 
+  p <- ggplot(data=df, aes(x=Dose, y=Expression)) + geom_point() + ggtitle(gene.symbol) +
        theme_bw() +
        theme(plot.title = element_text(hjust = 0.5, face = "bold"),
-             axis.text.x = element_text(angle=90)) + 
+             axis.text.x = element_text(angle=90)) +
        xlab("Concentration") +
-       geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) + 
-       geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") + 
+       geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) +
+       geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") +
        geom_vline(xintercept = bmd, color = "red3") + geom_vline(xintercept = bmdu, linetype = "dashed", color = "red3")
-  
+
   if(model.nm == "Poly2"){
     p <- p + geom_smooth(method = "lm", formula = y ~ poly(x, 2))
   }else if(model.nm == "Poly3"){

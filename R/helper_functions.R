@@ -283,24 +283,16 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
         colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
 
-    o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
-    dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
-    dataSet$comp.res <- dataSet$comp.res[
-        !(rownames(dataSet$comp.res) %in% rownames(dataSet$sig.mat)), ]
-    dataSet$comp.res <- rbind(dataSet$sig.mat, dataSet$comp.res)
-    dataSet$comp.res <- dataSet$comp.res[complete.cases(dataSet$comp.res), ]
+    ## comp.res is already ordered (sig first, then by p-value) from the DE analysis.
+    ## No re-sorting needed — re-sorting would desync comp.res from comp.genes.symbols.
 
     ## --- now extract the column(s) for the return value -------
     if (dataSet$de.method %in% c("limma", "edger", "deseq2", "wtt")) {
-      #res <- dataSet$comp.res.list[[inxt]]
       res <- dataSet$comp.res
     } else {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
-      res <- res[order(res$P.Value), ]
       colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
-
-    RegisterData(dataSet)
     qs::qsave(res, "express.de.res.qs")
     result <- head(signif(as.matrix(res), 5), 1000)
     # Safe-Handshake: Arrow save with verification

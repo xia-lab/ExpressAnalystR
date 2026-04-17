@@ -390,8 +390,8 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
     run_func_via_rsclient(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
-        require(rgl)
         Sys.setenv(RGL_USE_NULL = TRUE)
+        require(rgl)
         input <- qs::qread(bridge_in)
         pos <- cov(input$coords, y = NULL, use = "everything")
         center <- colMeans(input$coords)

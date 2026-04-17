@@ -408,6 +408,8 @@ dataSet$comp.res <- rbind(resTable, other)
     write.csv(export_tbl,
               file = output_file, row.names = FALSE)
 
+  # Update symbols to match final comp.res order (comp.res was re-sorted after initial annotation)
+  analSet$comp.genes.symbols <- symbol_col;
   analSet$sig.gene.count <- de.Num;
   saveSet(analSet, "analSet");
 
