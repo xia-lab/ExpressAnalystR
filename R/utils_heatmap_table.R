@@ -17,7 +17,7 @@
 # 3 and 1+2 separated by a column of 'null'
 my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   #save.image("prephm.RData")
-  data.stat <- qs::qread("data.stat.qs");
+  data.stat <- .expressanalyst_qread("data.stat.qs");
   paramSet <- readSet(paramSet, "paramSet");
   res.tbl <- dataSet$comp.res; #dataSet$sig.mat for sig only
   res.tbl <- res.tbl[which(rownames(res.tbl) %in% rownames(data.stat)),]
@@ -244,9 +244,9 @@ my.prepare.metadata.heatmap.json <- function(dataSet,displayOpt="sig"){
   meta.avgFC <- analSet$meta.avgFC;
   meta.mat <- analSet$meta.mat;
   mdata.all <- paramSet$mdata.all;
-  all.meta.mat <- qs::qread("allMeta.mat.qs");
+  all.meta.mat <- .expressanalyst_qread("allMeta.mat.qs");
   datanm.vec <- names(mdata.all)[mdata.all==1];
-  inmex.meta <- qs::qread("inmex_meta.qs");
+  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
   dat.inx <- inmex.meta$data.lbl %in% datanm.vec;
   gene.variances <- apply(inmex.meta$plot.data, 1, var)
   # Sorting genes by variance and selecting top 5000 if there are more than that

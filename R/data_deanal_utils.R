@@ -129,11 +129,11 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 .run.deseq <- function(dataSet, anal.type, par1, par2, nested.opt) {
 
   # Read annotated data in parent (not available in child)
-  data.anot <- qs::qread("data.anot.qs")
+  data.anot <- .expressanalyst_qread("data.anot.qs")
 
-  bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+  bridge_in <- .expressanalyst_bridge_file("in")
   bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-  qs::qsave(list(
+  .expressanalyst_qsave(list(
     data.anot = data.anot,
     rmidx = dataSet$rmidx,
     fst.cls = dataSet$fst.cls,
@@ -148,7 +148,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(DESeq2)
-      input <- qs::qread(bridge_in)
+      input <- .expressanalyst_qread(bridge_in)
 
       rmidx <- input$rmidx
       fst.cls <- input$fst.cls
@@ -232,7 +232,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
                                     design    = design)
       set.seed(123)
       dds <- DESeq(dds, betaPrior = FALSE)
-      qs::qsave(dds, "deseq.res.obj.rds")
+      .expressanalyst_qsave(dds, "deseq.res.obj.rds")
 
       # ---- Extract contrast results ----
       results_list <- list()
@@ -271,18 +271,18 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
         results_list[[1]] <- topFeatures
       }
 
-      qs::qsave(results_list, bridge_out, preset = "fast")
+      .expressanalyst_qsave(results_list, bridge_out, preset = "fast")
     },
     args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
     timeout_sec = 300
   )
 
-  results_list <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+  results_list <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
 
   # Process result (what .save.deseq.res did)
   dataSet$comp.res.list <- results_list
   dataSet$comp.res <- results_list[[1]]
-  qs::qsave(results_list, file = "dat.comp.res.qs")
+  .expressanalyst_qsave(results_list, file = "dat.comp.res.qs")
   return(dataSet)
 }
 
@@ -455,9 +455,9 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     cls <- if (length(dataSet$rmidx) > 0) dataSet$cls[-dataSet$rmidx] else dataSet$cls
     block <- dataSet$block
 
-    bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_in <- .expressanalyst_bridge_file("in")
     bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-    qs::qsave(list(cnt_mat = cnt.mat, design = design,
+    .expressanalyst_qsave(list(cnt_mat = cnt.mat, design = design,
                    contrast_matrix = contrast.matrix, cls = cls, block = block),
               bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
@@ -467,7 +467,7 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
         setwd(wd)
         require(edgeR); require(limma)
         set.seed(1)
-        input <- qs::qread(bridge_in)
+        input <- .expressanalyst_qread(bridge_in)
         cnt.mat <- input$cnt_mat
         design <- input$design
         contrast_matrix <- input$contrast_matrix
@@ -499,13 +499,13 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
           colnames(tbl)[colnames(tbl) == "PValue"] <- "P.Value"
           result.list[[nm]] <- tbl
         }
-        qs::qsave(result.list, bridge_out, preset = "fast")
+        .expressanalyst_qsave(result.list, bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
       timeout_sec = 300
     )
 
-    response <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+    response <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
     if (is.null(response)) { msgSet$current.msg <- "edgeR analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
     result.list <- response
 
@@ -816,11 +816,11 @@ MultiCovariateRegression <- function(fileName,
   if(internal){
     if(useMeta){
     print("batchadjustedcov");
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
     }else{
     print("notbatchadjusted");
 
-    inmex.meta <- qs::qread("inmex.meta.orig.qs");
+    inmex.meta <- .expressanalyst_qread("inmex.meta.orig.qs");
 
     }
     feature_table <- inmex.meta$data[, colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
@@ -1069,7 +1069,7 @@ parse_contrast_groups <- function(contrast_str) {
 }
 
 .get.interaction.results <- function(dds.path = "deseq.res.obj.rds") {
-  dds <- qs::qread(dds.path)
+  dds <- .expressanalyst_qread(dds.path)
   cat("Available result names:\n")
   
   # Automatically detect the interaction term

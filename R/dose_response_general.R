@@ -1227,7 +1227,7 @@ GetFitResultMatrix <- function(){
   res <- signif(res, 5)
   res[is.na(res)] <- NaN;
   res <- as.data.frame(res);
-  colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
+  colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
 
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
@@ -1241,7 +1241,7 @@ GetFitResultMatrix <- function(){
 }
 
 GetFitResultColNames <-function(){
-  names <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
+  names <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
   return(names);
 }
 

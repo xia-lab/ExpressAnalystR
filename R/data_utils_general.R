@@ -177,11 +177,11 @@ RegisterData <- function(dataSet, output=1){
   saveSet(paramSet, "paramSet");
 
   if(paramSet$on.public.web){
-    qs::qsave(dataSet, file=replace_extension_with_qs(dataName));
+    .expressanalyst_qsave(dataSet, file=replace_extension_with_qs(dataName));
     return(output);
   }else{
     if(paramSet$api.bool){
-        qs::qsave(dataSet, file=replace_extension_with_qs(dataName));
+        .expressanalyst_qsave(dataSet, file=replace_extension_with_qs(dataName));
         return(output);
     }else{
         dataSets[[dataName]] <- dataSet;
@@ -234,7 +234,7 @@ SetListNms <- function(dataSet){
   
   # convert to entrez
   if(anal.type == "metadata"){
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
     en.ids <- rownames(inmex.meta$data);
     nm <- "meta_data"
   }else if(anal.type == "onedata"){
@@ -450,11 +450,11 @@ doScatterJson <- function(dataName, filenm){
 
 # some utility functions to save memory for large data object
 .save.annotated.data <- function(my.dat){
-  qs::qsave(my.dat, "data.anot.qs"); 
+  .expressanalyst_qsave(my.dat, "data.anot.qs"); 
 }
 
 .get.annotated.data <- function(){
-   return(qs::qread("data.anot.qs"));
+   return(.expressanalyst_qread("data.anot.qs"));
 }
 
 #'Record R Commands
@@ -467,7 +467,7 @@ RecordRCommand <- function(cmd){
   # Only read from disk if the global object doesn't exist in memory yet.
   if(!exists("cmdSet")){
     if(file.exists("cmdSet.qs")){
-      cmdSet <<- qs::qread("cmdSet.qs");
+      cmdSet <<- .expressanalyst_qread("cmdSet.qs");
     } else {
       cmdSet <<- list(cmdVec = character(0));
     }
@@ -478,7 +478,7 @@ RecordRCommand <- function(cmd){
   
   # 3. Persist Binary State (cmdSet.qs)
   # We use qsave directly to avoid overhead, or you can keep using saveSet if it does extra logic
-  qs::qsave(cmdSet, "cmdSet.qs");
+  .expressanalyst_qsave(cmdSet, "cmdSet.qs");
   
   return(1);
 }

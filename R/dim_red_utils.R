@@ -34,7 +34,7 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
 
     mdata.all <- paramSet$mdata.all;
 
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
     datanm.vec <- names(mdata.all)[mdata.all==1];
 
     dat.inx <- inmex.meta$data.lbl %in% datanm.vec;
@@ -113,14 +113,14 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
     pos.xyz <- mypos;
     pos.xyz <- unitAutoScale(pos.xyz);
     rownames(pos.xyz) = pca3d$score$name;
-    qs::qsave(pos.xyz, "score_pos_xyz.qs");
+    .expressanalyst_qsave(pos.xyz, "score_pos_xyz.qs");
 
     fast.write(coords, file="expressanalyst_3d_pos.csv");
 
     pca3d$org <- paramSet$data.org
     pca3d$analType <- paramSet$anal.type
     pca3d$naviString <- "Scatter 3D"
-    qs::qsave(pca3d, "pca3d.qs");
+    .expressanalyst_qsave(pca3d, "pca3d.qs");
 
     paramSet$jsonNms$pcascore <- fileName
     paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
@@ -141,7 +141,7 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
 
   mdata.all <- paramSet$mdata.all;
 
-  inmex.meta <- qs::qread("inmex_meta.qs");
+  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
   datanm.vec <- names(mdata.all)[mdata.all==1];
   nb <- as.numeric(5000) # set to max 5000 datapoints
   dat.inx <- inmex.meta$data.lbl %in% datanm.vec;
@@ -178,14 +178,14 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   colnames(mypos) <- paste("Dim", 1:3, sep="");
   rownames(mypos) <- analSet$loadEntrez;
   mypos <- unitAutoScale(mypos);
-  qs::qsave(mypos, "loading_pos_xyz.qs");
+  .expressanalyst_qsave(mypos, "loading_pos_xyz.qs");
   
   coords <- data.frame(mypos);
   fast.write(coords, file="expressanalyst_loadings_3d_pos.csv");
   
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
   paramSet$jsonNms$pcaload <- fileName;
-  qs::qsave(pca3d, "pca3d.qs");
+  .expressanalyst_qsave(pca3d, "pca3d.qs");
   # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
   jsonlite::write_json(pca3d, fileName, auto_unbox = TRUE, pretty = FALSE);
   msgSet$current.msg <- "Annotated data is now ready for 3D visualization!";
@@ -238,10 +238,10 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   rownames(mypos) <- pca3d$score$name;
   rownames(mypos) <- analSet$loadEntrez;
   mypos <- unitAutoScale(mypos);
-  qs::qsave(mypos, "loading_pos_xyz.qs");
+  .expressanalyst_qsave(mypos, "loading_pos_xyz.qs");
   
   fast.write(mypos, file="expressanalyst_3d_load_pos.csv");
-  qs::qsave(pca3d, "pca3d.qs");
+  .expressanalyst_qsave(pca3d, "pca3d.qs");
   paramSet$jsonNms$pcaload <- fileName
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
   # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
@@ -308,7 +308,7 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   pos.xyz <- as.data.frame(pos.xyz);
   pos.xyz <- unitAutoScale(pos.xyz);
   rownames(pos.xyz) = colnames(dataSet$data.norm);
-  qs::qsave(pos.xyz, "score_pos_xyz.qs");
+  .expressanalyst_qsave(pos.xyz, "score_pos_xyz.qs");
   
   facA <- as.character(dataSet$fst.cls);
   if(all.numeric(facA)){
@@ -349,7 +349,7 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   pca3d$org <- paramSet$data.org
   pca3d$analType <- paramSet$anal.type
   pca3d$naviString <- "Scatter 3D"
-  qs::qsave(pca3d, "pca3d.qs");
+  .expressanalyst_qsave(pca3d, "pca3d.qs");
   paramSet$jsonNms$pcascore <- fileName
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(fileName))
   rownames(mypos) <- colnames(dataSet$data.norm);
@@ -373,7 +373,7 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
       sink(filenm); cat("{}"); sink()
       return(filenm)
     }
-    pos.xyz <- qs::qread("score_pos_xyz.qs")
+    pos.xyz <- .expressanalyst_qread("score_pos_xyz.qs")
     inx <- rownames(pos.xyz) %in% names
     coords <- as.matrix(pos.xyz[inx, c(1:3)])
 
@@ -382,29 +382,29 @@ ComputeEncasing <- function(filenm, type, names.vec, level=0.95, omics="NA"){
       return(filenm)
     }
 
-    bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_in <- .expressanalyst_bridge_file("in")
     bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-    qs::qsave(list(coords = coords, level = level), bridge_in, preset = "fast")
+    .expressanalyst_qsave(list(coords = coords, level = level), bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
     run_func_via_rsclient(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
-        require(rgl)
         Sys.setenv(RGL_USE_NULL = TRUE)
-        input <- qs::qread(bridge_in)
+        require(rgl)
+        input <- .expressanalyst_qread(bridge_in)
         pos <- cov(input$coords, y = NULL, use = "everything")
         center <- colMeans(input$coords)
         t_val <- sqrt(qchisq(input$level, 3))
         mesh <- list()
         mesh[[1]] <- rgl::ellipse3d(x = as.matrix(pos), centre = center, t = t_val)
-        qs::qsave(mesh, bridge_out, preset = "fast")
+        .expressanalyst_qsave(mesh, bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
       timeout_sec = 120
     )
 
-    mesh <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+    mesh <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
     if (!is.null(mesh)) {
       sink(filenm); cat(RJSONIO::toJSON(mesh)); sink()
     }

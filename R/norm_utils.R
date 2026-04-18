@@ -19,6 +19,21 @@
 #'License: MIT
 #'@export
 #'
+.expressanalyst_bridge_dir <- function() {
+  bridge_dir <- file.path(getwd(), ".expressanalyst_tmp")
+  if (!dir.exists(bridge_dir)) {
+    dir.create(bridge_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  bridge_dir
+}
+
+.expressanalyst_bridge_file <- function(suffix) {
+  file.path(
+    .expressanalyst_bridge_dir(),
+    paste0("bridge_", paste0(sample(letters, 6, replace = TRUE), collapse = ""), "_", suffix, ".qs")
+  )
+}
+
 PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, filterUnmapped,
                                  islog = "false", countOpt = "sum") {
   #save.image("norm.RData");
@@ -27,7 +42,7 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
   dataSet  <- readDataset(dataName);
   msg <- ""
 
-  ds <- qs::qread("data.raw.qs");
+  ds <- .expressanalyst_qread("data.raw.qs");
   msgSet$current.msg <- c(msgSet$current.msg, paste0("Diagnostic before filtering: samples=", ncol(ds), 
                                                     " features=", nrow(ds),
                                                     " zeros=", sum(ds==0),
@@ -37,13 +52,13 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
 
   # reload the original annotated counts before filtering so each normalization run starts from raw data
   if (file.exists("orig.data.anot.qs")) {
-    raw.annot <- qs::qread("orig.data.anot.qs")
+    raw.annot <- .expressanalyst_qread("orig.data.anot.qs")
   } else if (file.exists("data.raw.qs")) {
-    raw.annot <- qs::qread("data.raw.qs")
+    raw.annot <- .expressanalyst_qread("data.raw.qs")
   } else {
     raw.annot <- dataSet$data.norm
   }
-  qs::qsave(raw.annot, file = "data.anot.qs")
+  .expressanalyst_qsave(raw.annot, file = "data.anot.qs")
   data <- PerformFiltering(dataSet, var.thresh, count.thresh, filterUnmapped, countOpt)
   .save.annotated.data(data)
   msg <- paste(filt.msg, msg)
@@ -79,28 +94,28 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     }
     if (!is.integer(m)) m <- round(m)
 
-    bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_in <- .expressanalyst_bridge_file("in")
     bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-    qs::qsave(list(m = m), bridge_in, preset = "fast")
+    .expressanalyst_qsave(list(m = m), bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
     run_func_via_rsclient(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(DESeq2)
-        input <- qs::qread(bridge_in)
+        input <- .expressanalyst_qread(bridge_in)
         cd <- S4Vectors::DataFrame(row.names = colnames(input$m))
         dds <- DESeq2::DESeqDataSetFromMatrix(countData = input$m, colData = cd, design = ~ 1)
         dds <- DESeq2::estimateSizeFactors(dds)
         norm_counts <- DESeq2::counts(dds, normalized = TRUE)
         result <- log2(norm_counts + 1)
-        qs::qsave(result, bridge_out, preset = "fast")
+        .expressanalyst_qsave(result, bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
       timeout_sec = 300
     )
 
-    response <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+    response <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
     if (is.null(response)) { AddErrMsg("MORlog normalization failed in child process"); return(0) }
     data <- response
 
@@ -118,7 +133,7 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
 
   dataSet$data.norm <- data
   fast.write(sanitizeSmallNumbers(data), file = "data_normalized.csv")
-  qs::qsave(data, file = "data.stat.qs")
+  .expressanalyst_qsave(data, file = "data.stat.qs")
 
   msgSet$current.msg <- msg
   saveSet(msgSet,   "msgSet")
@@ -131,9 +146,9 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   msg <- "";
   if(filterUnmapped == "false"){
     # need to update those with annotations
-    data1 <- qs::qread("data.raw.qs");
+    data1 <- .expressanalyst_qread("data.raw.qs");
     colnames(data1) <- colnames(dataSet$data.norm)
-    anot.id <- qs::qread("annotation.qs");
+    anot.id <- .expressanalyst_qread("annotation.qs");
     hit.inx <- !is.na(anot.id);
     rownames(data1)[hit.inx] <- anot.id[hit.inx];
     res <- RemoveDuplicates(data1, "mean", quiet=T, paramSet, msgSet);
@@ -143,9 +158,9 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
     msg <- "Only features with annotations are kept for further analysis.";
   }else{
     if(dataSet$type=="prot"){
-     raw.data.anot <- qs::qread("data.missed.qs");
+     raw.data.anot <- .expressanalyst_qread("data.missed.qs");
     }else{
-     raw.data.anot <- qs::qread("orig.data.anot.qs");
+     raw.data.anot <- .expressanalyst_qread("orig.data.anot.qs");
     }
    colnames(raw.data.anot) <- colnames(dataSet$data.norm)
   }
@@ -221,7 +236,7 @@ NormalizeDataMetaMode <-function (nm, opt, colNorm="NA", scaleNorm="NA"){
     }
     dataSet$data.norm <- data;
     dataSet$norm.opt <- opt;
-    qs::qsave(data, file="data.stat.qs");
+    .expressanalyst_qsave(data, file="data.stat.qs");
     return(RegisterData(dataSet));
     
   }
@@ -281,24 +296,24 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     msg <- paste(msg, "VSN followed by quantile normalization.", collapse=" ");
   }else if(norm.opt %in% c("logcount", "RLE", "TMM")){
     cnf_method <- c(logcount = "none", RLE = "RLE", TMM = "TMM")[norm.opt]
-    bridge_in_nf <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_in_nf <- .expressanalyst_bridge_file("in")
     bridge_out_nf <- sub("_in.qs", "_out.qs", bridge_in_nf)
-    qs::qsave(list(data = data, method = cnf_method), bridge_in_nf, preset = "fast")
+    .expressanalyst_qsave(list(data = data, method = cnf_method), bridge_in_nf, preset = "fast")
     on.exit(unlink(c(bridge_in_nf, bridge_out_nf)), add = TRUE)
 
     run_func_via_rsclient(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR)
-        input <- qs::qread(bridge_in)
+        input <- .expressanalyst_qread(bridge_in)
         result <- edgeR::calcNormFactors(input$data, method = input$method)
-        qs::qsave(result, bridge_out, preset = "fast")
+        .expressanalyst_qsave(result, bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in_nf, bridge_out = bridge_out_nf),
       timeout_sec = 120
     )
 
-    response <- if (file.exists(bridge_out_nf)) qs::qread(bridge_out_nf) else NULL
+    response <- if (file.exists(bridge_out_nf)) .expressanalyst_qread(bridge_out_nf) else NULL
     if (is.null(response)) { AddErrMsg("edgeR normalization failed in child process"); return(0) }
     nf <- response
     y <- limma::voom(data, plot = FALSE, lib.size = colSums(data) * nf)
@@ -348,24 +363,24 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     data <- data*10000000;
     msg <- c(msg, paste("Performed total sum normalization."));
   }else if(scaleNorm=="upperquartile" || norm.opt == "upperquartile"){
-    bridge_in_uq <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_in_uq <- .expressanalyst_bridge_file("in")
     bridge_out_uq <- sub("_in.qs", "_out.qs", bridge_in_uq)
-    qs::qsave(list(data = data), bridge_in_uq, preset = "fast")
+    .expressanalyst_qsave(list(data = data), bridge_in_uq, preset = "fast")
     on.exit(unlink(c(bridge_in_uq, bridge_out_uq)), add = TRUE)
 
     run_func_via_rsclient(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR)
-        input <- qs::qread(bridge_in)
+        input <- .expressanalyst_qread(bridge_in)
         result <- edgeR::calcNormFactors(input$data, method = "upperquartile")
-        qs::qsave(result, bridge_out, preset = "fast")
+        .expressanalyst_qsave(result, bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in_uq, bridge_out = bridge_out_uq),
       timeout_sec = 120
     )
 
-    response <- if (file.exists(bridge_out_uq)) qs::qread(bridge_out_uq) else NULL
+    response <- if (file.exists(bridge_out_uq)) .expressanalyst_qread(bridge_out_uq) else NULL
     if (is.null(response)) { AddErrMsg("Upper quartile normalization failed in child process"); return(0) }
     nf <- response
     y <- limma::voom(data, plot = FALSE, lib.size = colSums(data) * nf)
@@ -499,7 +514,7 @@ LoessNorm <- function(x, weights = NULL, span=0.7, iterations = 3){
 # Prepare MORlog: save expression matrix into dat.in.qs
 .prepare.morlog <- function(expr) {
   di <- list(expr = expr)
-  qs::qsave(di, "dat.in.qs")
+  .expressanalyst_qsave(di, "dat.in.qs")
   return(1L)
 }
 
@@ -507,14 +522,14 @@ LoessNorm <- function(x, weights = NULL, span=0.7, iterations = 3){
 # Apply MORlog back to the active dataSet
 .apply.morlog <- function(dataName) {
   dataSet <- readDataset(dataName)
-  di <- qs::qread("dat.in.qs")
+  di <- .expressanalyst_qread("dat.in.qs")
 
   dataSet$expr <- di$expr
   dataSet$norm <- di$norm
 
   dataSet$data.norm <- dataSet$norm
   fast.write(dataSet$data.norm, file = "data_normalized.csv")
-  qs::qsave(dataSet$data.norm, file = "data.stat.qs")
+  .expressanalyst_qsave(dataSet$data.norm, file = "data.stat.qs")
 
   msgSet <- readSet(msgSet, "msgSet")
   msgSet$current.msg <- "[MORlog] Applied DESeq2 size-factor normalization and log2(x+1)."
@@ -529,7 +544,7 @@ LoessNorm <- function(x, weights = NULL, span=0.7, iterations = 3){
 morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   requireNamespace("DESeq2", quietly = TRUE)
 
-  di <- qs::qread("dat.in.qs")
+  di <- .expressanalyst_qread("dat.in.qs")
   m  <- as.matrix(di[[expr_field]])
 
   # basic checks
@@ -544,7 +559,7 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   norm_counts <- DESeq2::counts(dds, normalized = TRUE)
   di[[norm_field]] <- log2(norm_counts + 1)
 
-  qs::qsave(di, "dat.in.qs")
+  .expressanalyst_qsave(di, "dat.in.qs")
   return(1L)
 }
 
@@ -559,7 +574,7 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
 ValidateBatchVariable <- function(dataName, batchVar) {
   # Read dataset
   qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName);
-  dataSet <- qs::qread(qsfile);
+  dataSet <- .expressanalyst_qread(qsfile);
 
   # Read msgSet for storing messages
   msgSet <- readSet(msgSet, "msgSet");
@@ -721,7 +736,7 @@ ValidateBatchVariable <- function(dataName, batchVar) {
 
 PerformExpressBatchCorrection <- function(dataName, batchVar) {
   qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName)
-  dataSet <- qs::qread(qsfile)
+  dataSet <- .expressanalyst_qread(qsfile)
 
   data <- as.matrix(dataSet$data.norm)
   storage.mode(data) <- "double"
@@ -739,16 +754,16 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
   if (any(is.na(batch))) stop("Batch variable has NA values for some samples")
   if (length(unique(batch)) < 2) stop("Batch variable must have at least 2 different levels")
 
-  bridge_in <- paste0(tempdir(), "/bridge_", paste0(sample(letters,6,replace=TRUE), collapse=""), "_in.qs")
+    bridge_in <- .expressanalyst_bridge_file("in")
   bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-  qs::qsave(list(data = data, batch = batch), bridge_in, preset = "fast")
+  .expressanalyst_qsave(list(data = data, batch = batch), bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
   run_func_via_rsclient(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(sva)
-      input <- qs::qread(bridge_in)
+      input <- .expressanalyst_qread(bridge_in)
       data <- input$data
       batch <- input$batch
       mod <- model.matrix(~1, data = data.frame(sample = colnames(data)))
@@ -759,13 +774,13 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
         numBatches = length(unique(batch)),
         maxAbsDelta = max(abs(data.corrected - data), na.rm = TRUE)
       )
-      qs::qsave(result, bridge_out, preset = "fast")
+      .expressanalyst_qsave(result, bridge_out, preset = "fast")
     },
     args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
     timeout_sec = 300
   )
 
-  result <- if (file.exists(bridge_out)) qs::qread(bridge_out) else NULL
+  result <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
 
   dataSet$data.norm <- result$data.norm
   .finalize.express.batch.result(dataName, dataSet, batchVar,
@@ -782,11 +797,11 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
 
   # Save the updated dataset back to file
   qsfile <- gsub("\\.csv$|\\.txt$", ".qs", dataName)
-  qs::qsave(dataSet, qsfile)
+  .expressanalyst_qsave(dataSet, qsfile)
   # Update the data.anot.qs with batch-corrected data
-  qs::qsave(dataSet$data.norm, file = "data.anot.qs")
+  .expressanalyst_qsave(dataSet$data.norm, file = "data.anot.qs")
   # Update the proc data as well
-  qs::qsave(dataSet$data.norm, file = "data.proc.qs")
+  .expressanalyst_qsave(dataSet$data.norm, file = "data.proc.qs")
 
   # Update the active dataSet in the R session
   activeDataSet <- readDataset(dataName)

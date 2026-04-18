@@ -552,6 +552,48 @@ run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
     setwd(.exec_wd)
     setTimeLimit(elapsed = .exec_timeout, transient = TRUE)
     on.exit(setTimeLimit(elapsed = Inf))
+    if (!exists(".expressanalyst_qsave", envir = .GlobalEnv, inherits = FALSE)) {
+      assign(".expressanalyst_qsave", function(object, file, ...) {
+        if (requireNamespace("qs2", quietly = TRUE)) {
+          qs2::qs_save(object, file = file)
+        } else if (requireNamespace("qs", quietly = TRUE)) {
+          qs::qsave(object, file = file, preset = "fast")
+        } else {
+          stop("Neither qs2 nor qs is available")
+        }
+      }, envir = .GlobalEnv)
+      assign(".expressanalyst_qread", function(file, ...) {
+        if (requireNamespace("qs2", quietly = TRUE)) {
+          qs2::qs_read(file)
+        } else if (requireNamespace("qs", quietly = TRUE)) {
+          qs::qread(file)
+        } else {
+          stop("Neither qs2 nor qs is available")
+        }
+      }, envir = .GlobalEnv)
+      assign(".expressanalyst_qd_read", function(raw_or_file, ...) {
+        if (is.raw(raw_or_file)) {
+          tmp <- tempfile(pattern = "load_qs_", fileext = ".qs", tmpdir = getwd())
+          on.exit(unlink(tmp), add = TRUE)
+          writeBin(raw_or_file, tmp)
+          if (requireNamespace("qs2", quietly = TRUE)) {
+            qs2::qd_read(tmp, ...)
+          } else if (requireNamespace("qs", quietly = TRUE)) {
+            qs::qdeserialize(raw_or_file)
+          } else {
+            stop("Neither qs2 nor qs is available")
+          }
+        } else {
+          if (requireNamespace("qs2", quietly = TRUE)) {
+            qs2::qd_read(raw_or_file, ...)
+          } else if (requireNamespace("qs", quietly = TRUE)) {
+            qs::qdeserialize(raw_or_file)
+          } else {
+            stop("Neither qs2 nor qs is available")
+          }
+        }
+      }, envir = .GlobalEnv)
+    }
     do.call(.exec_func, .exec_args)
   }))
 }
@@ -933,7 +975,7 @@ saveSet <- function(obj=NA, set="", output=1){
         cmdSet <<- obj;
       }
 
-      qs::qsave(obj, paste0(set, ".qs"));
+      .expressanalyst_qsave(obj, paste0(set, ".qs"));
       Sys.sleep(0.05);
       return(output);
 }
@@ -942,7 +984,7 @@ readSet <- function(obj = NULL, set = "") {
   file_path <- paste0(set, ".qs")
 
   if (file.exists(file_path)) {
-    obj <- qs::qread(file_path)
+    obj <- .expressanalyst_qread(file_path)
   } else {
     if (is.null(obj)) {
       warning(sprintf("readSet: File '%s' not found and no default object supplied.", file_path))
@@ -954,7 +996,10 @@ readSet <- function(obj = NULL, set = "") {
 }
 
 load_qs <- function(url) {
-  qs::qdeserialize(curl::curl_fetch_memory(url)$content)
+  tmp <- tempfile(pattern = "load_qs_", fileext = ".qs", tmpdir = getwd())
+  on.exit(unlink(tmp), add = TRUE)
+  writeBin(curl::curl_fetch_memory(url)$content, tmp)
+  .expressanalyst_qd_read(tmp)
 }
 
 readDataset <- function(dataName = "", quiet = FALSE) {
@@ -976,7 +1021,7 @@ readDataset <- function(dataName = "", quiet = FALSE) {
 
       } else {                                              # fall back to .qs
         qsfile <- replace_extension_with_qs(dataName)
-        obj <- qs::qread(qsfile)
+        obj <- .expressanalyst_qread(qsfile)
       }
 
     invisible(obj)  # Suppress console output in R Markdown
@@ -1017,17 +1062,17 @@ PrepareSqliteDB <- function(sqlite_Path, onweb = TRUE) {
 
 saveDataQs <-function(data, name, module.nm, dataName){
   if(module.nm == "metadata"){
-    qs::qsave(data, file=paste0(dataName, "_data/", name));
+    .expressanalyst_qsave(data, file=paste0(dataName, "_data/", name));
   }else{
-    qs::qsave(data, file=name);
+    .expressanalyst_qsave(data, file=name);
   }
 }
 
 readDataQs <-function(name, module.nm, dataName){
   if(module.nm == "metadata"){
-    dat <- qs::qread(file=paste0(dataName, "_data/", name));
+    dat <- .expressanalyst_qread(file=paste0(dataName, "_data/", name));
   }else{
-    dat <- qs::qread(file=name);
+    dat <- .expressanalyst_qread(file=name);
   }
   return(dat);
 }
@@ -1039,7 +1084,7 @@ PrepareReport <- function(objective, abstract, animalDetails, exposureDetails, c
   dataSet$reportSummary$animal <<- animalDetails;
   dataSet$reportSummary$exposure <<- exposureDetails;
   dataSet$reportSummary$chip <<- ecotoxchipDetails;
-  data.orig <- qs::qread("data.raw.qs"); 
+  data.orig <- .expressanalyst_qread("data.raw.qs"); 
   dataSet$reportSummary$read.msg <<- paste("In this analysis, the uploaded data files were combined into a ", nrow(data.orig),
                                           " (wells) by ", ncol(data.orig), " (samples) data matrix.", sep="");
 }

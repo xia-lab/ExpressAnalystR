@@ -31,7 +31,7 @@
       data.anot <- .get.annotated.data();
       current.universe <- rownames(data.anot); 
     }else if(paramSet$anal.type == "metadata"){
-      inmex <- qs::qread("inmex_meta.qs");
+      inmex <- .expressanalyst_qread("inmex_meta.qs");
       current.universe <- rownames(inmex$data); 
     }else{
       if(!is.null(paramSet$backgroundUniverse)){
@@ -65,7 +65,7 @@
                        }
   );
   
-  qs::qsave(hits.query, "hits_query.qs");
+  .expressanalyst_qsave(hits.query, "hits_query.qs");
 
   names(hits.query) <- names(current.geneset);
   hit.num<-unlist(lapply(hits.query, function(x){length(unique(x))}), use.names=FALSE);
@@ -158,7 +158,7 @@
   }
   
   resTable <- data.frame(Pathway=rownames(res.mat), res.mat);
-  qs::qsave(res.mat, "enr.mat.qs");
+  .expressanalyst_qsave(res.mat, "enr.mat.qs");
   msgSet$current.msg <- "Functional enrichment analysis was completed";
   
   # write json
@@ -275,7 +275,7 @@
     names(set.ids) = firstup(names(set.ids));
     names(set.ids) = gsub("-", "_", names(set.ids));
   }
-  qs::qsave(current.geneset, "current_geneset.qs");
+  .expressanalyst_qsave(current.geneset, "current_geneset.qs");
   res <- list();
   res$current.setlink <- my.lib$link;
   res$current.setids <- set.ids;
@@ -343,7 +343,7 @@ PlotGSViewNew <-function(cmpdNm, format="png", dpi=default.dpi, imgName){
 
   
   # Load the custom gene set library
-  my.lib <- qs::qread("custom_lib.qs")
+  my.lib <- .expressanalyst_qread("custom_lib.qs")
 
   # Extract the specific gene set based on the function type (e.g., cell line)
   current.geneset <- my.lib
@@ -365,7 +365,7 @@ PlotGSViewNew <-function(cmpdNm, format="png", dpi=default.dpi, imgName){
   }
 
   # Save the processed gene set to a new file
-  qs::qsave(current.geneset, "current_geneset.qs")
+  .expressanalyst_qsave(current.geneset, "current_geneset.qs")
   
   # Create the result object to return
   res <- list()

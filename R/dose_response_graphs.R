@@ -129,7 +129,7 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     
     #generate dataframe with model fit interpolations
     fit.interp <- interpFits();
-    qs::qsave(fit.interp, "fit.interp.qs");
+    .expressanalyst_qsave(fit.interp, "fit.interp.qs");
 
     # fill blank gene names with NA
     geneNms <- doEntrez2SymbolMapping(bmdcalc.res$id)[order(bmdcalc.res$bmd)]
@@ -214,9 +214,9 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
     p <- p + stat_function(fun = function(x) .e + .b * (x^.c), n = 1000)
   }
 
-  p <- p + geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) + 
-    geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") + 
-    geom_vline(xintercept = bmd, color = "red3") + 
+  p <- p + geom_rect(aes(xmin = bmdl, xmax = bmdu, ymin = -Inf, ymax = Inf), fill = "red3", alpha = 0.01) +
+    geom_vline(xintercept = bmdl, linetype = "dashed", color = "red3") +
+    geom_vline(xintercept = bmd, color = "red3") +
     geom_vline(xintercept = bmdu, linetype = "dashed", color = "red3")
 
   if(scale == "log2"){
@@ -638,7 +638,7 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
     require(grid)
 
     pws <- dataSet$pathway.ids
-    fit.interp <- qs::qread("fit.interp.qs");
+    fit.interp <- .expressanalyst_qread("fit.interp.qs");
     bmd.vals <- dataSet$html.resTable[,c(1,5)]
 
     pw.genes <- pws[pws$pathway == pathway,][,c(1,3)]

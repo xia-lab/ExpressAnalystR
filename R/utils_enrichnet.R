@@ -1,7 +1,7 @@
 
 
 my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", analSet){
-  enr.mat <- qs::qread("enr.mat.qs");
+  enr.mat <- .expressanalyst_qread("enr.mat.qs");
 
   # Filter by adjusted p-value (FDR) < 0.05 and limit to max 50 pathways
   # If fewer than 20 are significant (or none), show top 20 by FDR
@@ -42,8 +42,8 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   require(igraph);
   require(reshape);
 
-  current.geneset <- qs::qread("current_geneset.qs");
-  hits.query <- qs::qread("hits_query.qs")
+  current.geneset <- .expressanalyst_qread("current_geneset.qs");
+  hits.query <- .expressanalyst_qread("hits_query.qs")
   # Filter hits.query to match the filtered pathways (FDR < 0.05, max 50)
   hits.query <- hits.query[rownames(enr.mat)];
   geneSets <- hits.query;

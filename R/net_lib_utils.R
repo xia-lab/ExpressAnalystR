@@ -241,7 +241,7 @@ queryGeneDB <- function(table.nm, data.org){
   }
 
   if(table.nm == "custom" || data.org == "custom"){
-    db.map <- qs::qread("anot_table.qs");
+    db.map <- .expressanalyst_qread("anot_table.qs");
   }else{
     require('RSQLite');
     db.path <- paste(paramSet$sqlite.path, data.org, "_genes.sqlite", sep="")

@@ -192,9 +192,9 @@ ResetMetaTab <- function(dataName=""){
   if(dataName != "NA"){
     dataSet <- readDataset(dataName);
      if(dataSet$type=="prot"){
-       data.anot <- qs::qread("data.missed.qs");
+       data.anot <- .expressanalyst_qread("data.missed.qs");
     }else{
-       data.anot <- qs::qread("orig.data.anot.qs");
+       data.anot <- .expressanalyst_qread("orig.data.anot.qs");
     }
     dataSet$data.norm <- data.anot;
     .save.annotated.data(data.anot);
@@ -322,9 +322,9 @@ DeleteSample <- function(dataName="",samplNm){
     dataSet$data.norm <- dataSet$data.norm[,colnames(dataSet$data.norm)!=samplNm];
     dataSet$meta.info <- dataSet$meta.info[rownames(dataSet$meta.info)!=samplNm,,drop=F];
     
-    inmex.meta<-qs::qread("inmex_meta.qs");
+    inmex.meta<-.expressanalyst_qread("inmex_meta.qs");
     inmex.meta$data <- inmex.meta$data[,colnames(inmex.meta$data) !=samplNm]
-    qs::qsave(inmex.meta, "inmex_meta.qs");
+    .expressanalyst_qsave(inmex.meta, "inmex_meta.qs");
     saveSet(paramSet, "paramSet");
     RegisterData(dataSet);
   }
