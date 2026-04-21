@@ -544,6 +544,39 @@ PerformSetOperation_DataEnr <- function(nms, operation, refNm){
 run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
   conn <- RSclient::RS.connect(host = "localhost", port = 6311)
   on.exit(try(RSclient::RS.close(conn), silent = TRUE))
+  # Inject the qs wrapper helpers into the subprocess R session so callers
+  # writing ov_qs_read(f) / ov_qs_save(obj, f) inside their subprocess func
+  # body work transparently — the subprocess is a fresh R session and does
+  # not inherit master-session helpers otherwise.
+  RSclient::RS.eval(conn, quote({
+    ov_qs_read <- function(file, ...) {
+      if (file.exists(file)) {
+        r <- try(qs2::qs_read(file, ...), silent = TRUE)
+        if (!inherits(r, "try-error")) return(r)
+        return(qs::qread(file, ...))
+      }
+      if (endsWith(tolower(file), ".qs")) {
+        v2 <- paste0(substr(file, 1, nchar(file) - 3L), ".qs2")
+        if (file.exists(v2)) { r <- try(qs2::qs_read(v2, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v2, ...)) }
+      } else if (endsWith(tolower(file), ".qs2")) {
+        v1 <- paste0(substr(file, 1, nchar(file) - 4L), ".qs")
+        if (file.exists(v1)) { r <- try(qs2::qs_read(v1, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v1, ...)) }
+      }
+      stop("ov_qs_read: neither .qs2 nor .qs found for: ", file, call. = FALSE)
+    }
+    ov_qs_save <- function(obj, file, ...) {
+      .args <- list(...)
+      for (.k in c("preset", "nthreads", "check_hash")) .args[[.k]] <- NULL
+      do.call(qs2::qs_save, c(list(object = obj, file = file), .args))
+      invisible(file)
+    }
+    ov_qs_exists <- function(file) {
+      if (file.exists(file)) return(TRUE)
+      if (endsWith(tolower(file), ".qs"))  return(file.exists(paste0(substr(file, 1, nchar(file) - 3L), ".qs2")))
+      if (endsWith(tolower(file), ".qs2")) return(file.exists(paste0(substr(file, 1, nchar(file) - 4L), ".qs")))
+      FALSE
+    }
+  }))
   RSclient::RS.assign(conn, ".exec_wd", getwd())
   RSclient::RS.assign(conn, ".exec_func", func)
   RSclient::RS.assign(conn, ".exec_args", args)
@@ -552,48 +585,6 @@ run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
     setwd(.exec_wd)
     setTimeLimit(elapsed = .exec_timeout, transient = TRUE)
     on.exit(setTimeLimit(elapsed = Inf))
-    if (!exists(".expressanalyst_qsave", envir = .GlobalEnv, inherits = FALSE)) {
-      assign(".expressanalyst_qsave", function(object, file, ...) {
-        if (requireNamespace("qs2", quietly = TRUE)) {
-          qs2::qs_save(object, file = file)
-        } else if (requireNamespace("qs", quietly = TRUE)) {
-          qs::qsave(object, file = file, preset = "fast")
-        } else {
-          stop("Neither qs2 nor qs is available")
-        }
-      }, envir = .GlobalEnv)
-      assign(".expressanalyst_qread", function(file, ...) {
-        if (requireNamespace("qs2", quietly = TRUE)) {
-          qs2::qs_read(file)
-        } else if (requireNamespace("qs", quietly = TRUE)) {
-          qs::qread(file)
-        } else {
-          stop("Neither qs2 nor qs is available")
-        }
-      }, envir = .GlobalEnv)
-      assign(".expressanalyst_qd_read", function(raw_or_file, ...) {
-        if (is.raw(raw_or_file)) {
-          tmp <- tempfile(pattern = "load_qs_", fileext = ".qs", tmpdir = getwd())
-          on.exit(unlink(tmp), add = TRUE)
-          writeBin(raw_or_file, tmp)
-          if (requireNamespace("qs2", quietly = TRUE)) {
-            qs2::qd_read(tmp, ...)
-          } else if (requireNamespace("qs", quietly = TRUE)) {
-            qs::qdeserialize(raw_or_file)
-          } else {
-            stop("Neither qs2 nor qs is available")
-          }
-        } else {
-          if (requireNamespace("qs2", quietly = TRUE)) {
-            qs2::qd_read(raw_or_file, ...)
-          } else if (requireNamespace("qs", quietly = TRUE)) {
-            qs::qdeserialize(raw_or_file)
-          } else {
-            stop("Neither qs2 nor qs is available")
-          }
-        }
-      }, envir = .GlobalEnv)
-    }
     do.call(.exec_func, .exec_args)
   }))
 }
@@ -975,16 +966,18 @@ saveSet <- function(obj=NA, set="", output=1){
         cmdSet <<- obj;
       }
 
-      .expressanalyst_qsave(obj, paste0(set, ".qs"));
+      ov_qs_save(obj, paste0(set, ".qs"));
       Sys.sleep(0.05);
       return(output);
 }
 
 readSet <- function(obj = NULL, set = "") {
+  # ov_qs_exists + ov_qs_read check BOTH .qs2 and legacy .qs, so existing user
+  # projects persisted as .qs keep working while new writes land in .qs2.
   file_path <- paste0(set, ".qs")
 
-  if (file.exists(file_path)) {
-    obj <- .expressanalyst_qread(file_path)
+  if (ov_qs_exists(file_path)) {
+    obj <- ov_qs_read(file_path)
   } else {
     if (is.null(obj)) {
       warning(sprintf("readSet: File '%s' not found and no default object supplied.", file_path))
@@ -999,7 +992,7 @@ load_qs <- function(url) {
   tmp <- tempfile(pattern = "load_qs_", fileext = ".qs", tmpdir = getwd())
   on.exit(unlink(tmp), add = TRUE)
   writeBin(curl::curl_fetch_memory(url)$content, tmp)
-  .expressanalyst_qd_read(tmp)
+  ov_qs_read(tmp)
 }
 
 readDataset <- function(dataName = "", quiet = FALSE) {
@@ -1021,7 +1014,7 @@ readDataset <- function(dataName = "", quiet = FALSE) {
 
       } else {                                              # fall back to .qs
         qsfile <- replace_extension_with_qs(dataName)
-        obj <- .expressanalyst_qread(qsfile)
+        obj <- ov_qs_read(qsfile)
       }
 
     invisible(obj)  # Suppress console output in R Markdown
@@ -1062,17 +1055,17 @@ PrepareSqliteDB <- function(sqlite_Path, onweb = TRUE) {
 
 saveDataQs <-function(data, name, module.nm, dataName){
   if(module.nm == "metadata"){
-    .expressanalyst_qsave(data, file=paste0(dataName, "_data/", name));
+    ov_qs_save(data, file=paste0(dataName, "_data/", name));
   }else{
-    .expressanalyst_qsave(data, file=name);
+    ov_qs_save(data, file=name);
   }
 }
 
 readDataQs <-function(name, module.nm, dataName){
   if(module.nm == "metadata"){
-    dat <- .expressanalyst_qread(file=paste0(dataName, "_data/", name));
+    dat <- ov_qs_read(file=paste0(dataName, "_data/", name));
   }else{
-    dat <- .expressanalyst_qread(file=name);
+    dat <- ov_qs_read(file=name);
   }
   return(dat);
 }
@@ -1084,7 +1077,7 @@ PrepareReport <- function(objective, abstract, animalDetails, exposureDetails, c
   dataSet$reportSummary$animal <<- animalDetails;
   dataSet$reportSummary$exposure <<- exposureDetails;
   dataSet$reportSummary$chip <<- ecotoxchipDetails;
-  data.orig <- .expressanalyst_qread("data.raw.qs"); 
+  data.orig <- ov_qs_read("data.raw.qs"); 
   dataSet$reportSummary$read.msg <<- paste("In this analysis, the uploaded data files were combined into a ", nrow(data.orig),
                                           " (wells) by ", ncol(data.orig), " (samples) data matrix.", sep="");
 }

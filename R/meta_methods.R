@@ -44,7 +44,7 @@ CheckMetaDataIntegrity <- function(){
   clss <- list();
   if(paramSet$meta.upload){
     # update meta data only for select/deselect datasets
-    inmex.meta.orig <- .expressanalyst_qread("inmex.meta.orig.qs");
+    inmex.meta.orig <- ov_qs_read("inmex.meta.orig.qs");
     hit.inx <- inmex.meta.orig$data.lbl %in% sel.nms;
     data <- inmex.meta.orig$data[, hit.inx];
     id.type <- inmex.meta.orig$id.type;
@@ -205,11 +205,11 @@ SanityAttachMeta(sel.nms, paramSet, msgSet);
                          cls.lbl=factor(cls.lbl),
                          data.lbl=data.lbl);
   if(!file.exists("inmex.meta.orig.qs")){
-    .expressanalyst_qsave(inmex.meta.orig, "inmex.meta.orig.qs");
+    ov_qs_save(inmex.meta.orig, "inmex.meta.orig.qs");
   }
   #message("[MetaQC] Saved merged meta (raw snapshot)");
   if(!file.exists("inmex_meta.qs")){
-  .expressanalyst_qsave(inmex.meta, "inmex_meta.qs");
+  ov_qs_save(inmex.meta, "inmex_meta.qs");
   }
   #message("[MetaQC] Saved merged meta (current)");
   paramSet$smps.vec <- colnames(common.matrix);
@@ -228,7 +228,7 @@ PerformMetaDeAnal <- function(paramSet){
   nms.vec <- paramSet$nms.vec;
   mdata.all <- paramSet$mdata.all;
 
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");   
+  inmex.meta <- ov_qs_read("inmex_meta.qs");   
   data.lbl <- inmex.meta$data.lbl
   allmat <- matrix("NA", nrow=length(nms.vec), ncol=length(data.lbl))
   rownames(allmat) <- nms.vec
@@ -250,7 +250,7 @@ PerformMetaDeAnal <- function(paramSet){
 
 .performEachDEAnal <- function(is.meta=F){
   inmex.ind <- list();
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   paramSet <- readSet(paramSet, "paramSet");
   analSet <- readSet(analSet, "analSet");
   
@@ -272,10 +272,10 @@ PerformMetaDeAnal <- function(paramSet){
       #res.limma <- PerformLimma(data, group);
       
       # save the limma fit object for meta-analysis (such as "dataSet1.fit.obj")
-      .expressanalyst_qsave(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep="."));
+      ov_qs_save(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep="."));
       
       res.all <- GetLimmaResTable(dataSet$fit.obj);
-      .expressanalyst_qsave(res.all, "meta.resTable.qs");
+      ov_qs_save(res.all, "meta.resTable.qs");
       res.mat <- cbind(logFC=res.all$logFC, Pval = res.all$adj.P.Val);
       
       rownames(res.mat) <- rownames(res.all);
@@ -314,10 +314,10 @@ PerformMetaDeAnal <- function(paramSet){
       #}else{
       # save dataSet object for meta-analysis
       #res.limma <- PerformLimma(data, group);
-      .expressanalyst_qsave(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep=".")); 
+      ov_qs_save(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep=".")); 
       res.all <- GetLimmaResTable(dataSet$fit.obj);
       #}
-      .expressanalyst_qsave(res.all, "meta.resTable.qs");
+      ov_qs_save(res.all, "meta.resTable.qs");
       
       res.mat <- cbind(logFC=res.all$logFC, Pval = res.all$adj.P.Val);
       
@@ -367,7 +367,7 @@ PerformMetaEffectSize<- function(method="rem", BHth=0.05){
     paramSet <- readSet(paramSet, "paramSet");
   }
 
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   paramSet$inmex.method <- "effectsize";
   analSet$meta.mat <- meta.stat <<- NULL;
   
@@ -382,7 +382,7 @@ PerformMetaEffectSize<- function(method="rem", BHth=0.05){
     dataSet <- readDataset(data.nm);
     
     fit.obj.nm <- paste(data.nm, "fit.obj", sep=".");
-    fit2i <- .expressanalyst_qread(fit.obj.nm);
+    fit2i <- ov_qs_read(fit.obj.nm);
     
     pvals <- p.adjust(fit2i$p.value,method="BH");
     listgd[[i]]=which(pvals<=BHth);
@@ -419,7 +419,7 @@ PerformMetaEffectSize<- function(method="rem", BHth=0.05){
   colnames(es.mat) <- c("CombinedES","Pval");
   rownames(es.mat) <- rownames(inmex.meta$data);
   #allMeta.mat <<- es.mat;
-  .expressanalyst_qsave(es.mat, "allMeta.mat.qs");
+  ov_qs_save(es.mat, "allMeta.mat.qs");
   
   # now keep only genes with at least on sig (in one study or meta analysis)
   inx <- union(listgd[[(nbstudies+1)]], listgd[[(nbstudies+2)]]);
@@ -464,7 +464,7 @@ PerformPvalCombination <- function(method="stouffer", BHth=0.05){
     paramSet <- readSet(paramSet, "paramSet");
   }
 
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   paramSet$inmex.method <- "metap";
   meta.mat <<- meta.stat <<- NULL;
   sel.nms <- names(mdata.all)[mdata.all==1];
@@ -479,7 +479,7 @@ PerformPvalCombination <- function(method="stouffer", BHth=0.05){
     classes[[i]] <- dataSet$cls; 
     
     fit.obj.nm <- paste(data.nm, "fit.obj", sep=".");
-    fit2i <- .expressanalyst_qread(fit.obj.nm);
+    fit2i <- ov_qs_read(fit.obj.nm);
     
     pvals <- p.adjust(fit2i$p.value,method="BH");
     listgd[[i]]=which(pvals<=BHth);
@@ -512,7 +512,7 @@ PerformPvalCombination <- function(method="stouffer", BHth=0.05){
   
   pc.mat <- cbind(CombinedTstat=restempdirect$CombinedStat, CombinedPval=restempdirect$CombinedP);
   rownames(pc.mat) <- rownames(inmex.meta$data);
-  .expressanalyst_qsave(pc.mat, "allMeta.mat.qs");
+  ov_qs_save(pc.mat, "allMeta.mat.qs");
   
   # now keep only genes with at least on sig (in one study or meta analysis)
   inx <- union(listgd[[(nbstudies+1)]], listgd[[(nbstudies+2)]]);
@@ -556,7 +556,7 @@ PerformVoteCounting <- function(BHth = 0.05, minVote){
     analSet <- PerformMetaDeAnal(paramSet);
     paramSet <- readSet(paramSet, "paramSet");
   }
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   paramSet$inmex.method <- "votecount";
   DE.vec <<- NULL; # store entrez id from meta-analysis for GO
   meta.mat <<- meta.stat <<- NULL;
@@ -597,7 +597,7 @@ PerformVoteCounting <- function(BHth = 0.05, minVote){
   #sort
   ord.inx <- order(abs(vc.mat[, "VoteCounts"]), decreasing = T);
   vc.mat <- vc.mat[ord.inx, "VoteCounts", drop=F];
-  .expressanalyst_qsave(vc.mat, "allMeta.mat.qs");
+  ov_qs_save(vc.mat, "allMeta.mat.qs");
 
   sig.inx <- unname(abs(vc.mat[,"VoteCounts"]) >= minVote); 
   df <- data.frame(vc.mat[sig.inx, ]);
@@ -636,7 +636,7 @@ PerformMetaMerge<-function(BHth=0.05){
   }
   paramSet$inmex.method <- "merge";
   meta.mat <<- meta.stat <<- NULL;
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   # prepare for meta-stats
   # calculate sig genes for individual analysis
   shared.names <- rownames(inmex.meta$data);
@@ -646,7 +646,7 @@ PerformMetaMerge<-function(BHth=0.05){
   
   ord.inx <- order(res.all$adj.P.Val, decreasing=F);
   dm.mat <- as.matrix(res.all[ord.inx,c("logFC", "adj.P.Val")]);
-  .expressanalyst_qsave(dm.mat, "allMeta.mat.qs");
+  ov_qs_save(dm.mat, "allMeta.mat.qs");
   colnames(dm.mat) <- c("AverageFc", "Pval");
   
   sig.inx <- which(dm.mat[,"Pval"] <= BHth);
@@ -665,7 +665,7 @@ PerformMetaMerge<-function(BHth=0.05){
 }
 
 GetMetaGeneIDType<-function(){
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   return(inmex.meta$id.type);
 }
 
@@ -688,7 +688,7 @@ GetMetaResultGeneSymbols<-function(){
   if(length(ids) > 1000){
     ids <- ids[1:1000];
   }
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   if(inmex.meta$id.type == "entrez"){ # row name gene symbols
     ids <- inmex.meta$gene.symbls[ids];
   }
@@ -709,7 +709,7 @@ GetMetaResultGeneIDLinks <- function(){
   if(length(ids) > 1000){
     ids <- ids[1:1000];
   }
-  #inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  #inmex.meta <- ov_qs_read("inmex_meta.qs");
   #symbs <- inmex.meta$gene.symbls[ids];
   # set up links to genbank
   if(paramSet$data.org == "ko"){
@@ -781,7 +781,7 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
     gene_ids <- rownames(result)
 
     # Get symbols
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs")
+    inmex.meta <- ov_qs_read("inmex_meta.qs")
     if (inmex.meta$id.type == "entrez") {
       symbols <- inmex.meta$gene.symbls[gene_ids]
     } else {

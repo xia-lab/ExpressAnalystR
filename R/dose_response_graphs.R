@@ -129,7 +129,7 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     
     #generate dataframe with model fit interpolations
     fit.interp <- interpFits();
-    .expressanalyst_qsave(fit.interp, "fit.interp.qs");
+    ov_qs_save(fit.interp, "fit.interp.qs");
 
     # fill blank gene names with NA
     geneNms <- doEntrez2SymbolMapping(bmdcalc.res$id)[order(bmdcalc.res$bmd)]
@@ -638,7 +638,7 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
     require(grid)
 
     pws <- dataSet$pathway.ids
-    fit.interp <- .expressanalyst_qread("fit.interp.qs");
+    fit.interp <- ov_qs_read("fit.interp.qs");
     bmd.vals <- dataSet$html.resTable[,c(1,5)]
 
     pw.genes <- pws[pws$pathway == pathway,][,c(1,3)]

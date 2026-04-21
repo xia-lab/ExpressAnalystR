@@ -137,7 +137,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
 
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     if(inmex.meta$id.type == "entrez"){
       cmpdNm <- inmex.meta$gene.symbls[gene.id];
     }else{
@@ -286,7 +286,7 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
 
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     if(inmex.meta$id.type == "entrez"){
       cmpdNm <- inmex.meta$gene.symbls[gene.id];
     }else{

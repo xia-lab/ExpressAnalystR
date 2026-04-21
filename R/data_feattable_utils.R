@@ -139,7 +139,7 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     data <- data[,hit.inx];
     meta.info <- dataSet$meta.info[hit.inx,];
   }
-  .expressanalyst_qsave(data, file="data.stat.qs");
+  ov_qs_save(data, file="data.stat.qs");
 o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
 dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
 dataSet$comp.res <- dataSet$comp.res[
@@ -154,7 +154,7 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
     gene.anot <- doEntrezIDAnot(anot.id, paramSet$data.org, paramSet$data.idType)
     fast.write(cbind(EntrezID=anot.id, signif (dataSet$comp.res,5), Symbols = gene.anot$symbol,  Name=gene.anot$name), row.names=F, file=filename);
   } else if (file.exists("annotation.qs")){ # annotation information available
-    anot.id <- .expressanalyst_qread("annotation.qs");
+    anot.id <- ov_qs_read("annotation.qs");
     feature.vec <- rownames(dataSet$comp.res);
     entrez.vec <- anot.id[feature.vec];
     gene.anot <- doEntrezIDAnot(entrez.vec, paramSet$data.org, paramSet$data.idType);
@@ -386,7 +386,7 @@ dataSet$comp.res <- rbind(resTable, other)
       symbol_col <- anot$symbol
       name_col   <- anot$name
     } else if (file.exists("annotation.qs")) {
-      anot.id     <- .expressanalyst_qread("annotation.qs")
+      anot.id     <- ov_qs_read("annotation.qs")
       mapped_ids  <- anot.id[gene_ids]
       gene_id_col <- mapped_ids
       anot <- tryCatch(
@@ -507,7 +507,7 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
       symbol_col <- anot$symbol
       name_col <- anot$name
     } else if (file.exists("annotation.qs")) {
-      anot.id <- .expressanalyst_qread("annotation.qs")
+      anot.id <- ov_qs_read("annotation.qs")
       mapped_ids <- anot.id[gene_ids]
       gene_id_col <- mapped_ids
       anot <- tryCatch(

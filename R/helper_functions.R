@@ -172,7 +172,7 @@ GetSampleInfo <- function(dataName, clsLbl){
 #for metadata
 GetMetaSummaryData<- function(){
     paramSet <- readSet(paramSet, "paramSet");
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     sel.nms <- unique(inmex.meta$data.lbl)
     sel.nms <- paste(sel.nms, collapse="; ")
     cls.lbls <- unique(inmex.meta$cls.lbl)
@@ -183,7 +183,7 @@ GetMetaSummaryData<- function(){
 }
 
 GetDatasetNamesString <- function(){
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     paste(unique(inmex.meta$data.lbl), collapse="||");
 }
 
@@ -242,7 +242,7 @@ GetExpressResultGeneIDLinks <- function(dataName=""){
 
 
 GetExpressResultColNames<-function(){
-  resT <- .expressanalyst_qread("express.de.res.qs");
+  resT <- ov_qs_read("express.de.res.qs");
   colnames(resT);
 }
 
@@ -293,7 +293,7 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
       colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
-    .expressanalyst_qsave(res, "express.de.res.qs")
+    ov_qs_save(res, "express.de.res.qs")
     result <- head(signif(as.matrix(res), 5), 1000)
     # Safe-Handshake: Arrow save with verification
     tryCatch({

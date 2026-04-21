@@ -27,7 +27,7 @@ my.json.scatter <- function(dataSet, filenm="abc"){
     # OPTIMIZED: Combine once at the end
     seeds <- unlist(seeds_list);
     meta <- do.call(rbind, meta_list);
-    sig.tbl <- .expressanalyst_qread("meta.resTable.qs");
+    sig.tbl <- ov_qs_read("meta.resTable.qs");
     sig.tbl$id <- rownames(sig.tbl);
     sig.mats[[1]] <- sig.tbl;
   }else{
@@ -40,8 +40,8 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   
   reductionSet <- dataSet;
   # rgl/igraph not needed — 3D rendering is handled by the browser (three.js)
-  pca3d<-.expressanalyst_qread("pca3d.qs");
-  pos.xyz <-.expressanalyst_qread("score_pos_xyz.qs");
+  pca3d<-ov_qs_read("pca3d.qs");
+  pos.xyz <-ov_qs_read("score_pos_xyz.qs");
 
   nodes <- vector(mode="list");
   names <- c(rownames(pos.xyz));
@@ -102,7 +102,7 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   
   metadf < meta;
   
-  loading.data <- .expressanalyst_qread("loading_pos_xyz.qs");
+  loading.data <- ov_qs_read("loading_pos_xyz.qs");
   aLoading<-list();
   aLoading$objects <- "NA";
   

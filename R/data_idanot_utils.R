@@ -46,9 +46,9 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   dataSet$annotated <- F;
   # should not contain duplicates, however sanity check
   if(dataType=="prot"){
-    data.proc <- .expressanalyst_qread("int.mat.qs");
+    data.proc <- ov_qs_read("int.mat.qs");
   }else{
-    data.proc <- .expressanalyst_qread("data.raw.qs");
+    data.proc <- ov_qs_read("data.raw.qs");
   }
   data.anot <- data.proc;
   
@@ -67,7 +67,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     
     saveDataQs(symbol.map, "symbol.map.qs", paramSet$anal.type, dataName);
     
-    .expressanalyst_qsave(symbol.map, "annotation.qs");
+    ov_qs_save(symbol.map, "annotation.qs");
     
     hit.inx <- !is.na(anot.id);
     matched.len <- sum(hit.inx);
@@ -111,13 +111,13 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     match_status = !is.na(anot.id),
     stringsAsFactors = FALSE
   );
-  .expressanalyst_qsave(id.map, file="id.map.qs");
+  ov_qs_save(id.map, file="id.map.qs");
   # need to save the ids (mixed gene annotation and original id) 
   # in case, users needs to keep unannotated features
   # this need to be updated to gether with data from now on
   dataSet$data.norm <- data.anot;
   
-  .expressanalyst_qsave(data.anot, file="orig.data.anot.qs"); # keep original copy, not in mem
+  ov_qs_save(data.anot, file="orig.data.anot.qs"); # keep original copy, not in mem
   col.sum <- colSums(dataSet$data.norm);
   totalCount <-  sum(col.sum);
   avgCount <- totalCount / ncol(dataSet$data.norm);
@@ -139,7 +139,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     RemoveMissingPercent(dataSet$name, 0.5)
     ImputeMissingVar(dataSet$name, method="min")
   }else{
-    .expressanalyst_qsave(data.anot, file="data.missed.qs");
+    ov_qs_save(data.anot, file="data.missed.qs");
   }
 
   data.anot <- sanitizeSmallNumbers(data.anot);
@@ -400,7 +400,7 @@ queryGeneDB <- function(db.nm, org){
   }
   paramSet <- readSet(paramSet, "paramSet");    
   if(db.nm == "custom" || org == "custom"){
-    db.map <- .expressanalyst_qread("anot_table.qs");
+    db.map <- ov_qs_read("anot_table.qs");
   }else{
     require('RSQLite');
     
@@ -570,7 +570,7 @@ firstup <- function(x) {
         #'@export
         GenerateGeneMappingReport <- function(dataName=""){
           output_file <- "gene_mapping_report.csv";
-            id.map <- .expressanalyst_qread("id.map.qs");
+            id.map <- ov_qs_read("id.map.qs");
             write.csv(id.map, file=output_file, row.names=FALSE);
             return(output_file);
           

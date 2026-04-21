@@ -15,7 +15,7 @@ BuildIgraphFromCEM <- function(thresh    = 0.05,
   library(reshape2)
   
   ## ── 1 · read the CEMiTool object ────────────────────────────────
-  cem <- .expressanalyst_qread("cem.qs")
+  cem <- ov_qs_read("cem.qs")
   
   ## ── 2 · make sure we have an adjacency matrix -------------------
   ##     (CEMiTool stores β only if you explicitly asked for it.)
@@ -90,7 +90,7 @@ V(g)$colorw <- V(g)$color                             # same for dark bg
   xy <- layoutFun(g)
   V(g)$posx <- xy[, 1]
   V(g)$posy <- xy[, 2]
-  analSet <- .expressanalyst_qread("analSet.qs");
+  analSet <- ov_qs_read("analSet.qs");
   analSet$overall.graph <- g;
   analSet$overall.graph.orig <- g;
 
