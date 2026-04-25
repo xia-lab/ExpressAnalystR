@@ -10,7 +10,7 @@ Authors@R: c(
            )
 Description: Underlying R functions for ExpressAnalyst web server.
 License: GPL (>= 2)
-Depends: R (>= 4.0.3), igraph, RColorBrewer, qs, rjson, RSQLite, ggplot2, Cairo
+Depends: R (>= 4.0.3), igraph, RColorBrewer, qs2, rjson, RSQLite, ggplot2, Cairo
 Imports: Rcpp, BiocManager, data.table, metap, RJSONIO, ks, fgsea,
     dplyr, ggforce, graphlayouts, httr, knitr, rgl, edgeR, limma, sva,
     pryr, readr, metagenomeSeq

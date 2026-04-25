@@ -19,13 +19,8 @@ my.json.scatter <- function(dataSet, filenm="abc"){
       seeds_list[[i]] <- rownames(dataSet$sig.mat);
     }
     seeds <- unlist(seeds_list);
-
-    # Use inmex_meta for sample metadata — matches PCA sample order
-    inmex.meta <- qs::qread("inmex_meta.qs");
-    dat.inx <- inmex.meta$data.lbl %in% sel.nms;
-    meta <- paramSet$dataSet$meta.info[dat.inx,,drop=FALSE];
-
-    sig.tbl <- qs::qread("meta.resTable.qs");
+    meta <- do.call(rbind, meta_list);
+    sig.tbl <- ov_qs_read("meta.resTable.qs");
     sig.tbl$id <- rownames(sig.tbl);
     sig.mats[[1]] <- sig.tbl;
   }else{
@@ -38,8 +33,8 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   
   reductionSet <- dataSet;
   # rgl/igraph not needed — 3D rendering is handled by the browser (three.js)
-  pca3d<-qs::qread("pca3d.qs");
-  pos.xyz <-qs::qread("score_pos_xyz.qs");
+  pca3d<-ov_qs_read("pca3d.qs");
+  pos.xyz <-ov_qs_read("score_pos_xyz.qs");
 
   nodes <- vector(mode="list");
   names <- c(rownames(pos.xyz));
@@ -103,7 +98,9 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   require(RJSONIO);
   
   
-  loading.data <- qs::qread("loading_pos_xyz.qs");
+  metadf < meta;
+  
+  loading.data <- ov_qs_read("loading_pos_xyz.qs");
   aLoading<-list();
   aLoading$objects <- "NA";
 

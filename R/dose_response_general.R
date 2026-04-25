@@ -1252,11 +1252,7 @@ GetFitResultMatrix <- function(){
   res <- signif(res, 5)
   res[is.na(res)] <- NaN;
   res <- as.data.frame(res);
-  if(ncol(res) == 9) {
-    colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
-  } else {
-    colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
-  }
+  colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
 
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
@@ -1270,14 +1266,8 @@ GetFitResultMatrix <- function(){
 }
 
 GetFitResultColNames <-function(){
-  paramSet <- readSet(paramSet, "paramSet");
-  dataSet <- readDataset(paramSet$dataName);
-  res <- dataSet$html.resTable;
-  ncols <- ncol(res) - 2;  # subtract gene.id and mod.name
-  if(ncols == 9) {
-    return(c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e"));
-  }
-  return(c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e"));
+  names <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
+  return(names);
 }
 
 GetFitResultGeneIDs <- function(){

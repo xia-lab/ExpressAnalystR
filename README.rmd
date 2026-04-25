@@ -44,7 +44,7 @@ install.packages("pacman")
 
 library(pacman)
 
-pacman::p_load(igraph, RColorBrewer, qs, rjson, RSQLite)
+pacman::p_load(igraph, RColorBrewer, qs2, rjson, RSQLite)
 ```
 
 ### 2. Install the package

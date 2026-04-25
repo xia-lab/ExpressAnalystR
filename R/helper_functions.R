@@ -172,7 +172,7 @@ GetSampleInfo <- function(dataName, clsLbl){
 #for metadata
 GetMetaSummaryData<- function(){
     paramSet <- readSet(paramSet, "paramSet");
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     sel.nms <- unique(inmex.meta$data.lbl)
     sel.nms <- paste(sel.nms, collapse="; ")
     cls.lbls <- unique(inmex.meta$cls.lbl)
@@ -183,7 +183,7 @@ GetMetaSummaryData<- function(){
 }
 
 GetDatasetNamesString <- function(){
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     paste(unique(inmex.meta$data.lbl), collapse="||");
 }
 
@@ -242,7 +242,7 @@ GetExpressResultGeneIDLinks <- function(dataName=""){
 
 
 GetExpressResultColNames<-function(){
-  resT <- qs::qread("express.de.res.qs");
+  resT <- ov_qs_read("express.de.res.qs");
   colnames(resT);
 }
 
@@ -283,25 +283,17 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
         colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
 
-    o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
-    dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
-    dataSet$comp.res <- dataSet$comp.res[
-        !(rownames(dataSet$comp.res) %in% rownames(dataSet$sig.mat)), ]
-    dataSet$comp.res <- rbind(dataSet$sig.mat, dataSet$comp.res)
-    dataSet$comp.res <- dataSet$comp.res[complete.cases(dataSet$comp.res), ]
+    ## comp.res is already ordered (sig first, then by p-value) from the DE analysis.
+    ## No re-sorting needed — re-sorting would desync comp.res from comp.genes.symbols.
 
     ## --- now extract the column(s) for the return value -------
     if (dataSet$de.method %in% c("limma", "edger", "deseq2", "wtt")) {
-      #res <- dataSet$comp.res.list[[inxt]]
       res <- dataSet$comp.res
     } else {
       res <- dataSet$comp.res[ , c(inxt, (inx+1):ncol(dataSet$comp.res)), drop = FALSE]
-      res <- res[order(res$P.Value), ]
       colnames(res)[1] <- colnames(dataSet$comp.res)[inxt]
     }
-
-    RegisterData(dataSet)
-    qs::qsave(res, "express.de.res.qs")
+    ov_qs_save(res, "express.de.res.qs")
     result <- head(signif(as.matrix(res), 5), 1000)
     # Safe-Handshake: Arrow save with verification
     tryCatch({

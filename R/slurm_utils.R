@@ -964,10 +964,10 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
   
   str <- paste(
     sprintf("cd \"%s\" || exit 1;", userDirEsc),
-    "cat", file.path(userDir, "sampleTable.txt"),
-    "| while read fn ff rf grp; do echo processing sample ${fn};",
     sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", userDirParentEsc, userDirEsc),
     "mkdir -p \"${out_root}\";",
+    "cat", file.path(userDir, "sampleTable.txt"),
+    "| while read fn ff rf grp; do echo processing sample ${fn};",
     "sample_base=$(basename \"${fn}\");",
     "echo [DePlexer] $(date) sample=${fn} input_R1=${ff} input_R2=${rf};",
     "echo [DePlexer] $(date) sample=${fn} resolving_sample_ids;",
@@ -1056,7 +1056,6 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
 
       str_kallisto <- paste(
         "echo [DePlexer+Kallisto] $(date) starting_kallisto_quantification;",
-        sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", userDirParentEsc, userDirEsc),
         "for deplexer_dir in ${out_root}/*_deplexer_out; do",
         "[ -d \"${deplexer_dir}\" ] || continue;",
         "sample_base=$(basename \"${deplexer_dir}\" _deplexer_out);",
@@ -1073,7 +1072,6 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
 
       str_kallisto <- paste(
         "echo [DePlexer+Kallisto] $(date) starting_kallisto_quantification;",
-        sprintf("if [ -n \"${SLURM_JOB_ID}\" ]; then out_root=\"%s/job_${SLURM_JOB_ID}/output\"; else out_root=\"%s/output\"; fi;", userDirParentEsc, userDirEsc),
         "for deplexer_dir in ${out_root}/*_deplexer_out; do",
         "[ -d \"${deplexer_dir}\" ] || continue;",
         "sample_base=$(basename \"${deplexer_dir}\" _deplexer_out);",

@@ -63,11 +63,11 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
     if(paramSet$selDataNm == "meta_default"){
       if(ridgeType == "ora"){
         sigmat <- analSet$meta.mat;
-        allmat <- qs::qread("meta.resTable.qs");
+        allmat <- ov_qs_read("meta.resTable.qs");
         sigmat <- cbind(unname(meta.avgFC[rownames(sigmat)]), sigmat);
         
       }else{
-        allmat <- qs::qread("meta.resTable.qs");
+        allmat <- ov_qs_read("meta.resTable.qs");
         sigmat <- allmat;
         sigmat <- cbind(unname(meta.avgFC[rownames(sigmat)]), sigmat);
         
@@ -93,7 +93,7 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
     sym.vec <- doEntrez2SymbolMapping(gene.vec, paramSet$data.org, paramSet$data.idType);
     names(gene.vec) <- sym.vec;
     .performEnrichAnalysis(dataSet, imgNm, fun.type, gene.vec, "ridgeline")
-    res <- qs::qread("enr.mat.qs");
+    res <- ov_qs_read("enr.mat.qs");
     colnames(res) <- c("size", "expected", "overlap", "pval", "padj");
     
     res <- res[,c(4,5,3,1,2)]
@@ -119,24 +119,33 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
 
 
     use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
-    response <- rsclient_isolated_exec(
-      func_body = function(input_data) {
+    bridge_in_rl <- ov_bridge_file("in")
+    bridge_out_rl <- sub("_in.qs2", "_out.qs2", bridge_in_rl)
+    ov_qs_save(list(geneset = current.geneset.symb, ranked = rankedVec, use_nperm = use_nperm),
+              bridge_in_rl, preset = "fast")
+    on.exit(unlink(c(bridge_in_rl, bridge_out_rl)), add = TRUE)
+
+    run_func_via_rsclient(
+      func = function(wd, bridge_in, bridge_out) {
+        setwd(wd)
         require(fgsea)
         set.seed(123)
-        if (input_data$use_nperm) {
-          fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+        input <- ov_qs_read(bridge_in)
+        result <- if (input$use_nperm) {
+          fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                        minSize = 5, maxSize = 500, scoreType = "std", nperm = 10000)
         } else {
-          fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+          fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                        minSize = 5, maxSize = 500, scoreType = "std")
         }
+        ov_qs_save(result, bridge_out, preset = "fast")
       },
-      input_data = list(geneset = current.geneset.symb, ranked = rankedVec, use_nperm = use_nperm),
-      packages = c("fgsea", "qs"),
-      timeout = 600,
-      output_type = "qs"
+      args = list(wd = getwd(), bridge_in = bridge_in_rl, bridge_out = bridge_out_rl),
+      timeout_sec = 600
     )
-    if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+
+    response <- if (file.exists(bridge_out_rl)) ov_qs_read(bridge_out_rl) else NULL
+    if (is.null(response)) { msgSet$current.msg <- "fGSEA ridgeline analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
     res <- response
 
   }

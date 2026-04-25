@@ -60,8 +60,8 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- qs::qread("inmex_meta.qs");
-      sampleNms <- colnames(inmex$plot.data);
+      inmex <- ov_qs_read("inmex_meta.qs");
+      sampleNms <- colnames(inmex$plot_data);
       colnums <- dim(inmex$plot.data)[2]
       inx  <- rep(T, colnums)
       if(is.null(analSet$meta.mat.all) || nrow(analSet$meta.mat.all) == 0){
@@ -90,24 +90,33 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
 
   set.seed(123)
   use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
-  response <- rsclient_isolated_exec(
-    func_body = function(input_data) {
+  bridge_in <- ov_bridge_file("in")
+  bridge_out <- sub("_in.qs2", "_out.qs2", bridge_in)
+  ov_qs_save(list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
+            bridge_in, preset = "fast")
+  on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
+
+  run_func_via_rsclient(
+    func = function(wd, bridge_in, bridge_out) {
+      setwd(wd)
       require(fgsea)
       set.seed(123)
-      if (input_data$use_nperm) {
-        fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+      input <- ov_qs_read(bridge_in)
+      result <- if (input$use_nperm) {
+        fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                      minSize = 5, maxSize = 500, scoreType = "std", nperm = 1000)
       } else {
-        fgsea::fgsea(pathways = input_data$geneset, stats = input_data$ranked,
+        fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                      minSize = 5, maxSize = 500, scoreType = "std")
       }
+      ov_qs_save(result, bridge_out, preset = "fast")
     },
-    input_data = list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
-    packages = c("fgsea", "qs"),
-    timeout = 600,
-    output_type = "qs"
+    args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
+    timeout_sec = 600
   )
-  if (is.list(response) && isFALSE(response$success)) { msgSet$current.msg <- response$message; saveSet(msgSet, "msgSet"); return(0) }
+
+  response <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
+  if (is.null(response)) { msgSet$current.msg <- "fGSEA analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
   fgseaRes <- response
   
   fgseaRes <- fgseaRes[!duplicated(fgseaRes$pathway),]
@@ -146,7 +155,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   set.num <- unlist(lapply(current.mset, function(x){length(unique(x))}), use.names=TRUE);
   names(hits.query) <- names(current.mset);
   hit.num<-unlist(lapply(hits.query, function(x){length(x)}), use.names=TRUE);
-  qs::qsave(hits.query, "hits_query.qs");
+  ov_qs_save(hits.query, "hits_query.qs");
   fgseaRes$hits <- hit.num[which(fgseaRes$pathway  %in% names(hit.num))] 
   fgseaRes$total <- set.num[which(fgseaRes$pathway %in% names(set.num))]
   
@@ -233,7 +242,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     res.mat <- res.mat
   }
 
-    qs::qsave(res.mat, "enr.mat.qs");
+    ov_qs_save(res.mat, "enr.mat.qs");
 
   imgSet <- readSet(imgSet, "imgSet");
   if(mType == "network"){
@@ -317,7 +326,7 @@ my.compute.ranked.vec <- function(data, opt, inx = 1){
   paramSet$gseaRankOpt <- opt
   if(anal.type == "metadata"){
     if(paramSet$selDataNm == "meta_default"){
-      matr <- as.matrix(qs::qread("meta.resTable.qs"));
+      matr <- as.matrix(ov_qs_read("meta.resTable.qs"));
     }else{
       matr <- as.matrix(data$data)
     }
@@ -602,7 +611,7 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- qs::qread("inmex_meta.qs");
+      inmex <- ov_qs_read("inmex_meta.qs");
       dat <- inmex$plot.data
       gene.map <- data.frame(gene_id=names(inmex$gene.symbls), symbol=unname(inmex$gene.symbls));
     }else{
@@ -719,7 +728,7 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
 
 plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgName=NA){
   require("ggplot2");
-  current.geneset <- qs::qread("current_geneset.qs");
+  current.geneset <- ov_qs_read("current_geneset.qs");
   analSet <- readSet(analSet, "analSet");
   if(is.na(imgName)){
    imgName <- gsub("\\/", "_",  fileName);
@@ -731,22 +740,28 @@ plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgNa
 
   cmpdNm <- gsub("barcode_", "",fileName);
 
-  rsclient_isolated_exec(
-    func_body = function(input_data) {
+  bridge_in_gs <- ov_bridge_file("in")
+  bridge_out_gs <- sub("_in.qs2", "_out.qs2", bridge_in_gs)
+  ov_qs_save(list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
+                 imgName = imgName, dpi = dpi, format = format),
+            bridge_in_gs, preset = "fast")
+  on.exit(unlink(c(bridge_in_gs, bridge_out_gs)), add = TRUE)
+
+  run_func_via_rsclient(
+    func = function(wd, bridge_in, bridge_out) {
+      setwd(wd)
       require(fgsea); require(ggplot2); require(Cairo)
-      Cairo::Cairo(file = input_data$imgName, dpi = input_data$dpi,
+      input <- ov_qs_read(bridge_in)
+      Cairo::Cairo(file = input$imgName, dpi = input$dpi,
                    width = 5, height = 4, unit = "in",
-                   type = input_data$format, bg = "transparent")
-      g <- fgsea::plotEnrichment(input_data$geneset, input_data$ranked)
+                   type = input$format, bg = "transparent")
+      g <- fgsea::plotEnrichment(input$geneset, input$ranked)
       print(g)
       dev.off()
-      return(input_data$imgName)
+      ov_qs_save(input$imgName, bridge_out, preset = "fast")
     },
-    input_data = list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
-                      imgName = imgName, dpi = dpi, format = format),
-    packages = c("fgsea", "ggplot2", "Cairo", "qs"),
-    timeout = 120,
-    output_type = "qs"
+    args = list(wd = getwd(), bridge_in = bridge_in_gs, bridge_out = bridge_out_gs),
+    timeout_sec = 120
   )
   # plot/write failure is non-fatal
 

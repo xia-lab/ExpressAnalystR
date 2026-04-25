@@ -88,7 +88,7 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
   int.mat <- int.mat[,match(rownames(meta.info$meta.info),colnames(int.mat))]
   dataSet$data <- NULL;
   dataSet$name <- fileName;
-  qs::qsave(int.mat, "int.mat.qs");
+  ov_qs_save(int.mat, "int.mat.qs");
   msg <- paste("a total of ", ncol(int.mat), " samples and ", nrow(int.mat), " features were found");
   # remove NA, null
   row.nas <- apply(is.na(int.mat)|is.null(int.mat), 1, sum);
@@ -142,7 +142,7 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
   data.proc <- sanitizeSmallNumbers(data.proc);
   fast.write(sanitizeSmallNumbers(data.proc), file="data_original.csv");
 
-  qs::qsave(data.proc, "data.raw.qs");
+  ov_qs_save(data.proc, "data.raw.qs");
   dataSet$data.norm  <- data.proc;
   metaInx = which(rownames(dataSet$meta.info) %in% colnames(data.proc))
   
@@ -206,7 +206,7 @@ ReadTabExpressDataWithExclude <- function(fileName, metafileName="", metaContain
     return(readDataset(fileName))
   }
   dataSet <- readDataset(fileName)
-  data.raw <- qs::qread("data.raw.qs")
+  data.raw <- ov_qs_read("data.raw.qs")
   keep <- !(colnames(data.raw) %in% exclude.samples)
   data.raw <- data.raw[, keep, drop = FALSE]
   meta <- dataSet$meta.info
@@ -215,10 +215,10 @@ ReadTabExpressDataWithExclude <- function(fileName, metafileName="", metaContain
   dataSet$metaOrig <- meta
   dataSet$data.norm <- data.raw
 
-  qs::qsave(data.raw, "data.raw.qs")
-  qs::qsave(data.raw, "int.mat.qs")
-  qs::qsave(data.raw, "data.anot.qs")
-  qs::qsave(data.raw, "data.missed.qs")
+  ov_qs_save(data.raw, "data.raw.qs")
+  ov_qs_save(data.raw, "int.mat.qs")
+  ov_qs_save(data.raw, "data.anot.qs")
+  ov_qs_save(data.raw, "data.missed.qs")
   fast.write(sanitizeSmallNumbers(data.raw), file="data_original.csv")
   .save.annotated.data(data.raw)
 
@@ -257,7 +257,7 @@ ReadAnnotationTable <- function(fileName) {
     msgSet$current.msg <- "Please make sure the annotation contains exactly 3 columns";
   }
   colnames(anot.data) = c("gene_id", "symbol", "name");
-  qs::qsave(anot.data, "anot_table.qs");
+  ov_qs_save(anot.data, "anot_table.qs");
   saveSet(msgSet, "msgSet");
   return(1);
 }
@@ -353,7 +353,7 @@ ReadCustomLib <- function(fileName) {
   }
   
   # Step 6: Save the gene set list into a .qs file
-  qs::qsave(gene_set_list, "custom_lib.qs")
+  ov_qs_save(gene_set_list, "custom_lib.qs")
   
   # Update paramSet with the custom library file name
   paramSet$custom.lib <- fileName

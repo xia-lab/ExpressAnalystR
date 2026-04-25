@@ -164,7 +164,7 @@ validateColumns <- function(tab, required, context = "") {
 #' @export
 shadow_save <- function(obj, file, compress = "uncompressed") {
     # Always save to qs for R compatibility
-    qs::qsave(obj, file)
+    ov_qs_save(obj, file)
 
     # Generate Arrow path
     arrow_path <- sub("\\.qs$", ".arrow", file)
@@ -220,7 +220,7 @@ shadow_save <- function(obj, file, compress = "uncompressed") {
 #' @export
 shadow_save_mixed <- function(obj, file, compress = "uncompressed") {
     # Always save qs format for backward compatibility
-    qs::qsave(obj, file)
+    ov_qs_save(obj, file)
 
     # Derive Arrow path
     arrow_path <- sub("\\.qs$", ".arrow", file)
@@ -507,7 +507,7 @@ ExportFeatureTableArrow <- function(comp_res, symbols = NULL, links = NULL,
         arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
 
         # Also save column names for Java reference
-        qs::qsave(colnames(comp_res), "express.de.res.qs")
+        ov_qs_save(colnames(comp_res), "express.de.res.qs")
 
         # SAFE-HANDSHAKE: Verify file is ready
         Sys.sleep(0.02)

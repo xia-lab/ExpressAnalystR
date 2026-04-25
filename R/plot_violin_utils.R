@@ -24,9 +24,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
     data.norm <- dataSet$data.norm;
   }
   if(anal.type == "onedata"){
-    ids <- rownames(dataSet$comp.res);
-    inx <- which(ids == gene.id);
-    cmpdNm <- analSet$comp.genes.symbols[inx]; 
+    cmpdNm <- doEntrez2SymbolMapping(gene.id, paramSet$data.org, paramSet$data.idType);
     if(type== "volcano"){
       cmpdNm <- "";
     }    
@@ -139,7 +137,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
 
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     if(inmex.meta$id.type == "entrez"){
       cmpdNm <- inmex.meta$gene.symbls[gene.id];
     }else{
@@ -254,9 +252,7 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
   data.norm <- dataSet$data.norm[,colnames(dataSet$data.norm) %in% rownames(meta)];
   
   if(anal.type == "onedata"){
-    ids <- rownames(dataSet$comp.res);
-    inx <- which(ids == gene.id);
-    cmpdNm <- analSet$comp.genes.symbols[inx];
+    cmpdNm <- doEntrez2SymbolMapping(gene.id, paramSet$data.org, paramSet$data.idType);
 
     # FIX: Suppress Quartz popup on macOS
     Cairo(file = imgName,  width=320*dpi/72, height=380*dpi/72, type=format, dpi=dpi, bg="white");
@@ -290,7 +286,7 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
 
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     if(inmex.meta$id.type == "entrez"){
       cmpdNm <- inmex.meta$gene.symbls[gene.id];
     }else{
