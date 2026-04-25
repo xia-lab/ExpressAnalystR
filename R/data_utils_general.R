@@ -38,6 +38,12 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
   .on.public.web <<- onWeb;
   dataSet <- list(annotated=FALSE);
   dataSet <<- dataSet;
+  # Also reset the plural dataSets registry so dataset names from a prior
+  # session don't bleed into this one (readDataset() falls through to the
+  # in-memory registry first, and a stale name there causes spurious
+  # "cannot load 'foo.txt'" warnings plus downstream NULL-deref errors in
+  # GetMetaSummary / GetResColType).
+  dataSets <<- list();
   analSet <<- list(objName="analSet");
   paramSet <<- list( objName="paramSet");
 

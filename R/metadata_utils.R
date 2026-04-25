@@ -221,7 +221,15 @@ GetResColType <- function(dataName="",colNm="NA"){
     paramSet <- readSet(paramSet, "paramSet")
     dat <- paramSet$dataSet;
   }
-  
+
+  # readDataset returns NULL when the .qs file is missing (stale dataName
+  # held by a Java caller after the R session was reinitialised). Without
+  # this guard, the rep(T, ncol(NULL)) below errors with
+  # "invalid 'times' argument".
+  if(is.null(dat) || is.null(dat$meta.info) || length(dim(dat$meta.info)) < 2){
+    return(character(0));
+  }
+
   if(colNm=="NA"){
     meta.status <- ifelse(dat$disc.inx,"disc","cont")
   }else{
@@ -537,6 +545,13 @@ GetMetaSummary <- function(dataName = "") {
 }
 
 na.check <- function(mydata){
+  # Guard against NULL / scalar / zero-column input. apply() blows up on
+  # those with "dim(X) must have a positive length", which is what we see
+  # when GetMetaSummary() is invoked with a stale dataName whose qs file
+  # is missing (readDataset returns NULL, so dataSet$meta.info is NULL).
+  if(is.null(mydata) || length(dim(mydata)) < 2 || ncol(mydata) == 0){
+    return("None")
+  }
   na.idx <- apply(mydata,2,function(x) "NA" %in% x)
   if(all(!na.idx)){
     return("None")
