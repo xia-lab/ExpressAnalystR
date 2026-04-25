@@ -439,6 +439,7 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     result.list <- list()
     for (nm in colnames(contrast.matrix)) {
       tbl <- topTable(fit2, coef = nm, number = Inf, adjust.method = "fdr")
+      if (!is.null(tbl$ID)) { rownames(tbl) <- tbl$ID; tbl$ID <- NULL; }
       colnames(tbl)[colnames(tbl) == "FDR"] <- "adj.P.Val"
       result.list[[nm]] <- tbl
     }

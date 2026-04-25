@@ -103,7 +103,25 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     hit.inx <- !is.na(anot.id);
     matched.len <- length(feature.vec); # dummies
     minLvl <- 1;
-    current.msg <- paste("No annotation was performed. Make sure organism and gene ID are specified correctly!"); 
+    current.msg <- paste("No annotation was performed. Make sure organism and gene ID are specified correctly!");
+
+    # Without entrez-level annotation we don't get the dedup that RemoveDuplicates
+    # normally performs. Duplicate rownames downstream cause limma::topTable to
+    # spill rownames into an "ID" column and break GetSigGenes. Collapse here.
+    if (anyDuplicated(rownames(data.anot))) {
+      n.dup <- sum(duplicated(rownames(data.anot)));
+      collapse.opt <- if (lvlOpt != "NA") lvlOpt else "mean";
+      res <- RemoveDuplicates(data.anot, collapse.opt, quiet = TRUE, paramSet, msgSet);
+      data.anot <- res[[1]];
+      msgSet   <- res[[2]];
+      feature.vec <- rownames(data.anot);
+      anot.id     <- feature.vec;
+      hit.inx     <- !is.na(anot.id);
+      matched.len <- length(feature.vec);
+      current.msg <- paste(current.msg,
+        sprintf("%d duplicate IDs were collapsed by %s. For proper annotation, please specify organism and ID type.",
+                n.dup, collapse.opt));
+    }
   }
   id.map <- data.frame(
     original_id = feature.vec,
