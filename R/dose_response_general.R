@@ -210,6 +210,9 @@ PerformDRFit <- function(ncpus = 2)
     print("Could not find models vector!");
     return(0);
   }
+  # Persist so the report subprocess can print the user's model choices.
+  paramSet$dr.models <- models;
+  saveSet(paramSet, "paramSet");
 
   itemselect <- dataSet$itemselect;
   
@@ -702,6 +705,9 @@ FilterDRFit <- function()
   }
   require(data.table)
   lof.pval <- as.numeric(lof.pval)
+  # Persist so the report subprocess can print the user's lack-of-fit cutoff.
+  paramSet$dr.lof.pval <- lof.pval;
+  saveSet(paramSet, "paramSet");
 
   # get results
   fitres.all <- as.data.table(dataSet$drcfit.obj$fitres.all)
@@ -754,6 +760,9 @@ PerformBMDCalc <- function(ncpus = 1)
   f.its <- dataSet$itemselect;
 
   num.sds <- as.numeric(num.sds);
+  # Persist so the report subprocess can print the user's BMR factor.
+  paramSet$dr.num.sds <- num.sds;
+  saveSet(paramSet, "paramSet");
 
   # Convert constrain.bmd.range from string to logical
   if (exists("constrain.bmd.range")) {
