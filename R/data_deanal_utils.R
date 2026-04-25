@@ -934,8 +934,16 @@ MultiCovariateRegression <- function(fileName,
     fit <- contrasts.fit(fit, contrast.matrix);
     fit <- eBayes(fit, trend=robustTrend, robust=robustTrend);
     rest <- topTable(fit, number = Inf);
-    
-    if(contrast != "anova"){    
+    # limma >= 3.x topTable prepends an "ID" column when rownames(fit) is
+    # non-null (i.e. always — feature_table carries gene IDs as rownames).
+    # Downstream `make_comp_res_list` and `GetSigGenes` assume the first
+    # column is the logFC, so strip the ID column the same way
+    # `GetLimmaResTable` already does. Without this, comp.res.list gets a
+    # character "ID" column that crashes abs(logfc.mat) in GetSigGenes
+    # with "non-numeric-alike variable(s) in data frame: ID".
+    if (!is.null(rest$ID)) { rownames(rest) <- rest$ID; rest$ID <- NULL; }
+
+    if(contrast != "anova"){
       colnames(rest)[1] <- myargs[[1]];
       grp.nms<-c(ref,contrast)
       
@@ -951,6 +959,7 @@ MultiCovariateRegression <- function(fileName,
         fit <- contrasts.fit(fit, contrast.matrix);
         fit <- eBayes(fit, trend=robustTrend, robust=robustTrend);
         res.noadj <- topTable(fit, number = Inf);
+        if (!is.null(res.noadj$ID)) { rownames(res.noadj) <- res.noadj$ID; res.noadj$ID <- NULL; }
         dataSet$res.noadj <- res.noadj;
     }
 
@@ -994,6 +1003,10 @@ MultiCovariateRegression <- function(fileName,
     # get results
     fit <- eBayes(fit, trend=robustTrend, robust=robustTrend);
     rest <- topTable(fit, number = Inf, coef = analysis.var);
+    # See note above: strip the ID column that newer limma topTable
+    # injects when fit has rownames. Otherwise it ends up as col 1,
+    # gets renamed by the line below, and the real logFC ends up at col 2.
+    if (!is.null(rest$ID)) { rownames(rest) <- rest$ID; rest$ID <- NULL; }
     colnames(rest)[1] <- dataSet$par1 <- analysis.var;
     
     ### get results with no adjustment
@@ -1001,10 +1014,11 @@ MultiCovariateRegression <- function(fileName,
     design <- model.matrix(formula(paste0("~", analysis.var)), data = covariates);
     fit <- eBayes(lmFit(feature_table, design), trend=robustTrend, robust=robustTrend);
     res.noadj <- topTable(fit, number = Inf);
+    if (!is.null(res.noadj$ID)) { rownames(res.noadj) <- res.noadj$ID; res.noadj$ID <- NULL; }
     dataSet$res.noadj <- res.noadj;
     }
   }
-  
+
   dataSet$design <- design;
   dataSet$contrast.type <- analysis.type;
   dataSet$comp.res <- rest;
