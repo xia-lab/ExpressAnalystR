@@ -1252,7 +1252,19 @@ GetFitResultMatrix <- function(){
   res <- signif(res, 5)
   res[is.na(res)] <- NaN;
   res <- as.data.frame(res);
-  colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
+  # bmd.lcrd is dropped above, so display names always exclude it. The
+  # previous code hard-coded the pre-drop list of 9 names, which tripped
+  # `names(x) <- value : [9] must be the same length as the vector [8]`
+  # whenever bmd.lcrd was present in the source. A failed names<- here
+  # leaves the Arrow export with stale / empty data, which surfaces as a
+  # Java NPE in populateResBeans (resMat[i][m]).
+  display_names <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
+  if (length(display_names) == ncol(res)) {
+    colnames(res) <- display_names;
+  } else {
+    warning(sprintf("GetFitResultMatrix: column-name mismatch (%d names vs %d cols); keeping inherited names",
+                    length(display_names), ncol(res)));
+  }
 
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
@@ -1266,8 +1278,11 @@ GetFitResultMatrix <- function(){
 }
 
 GetFitResultColNames <-function(){
-  names <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
-  return(names);
+  # GetFitResultMatrix always drops bmd.lcrd, so this Rserve-fallback must
+  # return the same 8 names (no bmd.lcrd). The Arrow path on the Java side
+  # reads names directly from the file; this function only matters when the
+  # Arrow file is unavailable, but the two must agree.
+  return(c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e"));
 }
 
 GetFitResultGeneIDs <- function(){
