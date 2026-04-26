@@ -87,7 +87,17 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
       universe <- rownames(dataSet$data.norm);
     }
   }
-  
+
+  # Bail out cleanly if there are no significant features — otherwise the
+  # downstream data.frame(rownames(sigmat), sigmat[,inx]) and reshape::melt
+  # calls fire mismatched-row-count errors. Same shape as the volcano /
+  # enrichment guard: write a clear message and return 0.
+  if(is.null(sigmat) || nrow(sigmat) == 0){
+    msgSet$current.msg <- "No significant features available for the Ridgeline plot — adjust thresholds or check earlier steps.";
+    saveSet(msgSet, "msgSet");
+    return(0);
+  }
+
   if(ridgeType == "ora"){
     gene.vec <- rownames(sigmat);
     sym.vec <- doEntrez2SymbolMapping(gene.vec, paramSet$data.org, paramSet$data.idType);

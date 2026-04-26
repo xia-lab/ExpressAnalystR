@@ -49,7 +49,20 @@
     inds <- lapply(current.geneset, length) > 0
     current.geneset <- current.geneset[inds]
   }
-  
+
+  # Bail out cleanly if no pathways survived filtering — otherwise set.size below
+  # becomes NULL and phyper fires "Non-numeric argument to mathematical function".
+  # Save an empty enr.mat.qs so downstream steps (ridgeline, enrichnet) that
+  # ov_qs_read it see a valid 0-row matrix instead of "file not found".
+  if(length(current.geneset) == 0 || length(ora.vec) == 0){
+    msgSet$current.msg <- "No matching pathways found between the input gene list and the enrichment library.";
+    saveSet(msgSet, "msgSet");
+    empty.mat <- matrix(numeric(0), nrow=0, ncol=5);
+    colnames(empty.mat) <- c("Total", "Expected", "Hits", "Pval", "FDR");
+    ov_qs_save(empty.mat, "enr.mat.qs");
+    return(0);
+  }
+
   # prepare for the result table
   set.size<-length(current.geneset);
   res.mat<-matrix(0, nrow=set.size, ncol=5);
@@ -145,6 +158,11 @@
     }
   }else{
     msgSet$current.msg <- "No overlap between queried genes and pathway library!"
+    # Same as the pre-pipeline guard: persist an empty enr.mat.qs so downstream
+    # readers (ridgeline, enrichnet) don't fail with "file not found".
+    empty.mat <- matrix(numeric(0), nrow=0, ncol=5);
+    colnames(empty.mat) <- c("Total", "Expected", "Hits", "Pval", "FDR");
+    ov_qs_save(empty.mat, "enr.mat.qs");
     return(0);
   }
   
