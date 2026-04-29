@@ -75,7 +75,21 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     thresh <- 0.1 # previous value of 0.25 is causing challenges 
     #for datasets like Ppromelas with low annotation quality
     if (matched.len < length(feature.vec)*thresh){
-      current.msg <- paste('Only ', perct, '% ID were matched. You may want to choose another ID type or use default.', sep=""); 
+      current.msg <- paste('Only ', perct, '% ID were matched. You may want to choose another ID type or use default.', sep="");
+      # Even when annotation is poor, raw rownames may already contain
+      # duplicates (e.g. probes mapping to the same gene symbol in the input
+      # file). Without dedup, limma::topTable downstream errors when assigning
+      # tbl$ID as rownames. Collapse here using lvlOpt (mean for arrays, sum
+      # for counts) — same as the matched-annotation branch already does.
+      if (anyDuplicated(rownames(data.anot))) {
+        n.dup <- sum(duplicated(rownames(data.anot)));
+        collapse.opt <- if (lvlOpt != "NA") lvlOpt else "mean";
+        res <- RemoveDuplicates(data.anot, collapse.opt, quiet = TRUE, paramSet, msgSet);
+        data.anot <- res[[1]];
+        msgSet   <- res[[2]];
+        current.msg <- paste(current.msg,
+          sprintf("%d duplicate IDs were collapsed by %s.", n.dup, collapse.opt));
+      }
     } else {
       current.msg <- paste("ID annotation: ", "Total [", length(anot.id), 
                            "] Matched [", matched.len, "] Unmatched [", sum(!hit.inx),"]", collapse="\n");    
