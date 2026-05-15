@@ -334,7 +334,7 @@ PlotGSViewNew <-function(cmpdNm, format="png", dpi=default.dpi, imgName){
 
 
 .loadCustomEnrichLib <- function(fun.type, paramSet){
-  
+
   # Determine folder name based on paramSet information
   if(paramSet$data.org == "generic"){
     folderNm <- paramSet$data.idType;
@@ -342,7 +342,20 @@ PlotGSViewNew <-function(cmpdNm, format="png", dpi=default.dpi, imgName){
     folderNm <- paramSet$data.org;
   }
 
-  
+
+  # Custom-library guard: this branch fires when the user (or the result-page
+  # JS auto-fire on AI workflow run completion) requests `fun.type="custom"`
+  # without having uploaded a GMT file. custom_lib.qs is only written by
+  # processGeneSetLib (data_readtable_utils.R) at upload time. Without the
+  # guard, ov_qs_read("custom_lib.qs") throws and the chained log makes the
+  # workflow look failed even though every registered step completed.
+  if(!file.exists("custom_lib.qs") && !file.exists("custom_lib.qs2")){
+    msg <- "Custom enrichment library not loaded — upload a GMT file or pick a built-in library (KEGG / GO / Reactome).";
+    message("[.loadCustomEnrichLib] ", msg);
+    AddErrMsg(msg);
+    return(0);
+  }
+
   # Load the custom gene set library
   my.lib <- ov_qs_read("custom_lib.qs")
 

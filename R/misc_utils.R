@@ -183,6 +183,25 @@ PerformHeatmapEnrichment <- function(dataName="", file.nm, fun.type, IDs){
     }else{
       gene.vec <- rownames(paramSet$all.ent.mat);
     }
+  }else if(IDs=="overlap"){
+    # Multi-list overlap view: enrich on the intersection of all uploaded
+    # lists, not the union. Each dataset's prot.mat rownames are Entrez IDs;
+    # take the intersection across all sel.nms. Falls back to all.ent.mat
+    # if state is unexpected (single-list arrives here only on programmer
+    # error or if the page reloaded with stale URL).
+    mdata.all <- paramSet$mdata.all;
+    sel.nms <- names(mdata.all);
+    shared <- NULL;
+    for(nm in sel.nms){
+      ds <- readDataset(nm);
+      ids <- rownames(ds$prot.mat);
+      shared <- if(is.null(shared)) ids else intersect(shared, ids);
+    }
+    if(length(shared)==0){
+      gene.vec <- rownames(paramSet$all.ent.mat);
+    }else{
+      gene.vec <- shared;
+    }
   }else{
     gene.vec <- unlist(strsplit(IDs, "; "));
   }
