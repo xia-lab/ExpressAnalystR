@@ -165,8 +165,21 @@ my.prepare.multilist.heatmap.json <- function(dataSet){
   allmatb[na.inx] <- 0
   allmatb[zero.inx] <- 1
   rownames(allmatb) <- gene.symbols
-  fast.write(allmatb,"heatmap.csv", row.names=TRUE)  
-  
+  fast.write(allmatb,"heatmap.csv", row.names=TRUE)
+
+  # Persist the raw signed log2FC matrix (rows=gene symbols, cols=dataset
+  # names) for the multi-list pathway-map viewer. Must happen BEFORE the
+  # bucketing block below mutates `allmat` into bin indices 1-32. NA is
+  # preserved for genes absent from a given list — JS reads NA as "not in
+  # that list", which is what computeEligibleGeneSet + median aggregation
+  # consume. Mirrors heatmap_raw.csv written by my.prepare.list.heatmap.json
+  # (same filename + column layout so the JS reader is identical).
+  allmat.raw <- allmat;
+  rownames(allmat.raw) <- gene.symbols;
+  colnames(allmat.raw) <- sel.nms;
+  fast.write(allmat.raw, "heatmap_raw.csv", row.names = TRUE);
+  rm(allmat.raw);
+
   if(expval != 0){
     pos.inx <- allmat>0 & !na.inx
     neg.inx <- allmat<0 & !na.inx
