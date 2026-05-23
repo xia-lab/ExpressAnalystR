@@ -342,8 +342,35 @@ GetListIntersectionSize <- function(){
     if(substring(lines[1],1,1)=="#"){
       lines <- lines[-1];
     }
-    gene.lists <- strsplit(lines, "\\s+");
+    # Accept comma as a separator in addition to whitespace so users
+    # uploading or pasting CSV-style lists ("AKT1,0.6") get the same
+    # 2-column shape as tab/space-separated ones. Without commas in the
+    # split class, every CSV line becomes a single token like "AKT1,0.6"
+    # which fails ID mapping at ~0%.
+    gene.lists <- strsplit(lines, "[,[:space:]]+");
     gene.mat <- do.call(rbind, gene.lists);
+
+    # Header detection — strip the first row when it looks like a column
+    # header so its label strings (e.g. "Gene", "LogFC") don't try to map
+    # as IDs and drag the mapping success rate below the 50% hard-fail
+    # gate. Two cases:
+    #   (a) multi-column lists where row 1 col 2 is non-numeric
+    #       ("Gene,LogFC" → "LogFC" is text → header)
+    #   (b) single-column lists whose first cell matches a common header
+    #       keyword case-insensitively
+    if (nrow(gene.mat) > 1) {
+      if (ncol(gene.mat) >= 2 && !.is_valid_numeric(gene.mat[1, 2])) {
+        gene.mat <- gene.mat[-1, , drop = FALSE];
+      } else if (ncol(gene.mat) == 1 &&
+                 tolower(gene.mat[1, 1]) %in%
+                   c("gene", "genes", "symbol", "symbols", "id", "ids",
+                     "name", "names", "feature", "features",
+                     "protein", "proteins", "metabolite", "metabolites",
+                     "compound", "compounds", "mirna", "mirnas",
+                     "taxon", "taxa")) {
+        gene.mat <- gene.mat[-1, , drop = FALSE];
+      }
+    }
 
     if(dim(gene.mat)[2] == 1){ # add 0
       gene.mat <- cbind(gene.mat, rep(0, nrow(gene.mat)));

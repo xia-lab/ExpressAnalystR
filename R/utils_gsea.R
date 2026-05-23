@@ -80,6 +80,19 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     }
   }
 
+  # Guard against NULL / empty rankedVec — this is the root of the
+  # "Error in array(x, c(length(x), 1L)... 'data' must be of a vector
+  # type, was 'NULL'" error from fgsea::fgsea when the DE table is empty
+  # (e.g. annotation failed → no gene mapping → ComputeRankedVec returns
+  # NULL). Bail cleanly with a user-visible message instead of letting
+  # fgsea blow up the report render.
+  if (is.null(rankedVec) || length(rankedVec) == 0
+      || all(is.na(rankedVec)) || !any(is.finite(rankedVec))) {
+    msgSet$current.msg <- "No ranked features available for GSEA — check that DE analysis and ID annotation completed successfully.";
+    saveSet(msgSet, "msgSet");
+    return(0);
+  }
+
   if(length(rankedVec) == 1){
     if(rankedVec == 0){
         msgSet$current.msg <- "Selected ranking method is not suitable. Please select another one!";
@@ -332,8 +345,10 @@ my.compute.ranked.vec <- function(data, opt, inx = 1){
     }
   }else{
     if(opt %in% c("mwt", "s2n", "wcx", "stu")){
+      if (is.null(data$data.norm)) return(0);
       matr <- as.matrix(data$data.norm)
     }else{
+      if (is.null(data$comp.res) || nrow(data$comp.res) == 0) return(0);
       matr <- as.matrix(data$comp.res);
     }
   }

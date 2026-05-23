@@ -100,8 +100,15 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
 
   if(ridgeType == "ora"){
     gene.vec <- rownames(sigmat);
+    if(is.null(gene.vec) || length(gene.vec) == 0){
+      msgSet$current.msg <- "No significant features for ridgeline enrichment.";
+      saveSet(msgSet, "msgSet");
+      return(0);
+    }
     sym.vec <- doEntrez2SymbolMapping(gene.vec, paramSet$data.org, paramSet$data.idType);
-    names(gene.vec) <- sym.vec;
+    if(!is.null(sym.vec) && length(sym.vec) == length(gene.vec)){
+      names(gene.vec) <- sym.vec;
+    }
     .performEnrichAnalysis(dataSet, imgNm, fun.type, gene.vec, "ridgeline")
     res <- ov_qs_read("enr.mat.qs");
     colnames(res) <- c("size", "expected", "overlap", "pval", "padj");
@@ -113,8 +120,16 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
   } else {
 
     rankedVec<- ComputeRankedVec(dataSet, rankOpt, paramSet$selectedFactorInx);
-   
-  
+
+    # Guard against NULL / empty ranked vector — fgsea would otherwise
+    # blow up with "array(x, ...) 'data' must be of a vector type, was
+    # 'NULL'" when DE results / annotation are missing.
+    if (is.null(rankedVec) || length(rankedVec) == 0
+        || all(is.na(rankedVec)) || !any(is.finite(rankedVec))) {
+        message("[ridgeline] no ranked features available — skipping fgsea (DE results / annotation missing).");
+        return(0);
+    }
+
   gene.vec <- universe;
   sym.vec <- doEntrez2SymbolMapping(gene.vec, paramSet$data.org, paramSet$data.idType);
   gene.nms <- sym.vec;

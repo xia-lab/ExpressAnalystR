@@ -397,7 +397,7 @@ PerformDefaultEnrichment <- function(dataName="", file.nm, fun.type){
   anal.type <- paramSet$anal.type;
     if(anal.type=="onedata"){
       dataSet <- readDataset(dataName); #instead of function parameter
-      if(nrow(dataSet$sig.mat) == 0){
+      if(is.null(dataSet$sig.mat) || nrow(dataSet$sig.mat) == 0){
         print("No DE genes were identified, can not perform ORA analysis!");
         return(0);
       }

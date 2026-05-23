@@ -445,7 +445,53 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     }
 
     dataSet$comp.res.list <- result.list
-    dataSet$comp.res <- result.list[[1]]
+
+    # Omnibus F-test: when the design has >1 contrast (multi-group
+    # ANOVA, dose-response, time-series), compute topTable(coef=NULL)
+    # to get the overall F-statistic + per-contrast logFCs in one
+    # table. This is what "Multi-group (ANOVA)" actually means
+    # statistically; the per-pairwise results in comp.res.list stay
+    # available for drill-down. For single-contrast designs (custom
+    # two-group), there's only one column in the contrast matrix —
+    # the F-test reduces to the same t-test, so we keep the first
+    # pairwise result as comp.res for backward compatibility.
+    dataSet$comp.res.omnibus <- NULL
+    if (ncol(contrast.matrix) > 1) {
+      omnibus <- tryCatch(
+        topTable(fit2, coef = NULL, number = Inf, sort.by = "F",
+                 adjust.method = "fdr"),
+        error = function(e) {
+          message("[limma omnibus] topTable(coef=NULL) failed: ",
+                  conditionMessage(e))
+          NULL
+        }
+      )
+      if (!is.null(omnibus)) {
+        if (!is.null(omnibus$ID)) { rownames(omnibus) <- omnibus$ID; omnibus$ID <- NULL; }
+        colnames(omnibus)[colnames(omnibus) == "FDR"] <- "adj.P.Val"
+        dataSet$comp.res.omnibus <- omnibus
+        # Surface the omnibus as the canonical comp.res for multi-group
+        # designs so the ResultView "# of Significant Genes" count
+        # reflects the F-test, not an arbitrary pairwise contrast.
+        # GetSigGenes branches on dataSet$comp.type and uses the omnibus
+        # when comp.type == "default"; for "custom"/"reference"/"nested"
+        # it keeps using comp.res.list[[inx]].
+        if (identical(dataSet$comp.type, "default")) {
+          dataSet$comp.res <- omnibus
+          # Rename the exported-CSV filename so the download is
+          # self-explanatory ("sig_genes_pairwise_limma.csv" was the
+          # legacy name from prepareContrast — misleading now that
+          # the table is the overall F-test, not a pairwise contrast).
+          dataSet$filename <- "sig_genes_multigroup_ANOVA_limma"
+        } else {
+          dataSet$comp.res <- result.list[[1]]
+        }
+      } else {
+        dataSet$comp.res <- result.list[[1]]
+      }
+    } else {
+      dataSet$comp.res <- result.list[[1]]
+    }
 
   } else if (dataSet$de.method == "edger") {
 

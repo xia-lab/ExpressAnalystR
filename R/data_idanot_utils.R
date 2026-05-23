@@ -56,6 +56,13 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     feature.vec <- rownames(data.proc);
     
     anot.id <- .doAnnotation(feature.vec, idType, paramSet);
+    # Save named vector (feature → entrez) only when ≥50% of IDs matched.
+    # Below 50% is treated as annotation failure: original IDs are used for
+    # stats; functional analysis is cancelled by the orchestrator.
+    hit.check <- !is.na(anot.id);
+    if (sum(hit.check) / length(anot.id) >= 0.5) {
+      ov_qs_save(anot.id, "annotation.qs");
+    }
     anot.id <- unname(anot.id);
     print(head(anot.id));
     if(idType %in% c("s2f", "generic", "ko")){
@@ -64,16 +71,13 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
       symbol.map <- .doGeneIDMapping(anot.id , "entrez", paramSet, "matrix");
     }
     symbol.map <- symbol.map[which(symbol.map$gene_id %in% anot.id),];
-    
+
     saveDataQs(symbol.map, "symbol.map.qs", paramSet$anal.type, dataName);
-    
-    ov_qs_save(symbol.map, "annotation.qs");
     
     hit.inx <- !is.na(anot.id);
     matched.len <- sum(hit.inx);
     perct <- round(matched.len/length(feature.vec),3)*100;
-    thresh <- 0.1 # previous value of 0.25 is causing challenges 
-    #for datasets like Ppromelas with low annotation quality
+    thresh <- 0.5 # < 50% match = annotation failure; use original IDs
     if (matched.len < length(feature.vec)*thresh){
       current.msg <- paste('Only ', perct, '% ID were matched. You may want to choose another ID type or use default.', sep="");
       # Even when annotation is poor, raw rownames may already contain
@@ -180,7 +184,17 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
 
   saveSet(paramSet, "paramSet");
   saveSet(msgSet, "msgSet");
-  return(RegisterData(dataSet, matched.len));   
+  # Return 0 when < 50% matched so Java performDataAnnot can throw and trigger
+  # the orchestrator's annotationFailed flag → functional steps are cancelled.
+  # RegisterData still runs so dataSet$annotated <- F (set at the top of this
+  # function) is persisted; otherwise downstream readDataset() calls return
+  # the pre-annotation dataSet whose `annotated` field is NULL, and
+  # `if (dataSet$annotated)` / `... || dataSet$annotated` throw on length-zero.
+  if (matched.len < length(feature.vec) * 0.5) {
+    RegisterData(dataSet, matched.len);
+    return(0);
+  }
+  return(RegisterData(dataSet, matched.len));
 }
 
 
