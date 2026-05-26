@@ -214,7 +214,9 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
       scale = 1.5, rel_min_height = .02, size = 0.25,
       position = position_points_jitter(height = 0)) +
     geom_vline(xintercept = 0, color = "red") +
-    scale_y_discrete(expand = c(0, 0), name = "Gene Set") + 
+    scale_y_discrete(expand = c(0, 0), name = "Gene Set",
+                     labels = function(x) ifelse(nchar(x) > 45L,
+                                                 paste0(substr(x, 1L, 42L), "..."), x)) +
     scale_x_continuous(expand = c(0, 0), name = "log2FC") +
     scale_fill_gradient("adj. pval",
                         low = high.col, high = low.col) + 
