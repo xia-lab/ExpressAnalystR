@@ -110,6 +110,16 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
+  # Guard: dataSet$de.method is normally set by SetupDesignMatrix(deMethod).
+  # When a caller skips that step (e.g. a workflow that jumps straight from
+  # normalization to DE), de.method is NULL and the next == comparison
+  # errors with "argument is of length zero". Default to "limma" (the most
+  # general DE method for normalized expression data) and warn so the
+  # upstream gap is visible in logs.
+  if (is.null(dataSet$de.method) || length(dataSet$de.method) == 0L || !nzchar(dataSet$de.method)) {
+    warning("PerformDEAnal: dataSet$de.method not set (SetupDesignMatrix was likely skipped); defaulting to 'limma'.")
+    dataSet$de.method <- "limma"
+  }
   if (dataSet$de.method == "deseq2") {
     dataSet <- prepareContrast(dataSet, anal.type, par1, par2, nested.opt);
     dataSet <- .run.deseq(dataSet, anal.type, par1, par2, nested.opt);
