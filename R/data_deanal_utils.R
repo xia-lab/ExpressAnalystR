@@ -89,6 +89,82 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
   }
 }
 
+# ── AI multi-factor covariate design setup ──────────────────────────────────
+# Like SetSelectedMetaInfo, but stores an additive covariate SET
+# (dataSet$adj.frame) instead of a single blocking factor. Computes rmidx over
+# the primary factor + ALL covariates (drops any sample with "NA" in a modeled
+# column), sets dataSet$cls / fst.cls to the FILTERED primary factor, and stores
+# the FILTERED covariate columns (factor for discrete, numeric for continuous) in
+# dataSet$adj.frame. The DE design builders (.ov_group_design + .run.deseq) then
+# append these additively => ~ primary + cov1 + cov2 + ... across limma, edgeR
+# and DESeq2. block is cleared (covariates live in the design, not a
+# duplicateCorrelation block). Everything is GATED on adj.frame; when it is NULL
+# the engine behaves exactly as the single-factor path.
+SetCovariateVars <- function(dataName = "", primaryVar = "", adjVarsCsv = "") {
+  dataSet <- readDataset(dataName);
+  dataSet$adj.frame <- NULL; dataSet$adj.vars <- NULL;
+  dataSet$block <- NULL; dataSet$sec.cls <- "NA"; dataSet$secondVar <- "NA";
+  dataSet$rmidx <- NULL;
+  if (primaryVar == "NA" || is.null(dataSet$meta.info) ||
+      !(primaryVar %in% colnames(dataSet$meta.info))) {
+    AddErrMsg(paste("Primary factor", primaryVar, "not found!"));
+    return(RegisterData(dataSet, 0));
+  }
+  adj <- trimws(unlist(strsplit(adjVarsCsv, ",")));
+  adj <- adj[nzchar(adj) & adj != "NA"];
+  adj <- intersect(adj, colnames(dataSet$meta.info));
+  adj <- setdiff(adj, primaryVar);
+  vars.all <- c(primaryVar, adj);
+  rmidx <- which(apply(dataSet$meta.info[, vars.all, drop = FALSE], 1,
+                       function(x) any(x == "NA")));
+  if (length(rmidx) > 0) {
+    meta <- dataSet$meta.info[-rmidx, , drop = FALSE]; dataSet$rmidx <- rmidx;
+  } else {
+    meta <- dataSet$meta.info;
+  }
+  cls <- droplevels(factor(meta[, primaryVar]));
+  uniq <- levels(cls)[levels(cls) != "NA"];
+  if (length(uniq) < 2) {
+    AddErrMsg(paste("Primary factor", primaryVar,
+                    "must have at least 2 groups! Found:", length(uniq)));
+    return(RegisterData(dataSet, 0));
+  }
+  dataSet$cls <- cls; dataSet$fst.cls <- cls;
+  dataSet$analysisVar <- primaryVar; dataSet$secondVar <- "NA";
+  if (length(adj) > 0) {
+    af <- meta[, adj, drop = FALSE];
+    for (v in adj) {
+      is.cont <- !is.null(dataSet$cont.inx) && v %in% names(dataSet$cont.inx) &&
+                 isTRUE(dataSet$cont.inx[[v]]);
+      af[[v]] <- if (is.cont) as.numeric(as.character(af[[v]]))
+                 else droplevels(factor(af[[v]]));
+    }
+    dataSet$adj.frame <- af; dataSet$adj.vars <- adj;
+  }
+  return(RegisterData(dataSet, uniq));
+}
+
+# Build a no-intercept group design, optionally augmented with additive covariate
+# columns: ~ 0 + group (+ cov1 + cov2 + ...). The group columns are renamed to the
+# factor levels so existing makeContrasts(levels = design) contrasts still apply
+# unchanged — covariate columns are nuisance and receive 0 coefficients in those
+# group contrasts. cov.frame NULL / 0-col => plain ~ 0 + group.
+.ov_group_design <- function(grp, cov.frame = NULL) {
+  grp <- factor(grp);
+  if (!is.null(cov.frame) && ncol(cov.frame) > 0) {
+    df  <- data.frame(.grp = grp, cov.frame, check.names = FALSE);
+    rhs <- paste(c("0", ".grp", colnames(cov.frame)), collapse = " + ");
+    design <- model.matrix(stats::as.formula(paste("~", rhs)), data = df);
+    gc <- match(paste0(".grp", levels(grp)), colnames(design));
+    ok <- !is.na(gc);
+    colnames(design)[gc[ok]] <- levels(grp)[ok];
+  } else {
+    design <- model.matrix(~ 0 + grp);
+    colnames(design) <- levels(grp);
+  }
+  design
+}
+
 #' Perform Differential Analysis
 #'
 #' This function performs differential analysis based on different types of comparisons.
@@ -149,6 +225,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     fst.cls = dataSet$fst.cls,
     analysisVar = dataSet$analysisVar,
     block = dataSet$block,
+    adj_frame = dataSet$adj.frame,
     anal.type = anal.type,
     par1 = par1
   ), bridge_in, preset = "fast")
@@ -164,6 +241,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       fst.cls <- input$fst.cls
       analysisVar <- input$analysisVar
       block <- input$block
+      adj_frame <- input$adj_frame
       anal.type <- input$anal.type
       par1 <- input$par1
       data.anot <- input$data.anot
@@ -196,7 +274,14 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       # ---- Single-factor designs ----
       colData <- data.frame(condition = factor(fst.cls, levels = all_conditions))
 
-      if (!is.null(block)) {
+      if (!is.null(adj_frame) && ncol(adj_frame) > 0) {
+        # Additive covariate adjustment: ~ cov1 + cov2 + ... + condition. adj_frame
+        # rows are already rmidx-filtered (SetCovariateVars) and in sample order, so
+        # they align positionally with condition / data.anot[, -rmidx].
+        colData <- cbind(colData, adj_frame)
+        design <- stats::as.formula(
+          paste("~", paste(c(colnames(adj_frame), "condition"), collapse = " + ")))
+      } else if (!is.null(block)) {
         colData$block <- factor(block)
         design <- ~ block + condition
       } else {
@@ -510,7 +595,10 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     if (length(dataSet$rmidx) > 0)
       cnt.mat <- cnt.mat[, -dataSet$rmidx, drop = FALSE]
 
-    cls <- if (length(dataSet$rmidx) > 0) dataSet$cls[-dataSet$rmidx] else dataSet$cls
+    # dataSet$cls is ALREADY rmidx-filtered (SetSelectedMetaInfo / SetCovariateVars
+    # store the filtered factor), so it aligns with cnt.mat[, -rmidx] directly. The
+    # previous dataSet$cls[-rmidx] double-filtered when rmidx was non-empty.
+    cls <- factor(dataSet$cls)
     block <- dataSet$block
 
     bridge_in <- ov_bridge_file("in")
@@ -533,10 +621,12 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
         block <- input$block
 
         grp.fac <- factor(cls)
-        if (!is.null(block)) {
-          blk.fac <- factor(block)
-          design <- model.matrix(~ grp.fac + blk.fac)
-        } else if (is.null(attr(design, "assign"))) {
+        # Use the design built by prepareEdgeRContrast (~ 0 + group [+ covariates]),
+        # which is column-aligned with contrast_matrix. The old block branch rebuilt
+        # an intercept design (~ grp.fac + blk.fac) that did NOT match contrast_matrix
+        # — a latent contrast/design mismatch. Covariates now enter additively via
+        # the prepareEdgeRContrast design, so there is no per-child rebuild.
+        if (is.null(attr(design, "assign"))) {
           design <- model.matrix(~ 0 + grp.fac)
         }
 
@@ -716,9 +806,10 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
 SetupDesignMatrix<-function(dataName="", deMethod){
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
-  cls <- dataSet$cls; 
-  design <- model.matrix(~ 0 + cls) # no intercept
-  colnames(design) <- levels(cls);
+  cls <- dataSet$cls;
+  # ~ 0 + cls, plus additive covariate columns when an AI multi-factor run set
+  # dataSet$adj.frame (covariate-adjusted limma); identical to before otherwise.
+  design <- .ov_group_design(cls, dataSet$adj.frame)
   dataSet$design <- design;
   dataSet$de.method <- deMethod;
   dataSet$pval <- 0.05;
@@ -1193,8 +1284,13 @@ prepareEdgeRContrast <- function(dataSet,
   dataSet$comp.type <- anal.type
   dataSet$par1      <- par1
 
-  design <- model.matrix(~ 0 + cls_syn)
-  colnames(design) <- syn_levels
+  # ~ 0 + group [+ additive covariates]. Group columns keep the syn_level names so
+  # the makeContrasts(levels = design) call below applies unchanged; covariate
+  # columns (when dataSet$adj.frame is set) are nuisance terms with 0 weight in the
+  # group contrasts. This is also the FIX for the old block path, which rebuilt an
+  # intercept design (~ grp.fac + blk.fac) in the child that did NOT match this
+  # contrast matrix's columns.
+  design <- .ov_group_design(cls_syn, dataSet$adj.frame)
 
   # helper: map a UI label (raw or syn) into sanitized
   to_syn <- function(x) {
