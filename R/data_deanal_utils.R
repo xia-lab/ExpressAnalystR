@@ -366,17 +366,49 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
         results_list[[1]] <- topFeatures
       }
 
-      ov_qs_save(results_list, bridge_out, preset = "fast")
+      # Multi-group overall test: likelihood-ratio test of the full vs the
+      # intercept-only (or block-only) reduced model — "does any group differ".
+      omni.res <- NULL
+      if (length(contrast_list) > 1) {
+        reduced.fml <- if ("block" %in% colnames(colData)) ~ block else ~ 1
+        dds.lrt <- tryCatch(DESeq(dds, test = "LRT", reduced = reduced.fml),
+                            error = function(e) NULL)
+        if (!is.null(dds.lrt)) {
+          ro <- results(dds.lrt, independentFiltering = FALSE, cooksCutoff = Inf)
+          omni.res <- data.frame(ro@listData); rownames(omni.res) <- rownames(ro)
+          colnames(omni.res) <- sub("padj", "adj.P.Val", colnames(omni.res))
+          colnames(omni.res) <- sub("pvalue", "P.Value", colnames(omni.res))
+          colnames(omni.res) <- sub("log2FoldChange", "logFC", colnames(omni.res))
+          keep <- intersect(c("logFC","baseMean","lfcSE","stat","P.Value","adj.P.Val"), colnames(omni.res))
+          omni.res <- omni.res[keep]
+          omni.res <- omni.res[order(omni.res$P.Value), ]
+        }
+      }
+
+      ov_qs_save(list(contrasts = results_list, omnibus = omni.res), bridge_out, preset = "fast")
     },
     args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
     timeout_sec = 300
   )
 
-  results_list <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
+  bundle <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
+  results_list <- bundle$contrasts
+  deseq.omni   <- bundle$omnibus
 
   # Process result (what .save.deseq.res did)
   dataSet$comp.res.list <- results_list
-  dataSet$comp.res <- results_list[[1]]
+  dataSet$comp.res.omnibus <- NULL
+  if (!is.null(deseq.omni) && length(results_list) > 1) {
+    dataSet$comp.res.omnibus <- deseq.omni
+    if (identical(anal.type, "default")) {
+      dataSet$comp.res <- deseq.omni
+      dataSet$filename <- "sig_genes_multigroup_ANOVA_deseq2"
+    } else {
+      dataSet$comp.res <- results_list[[1]]
+    }
+  } else {
+    dataSet$comp.res <- results_list[[1]]
+  }
   ov_qs_save(results_list, file = "dat.comp.res.qs")
   return(dataSet)
 }
@@ -647,7 +679,17 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
           colnames(tbl)[colnames(tbl) == "PValue"] <- "P.Value"
           result.list[[nm]] <- tbl
         }
-        ov_qs_save(result.list, bridge_out, preset = "fast")
+        # Multi-group overall test: joint LRT over all pairwise contrasts (full-
+        # rank subset) — "any group differs".
+        omni <- NULL
+        if (ncol(contrast_matrix) > 1) {
+          qrc <- qr(contrast_matrix); ind <- qrc$pivot[seq_len(qrc$rank)]
+          lrt.o <- edgeR::glmLRT(fit, contrast = contrast_matrix[, ind, drop = FALSE])
+          omni  <- edgeR::topTags(lrt.o, n = Inf)$table
+          colnames(omni)[colnames(omni) == "FDR"]    <- "adj.P.Val"
+          colnames(omni)[colnames(omni) == "PValue"] <- "P.Value"
+        }
+        ov_qs_save(list(contrasts = result.list, omnibus = omni), bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
       timeout_sec = 300
@@ -655,10 +697,22 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
 
     response <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
     if (is.null(response)) { msgSet$current.msg <- "edgeR analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
-    result.list <- response
+    result.list <- response$contrasts
+    edger.omni  <- response$omnibus
 
     dataSet$comp.res.list <- result.list
-    dataSet$comp.res <- result.list[[1]]
+    dataSet$comp.res.omnibus <- NULL
+    if (!is.null(edger.omni) && length(result.list) > 1) {
+      dataSet$comp.res.omnibus <- edger.omni
+      if (identical(dataSet$comp.type, "default")) {
+        dataSet$comp.res <- edger.omni
+        dataSet$filename <- "sig_genes_multigroup_ANOVA_edger"
+      } else {
+        dataSet$comp.res <- result.list[[1]]
+      }
+    } else {
+      dataSet$comp.res <- result.list[[1]]
+    }
   }
 
   return(dataSet);
