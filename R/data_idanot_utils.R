@@ -370,6 +370,16 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
   }
   
   db.map <- queryGeneDB(db.nm, org);
+  # Guard: an unsupported/mismatched idType resolves db.nm to a table that does
+  # not exist, so queryGeneDB returns a non-2D object and the db.map[, col.nm]
+  # indexing below dies with the cryptic "incorrect number of dimensions". Fail
+  # with a clear, actionable message instead (surfaced to the user via the
+  # workflow loader's geterrmessage()).
+  if (is.null(dim(db.map)) || !(col.nm %in% colnames(db.map))) {
+    stop("Unsupported ID type '", idType, "' for organism '", org,
+         "': annotation table '", db.nm, "' with a '", col.nm,
+         "' column was not found. Check that the selected gene ID type matches the input.");
+  }
   if (org == "smm" && idType == "symbol") {
     q.mat <- do.call(rbind, strsplit(feature.vec, "\\."));
     feature.vec <- q.mat[, 1];
