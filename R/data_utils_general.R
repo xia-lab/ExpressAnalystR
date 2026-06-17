@@ -88,8 +88,16 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
   #if(file.exists("/data/sqlite/")){
   #  sqlite.path <- "/data/sqlite/";  #vip server
   #}else 
-  if(nzchar(Sys.getenv("OMICS_LIB_DIR", "")) && dir.exists(Sys.getenv("OMICS_LIB_DIR", ""))){
-    sqlite.path <- paste0(sub("/+$", "", Sys.getenv("OMICS_LIB_DIR", "")), "/");  # Docker shared library mount (OMICS_LIB_DIR)
+  .ov_lib <- Sys.getenv("OMICS_LIB_DIR", "");
+  # Honor OMICS_LIB_DIR only if it actually holds non-empty sqlite DBs. An
+  # existing-but-empty dir — or one holding only 0-byte stub files (a prior
+  # failed dbConnect leaves these behind) — must NOT short-circuit this ladder,
+  # or every lookup resolves to an empty DB and the workflow fails silently.
+  # Fall through to the next populated location (e.g. /home/glassfish/sqlite).
+  .ov_lib_ok <- nzchar(.ov_lib) && dir.exists(.ov_lib) &&
+    any(file.info(list.files(.ov_lib, pattern = "\\.sqlite$", full.names = TRUE))$size > 0, na.rm = TRUE);
+  if(isTRUE(.ov_lib_ok)){
+    sqlite.path <- paste0(sub("/+$", "", .ov_lib), "/");  # Docker shared library mount (OMICS_LIB_DIR)
   }else if(file.exists("/home/glassfish/sqlite/")){
     sqlite.path <- "/home/glassfish/sqlite/";  #public server
   }else if(file.exists("/Users/xialab/Dropbox/sqlite/")){
