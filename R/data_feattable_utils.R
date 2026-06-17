@@ -56,13 +56,16 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   # designs). Pairwise results remain available in comp.res.list for
   # drill-down. For "custom" / "reference" / "nested" / "time" the
   # per-contrast list is still the right view, so they're unchanged.
+  # Multi-group "default" designs surface the overall test (limma F-test, edgeR/
+  # DESeq2 LRT) as comp.res; route significance through it for all methods.
   use.omnibus <- identical(dataSet$comp.type, "default") &&
-                 dataSet$de.method == "limma" &&
                  !is.null(dataSet$comp.res.omnibus)
   has.list <- !is.null(dataSet$comp.res.list) && length(dataSet$comp.res.list) >= inx;
   if (dataSet$de.method=="deseq2"){
+    if (use.omnibus) {
+      dataSet$comp.res <- dataSet$comp.res.omnibus; resTable <- dataSet$comp.res;
+    } else if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
     hit.inx <- which(colnames(resTable) == "baseMean");
-    if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
    } else if (dataSet$de.method=="limma" || dataSet$de.method=="wtt" ){
     hit.inx <- match("AveExpr", colnames(resTable));
     if (use.omnibus) {
@@ -83,8 +86,10 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
       if (has.list) dataSet$comp.res.list[[inx]] <- resTable
     }
   } else {
+    if (use.omnibus) {
+      dataSet$comp.res <- dataSet$comp.res.omnibus; resTable <- dataSet$comp.res;
+    } else if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
     hit.inx <- which(colnames(resTable) == "logCPM");
-    if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
   }
 
   if(length(hit.inx) == 0){
