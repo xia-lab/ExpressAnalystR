@@ -112,9 +112,27 @@
   res.mat[,5] <- p.adjust(raw.pvals, "fdr");
   
   # now, clean up result, synchronize with hit.query
-  res.mat <- res.mat[hit.num>0,,drop = F];
-  hits.query <- hits.query[hit.num>0];
-  
+  # Drop pathways with too few query hits. The threshold mirrors the
+  # RIDGE_MIN_HITS=3L convention in utils_ridgeline.R so EVERY enrichment
+  # surface (enr.mat, hits_query, enrichment_<lib>.csv/.json, ridgeline)
+  # shows the same pathway set. This is applied AFTER p.adjust() above, so
+  # FDR is still computed over all tested gene sets (multiple-testing
+  # correction is unchanged) — we only filter the DISPLAYED/exported set.
+  min.hits <- 3L;
+  keep.inx <- hit.num >= min.hits;
+  if(sum(keep.inx) == 0){
+    # Filtering to >=min.hits would empty the result; fall back to the
+    # previous (hits>0) behaviour so the step does not blow up / blank.
+    message("[performEnrichAnalysis] no pathway has >= ", min.hits,
+            " query hits; keeping all pathways with >=1 hit.");
+    keep.inx <- hit.num > 0;
+  }
+  res.mat <- res.mat[keep.inx,,drop = F];
+  hits.query <- hits.query[keep.inx];
+  # Re-save the >=min.hits filtered hit list so hits_query.qs on disk matches
+  # the exported enr.mat/csv/json (the earlier save held the unfiltered list).
+  ov_qs_save(hits.query, "hits_query.qs");
+
   if(nrow(res.mat)> 1){
     # order by p value
     ord.inx<-order(res.mat[,4]);
@@ -145,14 +163,14 @@
     imp.inx[is.na(imp.inx)] <- F
     if(sum(imp.inx) < 10){ # too little left, give the top ones
       topn <- ifelse(nrow(res.mat) > 10, 10, nrow(res.mat));
-      res.mat <- res.mat[1:topn,];
+      res.mat <- res.mat[1:topn,,drop=FALSE];
       hits.query <- hits.query[1:topn];
     }else{
-      res.mat <- res.mat[imp.inx,];
+      res.mat <- res.mat[imp.inx,,drop=FALSE];
       hits.query <- hits.query[imp.inx];
       if(sum(imp.inx) > 120){
         # now, clean up result, synchronize with hit.query
-        res.mat <- res.mat[1:120,];
+        res.mat <- res.mat[1:120,,drop=FALSE];
         hits.query <- hits.query[1:120];
       }
     }
@@ -170,7 +188,6 @@
   if(any(duplicated(rownames(res.mat)))) {
     res.mat <- res.mat[!duplicated(rownames(res.mat)), ]
     hits.query <- hits.query[match(rownames(res.mat), names(hits.query))]
-    print("Duplicates in enr.mat were removed.")
   } else {
     res.mat <- res.mat
   }
@@ -639,7 +656,7 @@ PlotEnrichNetworkPNG <- function(dataName, imgName, format="png", dpi=150, width
     l <- layout_with_graphopt(g)
     imgPath <- paste0(imgName, ".", format)
     w.val <- if (is.na(width)) 8 else width/dpi
-    png(imgPath, width=w.val, height=w.val*0.75, units="in", res=dpi)
+    png(imgPath, width=w.val, height=w.val*0.75, units="in", res=dpi, type="cairo")
     par(mar=c(1,1,2,1)); plot(g, layout=l, main="Enrichment Network (KEGG)"); dev.off()
     return(1)
   }, error = function(e) { message("PlotEnrichNetworkPNG error: ", e$message); return(0) })

@@ -138,12 +138,29 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
     
   }
   
+  # Surface & collapse duplicate feature IDs (e.g. Excel date-mangled gene
+  # symbols like "01-Mar"/"02-Mar") so downstream DE never errors with
+  # "duplicate 'row.names' are not allowed" even when annotation — which
+  # normally summarizes to unique gene level — is skipped or fails.
+  if (anyDuplicated(rownames(data.proc))) {
+    n.dup <- sum(duplicated(rownames(data.proc)));
+    res <- RemoveDuplicates(data.proc, "mean", quiet=TRUE, paramSet, msgSet);
+    data.proc <- res[[1]]; msgSet <- res[[2]];
+    msgSet$current.msg <- paste0(msgSet$current.msg,
+      "; ", n.dup, " duplicate feature ID(s) collapsed (mean) — check input for Excel date-mangled gene symbols (e.g. 01-Mar).");
+  }
+
   # save processed data for download user option
   data.proc <- sanitizeSmallNumbers(data.proc);
   fast.write(sanitizeSmallNumbers(data.proc), file="data_original.csv");
 
   ov_qs_save(data.proc, "data.raw.qs");
   dataSet$data.norm  <- data.proc;
+  # `annotated` must always be a logical so downstream `if (dataSet$annotated)`
+  # / `... || dataSet$annotated` never hit a length-zero NULL when the
+  # annotation step is skipped or fails. PerformDataAnnot flips it TRUE on a
+  # successful gene-ID map.
+  dataSet$annotated <- FALSE;
   metaInx = which(rownames(dataSet$meta.info) %in% colnames(data.proc))
   
   paramSet$dataSet <- list();

@@ -11,27 +11,22 @@
 #'@param fileNm file name of the json file output 
 #'@export
 PrepareUpsetData <- function(fileNm){
-  print(paste("[DEBUG PrepareUpsetData] Starting with fileNm:", fileNm));
   paramSet <- readSet(paramSet, "paramSet");
   analSet <- readSet(analSet, "analSet");
 
   mdata.all <- paramSet$mdata.all;
   anal.type <- paramSet$anal.type;
-  print(paste("[DEBUG PrepareUpsetData] anal.type:", anal.type));
 
   newDat <- list();
 
   # selected dataset or comparisons for onedata (single gene expression matrix)
   if(anal.type == "metadata"){
-  print("[DEBUG PrepareUpsetData] Processing metadata type");
   hit.inx <- mdata.all==1;
   sel.nms <- names(mdata.all)[hit.inx];
   }else if(anal.type == "onedata"){
     # For onedata, use comparison-based upset
-    print("[DEBUG PrepareUpsetData] Delegating to PrepareUpsetDataFromComparisons");
     return(PrepareUpsetDataFromComparisons(fileNm));
   }else{
-  print("[DEBUG PrepareUpsetData] Processing genelist type");
   sel.nms <- names(mdata.all)
   }
   sel.dats <- list();
@@ -139,41 +134,32 @@ PrepareUpsetData <- function(fileNm){
 #'@param dataName optional dataset name (defaults to paramSet$dataName)
 #'@export
 PrepareUpsetDataFromComparisons <- function(fileNm, dataName = ""){
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] Starting with fileNm:", fileNm, "dataName:", dataName));
   paramSet <- readSet(paramSet, "paramSet");
 
   # If dataName is empty, use the current dataName from paramSet
   if(dataName == "" || is.null(dataName)){
     dataName <- paramSet$dataName;
-    print(paste("[DEBUG PrepareUpsetDataFromComparisons] Using paramSet$dataName:", dataName));
   }
 
   dataSet <- readDataset(dataName);
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] dataSet loaded, class:", class(dataSet)));
 
   if (is.null(dataSet) || is.null(dataSet$comp.res.list) ||
       length(dataSet$comp.res.list) == 0) {
-    print("[DEBUG PrepareUpsetDataFromComparisons] ERROR: No comp.res.list found");
     AddErrMsg("No DE comparison results found.");
     return(0);
   }
 
   comp_list <- dataSet$comp.res.list
   comp_names <- names(comp_list)
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] Found", length(comp_list), "comparisons:", paste(comp_names, collapse=", ")));
   if (is.null(comp_names) || length(comp_names) == 0) {
     comp_names <- paste0("Comparison_", seq_along(comp_list))
   }
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] upset.comp.nms from paramSet:", paste(paramSet$upset.comp.nms, collapse=", ")));
   if (!is.null(paramSet$upset.comp.nms) && length(paramSet$upset.comp.nms) > 0) {
     keep <- comp_names %in% paramSet$upset.comp.nms
-    print(paste("[DEBUG PrepareUpsetDataFromComparisons] Filtering to selected comparisons, keep:", paste(which(keep), collapse=", ")));
     comp_list <- comp_list[keep]
     comp_names <- names(comp_list)
-    print(paste("[DEBUG PrepareUpsetDataFromComparisons] After filtering:", length(comp_list), "comparisons:", paste(comp_names, collapse=", ")));
   }
   if (is.null(comp_names) || length(comp_names) == 0) {
-    print("[DEBUG PrepareUpsetDataFromComparisons] ERROR: No comparisons after filtering");
     AddErrMsg("No comparisons selected.");
     return(0);
   }
@@ -189,20 +175,16 @@ PrepareUpsetDataFromComparisons <- function(fileNm, dataName = ""){
   if (is.null(fc.lvl) || !is.finite(fc.lvl)) {
     fc.lvl <- 0
   }
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] Thresholds: p.lvl =", p.lvl, "fc.lvl =", fc.lvl));
 
   use_fdr <- if (is.null(paramSet$use.fdr)) TRUE else isTRUE(paramSet$use.fdr)
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] use_fdr:", use_fdr));
 
   sel.dats <- list()
   for (i in seq_along(comp_list)) {
     rt <- comp_list[[i]]
     if (is.null(rt) || nrow(rt) == 0) {
-      print(paste("[DEBUG PrepareUpsetDataFromComparisons] Comparison", comp_names[[i]], "has no data"));
       sel.dats[[comp_names[[i]]]] <- character(0)
       next
     }
-    print(paste("[DEBUG PrepareUpsetDataFromComparisons] Processing comparison", comp_names[[i]], "with", nrow(rt), "features"));
 
     pcol <- NULL
     if (use_fdr && "adj.P.Val" %in% names(rt)) {
@@ -235,18 +217,14 @@ PrepareUpsetDataFromComparisons <- function(fileNm, dataName = ""){
     }
 
     sig_genes <- as.character(rownames(rt)[deg_pass & lfc_pass])
-    print(paste("[DEBUG PrepareUpsetDataFromComparisons] Comparison", comp_names[[i]], "has", length(sig_genes), "significant features"));
     sel.dats[[comp_names[[i]]]] <- sig_genes
   }
 
   sel.dats <- sel.dats[sapply(sel.dats, length) > 0]
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] After filtering empty sets:", length(sel.dats), "comparisons with data"));
   if (length(sel.dats) == 0) {
-    print("[DEBUG PrepareUpsetDataFromComparisons] ERROR: No significant features");
     AddErrMsg("No significant features for any comparison.");
     return(0);
   }
-  print(paste("[DEBUG PrepareUpsetDataFromComparisons] Final comparison names:", paste(names(sel.dats), collapse=", ")));
 
   require(reshape2)
   df <- reshape::melt(sel.dats, value.name="id")
@@ -376,20 +354,15 @@ GetComparisonSigCounts <- function(dataName = "") {
 #'Set selected comparisons for upset plot (onedata mode)
 #'@export
 SetUpsetComparisons <- function(){
-  print("[DEBUG SetUpsetComparisons] Starting");
   paramSet <- readSet(paramSet, "paramSet");
   if (!exists("comp.vec")) {
-    print("[DEBUG SetUpsetComparisons] ERROR: comp.vec does not exist");
     paramSet$upset.comp.nms <- NULL
     saveSet(paramSet, "paramSet")
     return(0)
   }
-  print(paste("[DEBUG SetUpsetComparisons] comp.vec:", paste(comp.vec, collapse=", ")));
   paramSet$upset.comp.nms <- comp.vec
-  print(paste("[DEBUG SetUpsetComparisons] Set paramSet$upset.comp.nms to:", paste(paramSet$upset.comp.nms, collapse=", ")));
   rm("comp.vec", envir = .GlobalEnv)
   saveSet(paramSet, "paramSet")
-  print("[DEBUG SetUpsetComparisons] Saved and returning 1");
   return(1)
 }
 
@@ -496,6 +469,12 @@ PlotPairwiseUpsetPNG <- function(dataName  = "",
       message("[PlotPairwiseUpsetPNG] no genes in any sig set — skipping")
       return(invisible(NULL))
     }
+    # Method-standard invariant: persist the data behind the UpSet plot (the binary
+    # gene x contrast membership matrix) so the figure can be re-plotted / regenerated
+    # in any tool. Helper lives in wf_method.R; guard so the public
+    # package still runs standalone.
+    if (exists("WfSaveFigureData"))
+      tryCatch(WfSaveFigureData("upset", upset.df), error = function(e) NULL)
 
     # Sizing — width scales with N contrasts, height with N intersections.
     n.sets <- min(length(sig.sets), max.sets)

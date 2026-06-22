@@ -15,9 +15,11 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
   imageName <- paste0(imgNm, "dpi" , dpi, ".", format);
   anal.type <- paramSet$anal.type;
   require("dplyr");
-  require("reshape");
-  require("ggplot2");
-  require("ggridges");
+  suppressPackageStartupMessages({
+    require("reshape");
+    require("ggplot2");
+    require("ggridges");
+  })
   # process colors
   if(ridgeColor == "teal"){
     high.col = "#3C7C60";
@@ -111,8 +113,16 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
     }
     .performEnrichAnalysis(dataSet, imgNm, fun.type, gene.vec, "ridgeline")
     res <- ov_qs_read("enr.mat.qs");
+    # Defensive: a stale enr.mat.qs written before the drop=FALSE fix in
+    # .performEnrichAnalysis can round-trip as a length-5 vector (the single
+    # surviving pathway row was dropped to a vector). Coerce it back to a 1x5
+    # matrix so colnames()<- below does not error with
+    # "length of 'dimnames' [2] not equal to array extent".
+    if (is.null(dim(res)) && length(res) == 5L) {
+      res <- matrix(res, nrow = 1L);
+    }
     colnames(res) <- c("size", "expected", "overlap", "pval", "padj");
-    
+
     res <- res[,c(4,5,3,1,2)]
     res <- as.data.frame(cbind(pathway=rownames(res), res));
     res$padj <- as.numeric(res$padj)
@@ -189,17 +199,48 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
     }
   }
   
+  # Ridge density + jittered points should show the FULL pathway membership
+  # (every measured member gene's fold change) with the DE-significant members
+  # HIGHLIGHTED, mirroring the GSEA ridgeline. ORA's `sigmat` is the significant
+  # subset used as the enrichment INPUT; for the PLOT use all genes' fold changes
+  # (comp.res) so non-significant members aren't dropped by the na.omit below.
+  # Only onedata has a separate sig.mat; gene-list / meta flows plot their set.
+  sig.entrez <- if (anal.type == "onedata" && !is.null(dataSet$sig.mat))
+                  rownames(dataSet$sig.mat) else rownames(sigmat)
+  if (anal.type == "onedata" && ridgeType == "ora" && !is.null(dataSet$comp.res)) {
+    plotmat <- as.data.frame(dataSet$comp.res); plotmat$entrez <- rownames(plotmat);
+  } else {
+    plotmat <- sigmat;
+  }
+
   # prepare data for plotting
-  degs.plot <- data.frame(entrez = rownames(sigmat), log2FC = sigmat[,inx]);
-  degs.plot <- reshape::melt(degs.plot);
+  degs.plot <- data.frame(entrez = plotmat$entrez, log2FC = plotmat[,inx]);
+  degs.plot <- suppressMessages(reshape::melt(degs.plot));
   colnames(degs.plot)[1] <- "entrez";
-  
-  gs.plot <- reshape::melt(current.geneset);
+
+  gs.plot <- suppressMessages(reshape::melt(current.geneset));
   colnames(gs.plot) <- c("entrez", "name");
   
   df <- merge(res.sig, gs.plot, by = "name", all.x = TRUE, all.y = FALSE);
   df <- merge(df, degs.plot, by = "entrez", all.x = TRUE, all.y = FALSE);
   df <- na.omit(df)
+
+  # ── Min-hits filter (a ridge is a DISTRIBUTION) ──────────────────────────
+  # A gene set needs at least 3 measured members ("hits") to form a ridge;
+  # fewer renders as a flat line / lone point. Keep only sets with >=3 members
+  # — the same minimum-set-size rule used by ma/MSEA.
+  RIDGE_MIN_HITS <- 3L
+  .set.hits <- tapply(as.character(df$entrez), as.character(df$name),
+                      function(x) length(unique(x)))
+  .keep.sets <- names(.set.hits)[!is.na(.set.hits) & .set.hits >= RIDGE_MIN_HITS]
+  df <- df[as.character(df$name) %in% .keep.sets, , drop = FALSE]
+  if (nrow(df) == 0) {
+    try(AddErrMsg(paste0("No gene set has at least ", RIDGE_MIN_HITS,
+      " measured members, so no ridgeline distribution can be drawn.")), silent = TRUE)
+    if (file.exists(jsonNm)) unlink(jsonNm)
+    return(0)
+  }
+  df$sig <- df$entrez %in% sig.entrez;   # DE-significant members -> highlighted
   
   # calculate the mean fold change to order the pathways in the plot
   means <- aggregate(df$value, by = list(df$name), mean);
@@ -209,10 +250,15 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
   # make the plot
   rp <- ggplot(df, aes(x = value, y = name, fill = adj.pval)) +
     geom_density_ridges(
-      jittered_points = TRUE, point_shape = "|", point_size = 5, point_color = "#898A89",
+      aes(point_color = sig),
+      jittered_points = TRUE, point_shape = "|", point_size = 5,
+      alpha = 0.6,                       # semi-transparent ridges
       color = "white",
       scale = 1.5, rel_min_height = .02, size = 0.25,
       position = position_points_jitter(height = 0)) +
+    scale_discrete_manual(aesthetics = "point_color",
+                          values = c(`FALSE` = "#B0B0B0", `TRUE` = "#CB181D"),
+                          name = "DE significant", labels = c(`FALSE` = "no", `TRUE` = "yes")) +
     geom_vline(xintercept = 0, color = "red") +
     scale_y_discrete(expand = c(0, 0), name = "Gene Set",
                      labels = function(x) ifelse(nchar(x) > 45L,
@@ -229,7 +275,7 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
           axis.text.y = element_text(size=12,color = "black"))
   
   Cairo::Cairo(file=imageName, width=10, height=8, type=format, bg="white", dpi=dpi, unit="in");
-  print(rp);
+  suppressMessages(print(rp));
   dev.off();
   
   ##interative ridge json data

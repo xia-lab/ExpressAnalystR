@@ -181,7 +181,7 @@ if (has.list) {
   
   dataSet$sig.mat <- resTable;
   
-  if (dataSet$annotated){ # annotated to entrez
+  if (isTRUE(dataSet$annotated)){ # annotated to entrez
     anot.id <- rownames(dataSet$comp.res);
     gene.anot <- doEntrezIDAnot(anot.id, paramSet$data.org, paramSet$data.idType)
     fast.write(cbind(EntrezID=anot.id, signif (dataSet$comp.res,5), Symbols = gene.anot$symbol,  Name=gene.anot$name), row.names=F, file=filename);
@@ -439,7 +439,7 @@ dataSet$comp.res <- rbind(resTable, other)
     symbol_col <- rep(NA_character_, length(gene_ids))
     name_col   <- rep(NA_character_, length(gene_ids))
 
-    if (dataSet$annotated) {
+    if (isTRUE(dataSet$annotated)) {
       anot <- tryCatch(
         doEntrezIDAnot(gene_id_col, paramSet$data.org, paramSet$data.idType),
         error = function(e) data.frame(symbol = symbol_col, name = name_col)
@@ -560,7 +560,7 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
     symbol_col <- rep(NA_character_, length(gene_ids))
     name_col <- rep(NA_character_, length(gene_ids))
 
-    if (dataSet$annotated) {
+    if (isTRUE(dataSet$annotated)) {
       anot <- tryCatch(
         doEntrezIDAnot(gene_id_col, paramSet$data.org, paramSet$data.idType),
         error = function(e) data.frame(symbol = symbol_col, name = name_col)

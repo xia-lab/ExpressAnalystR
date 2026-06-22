@@ -4,5 +4,10 @@
 .Ruserdata
 /workingdir
 
+# Byte-compiled R caches are generated at runtime in the deployed target dir,
+# NEVER committed in src. A stale committed .Rc shadows its fixed .R and runs
+# old code (see the qs::qread / "QS format not detected" annotation bug).
+*.Rc
+
 /CloudUpload/target/
 /DevOmicSquare/target/

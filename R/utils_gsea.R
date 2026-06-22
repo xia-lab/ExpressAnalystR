@@ -172,9 +172,19 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   fgseaRes$hits <- hit.num[which(fgseaRes$pathway  %in% names(hit.num))] 
   fgseaRes$total <- set.num[which(fgseaRes$pathway %in% names(set.num))]
   
-  fgseaRes <- fgseaRes[which(fgseaRes$hits>1),];
-  fgseaRes <- fgseaRes[which(fgseaRes$hits<500),];
-  fgseaRes <- fgseaRes[which(fgseaRes$total<2000),];
+  fgseaRes.filt <- fgseaRes[which(fgseaRes$hits>1),];
+  fgseaRes.filt <- fgseaRes.filt[which(fgseaRes.filt$hits<500),];
+  fgseaRes.filt <- fgseaRes.filt[which(fgseaRes.filt$total<2000),];
+
+  # If fewer than 10 pathways pass the hits/size quality filters, fall back to the
+  # top 10 by p-value (fgsea already vetted each via minSize=5). Prevents the table
+  # collapsing to 1-2 rows when the hits remap is sparse (e.g. non-model organisms).
+  if(nrow(fgseaRes.filt) < 10){
+    fgseaRes <- head(fgseaRes[order(fgseaRes$pval),], 10L);
+  } else {
+    fgseaRes <- fgseaRes.filt;
+  }
+
   if(nrow(fgseaRes)<1){
     analSet <- SetListNms(dataSet);
     initsbls <- doEntrez2SymbolMapping(analSet$list.genes, paramSet$data.org, paramSet$data.idType)
@@ -249,8 +259,6 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   if(any(duplicated(rownames(res.mat)))) {
     res.mat <- res.mat[!duplicated(rownames(res.mat)), ]
     hits.query <- hits.query[match(rownames(res.mat), names(hits.query))]
-
-    print("Duplicates in enr.mat were removed.")
   } else {
     res.mat <- res.mat
   }

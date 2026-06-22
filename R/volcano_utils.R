@@ -150,7 +150,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   if(paramSet$data.org == "omk"){
     anot.id <- rownames(data);
     gene.anot <- data.frame(gene_id=anot.id, symbol=anot.id, name=anot.id, stringsAsFactors=FALSE)
-  }else if (anal.type == "metadata" || dataSet$annotated ){ # annotated to entrez
+  }else if (anal.type == "metadata" || isTRUE(dataSet$annotated) ){ # annotated to entrez
     anot.id <- rownames(data);
     gene.anot <- doEntrezIDAnot(anot.id, paramSet$data.org, paramSet$data.idType);
   }else{
@@ -518,7 +518,6 @@ PerformVolcanoEnrichment<-function(dataName="", file.nm, fun.type, IDs, type, in
 
   fcthreshu <- paramSet$fcthreshu;
   fcthreshu <- as.numeric(fcthreshu);
-  print(paste0(fcthreshu, "===fcthresh"));
   anal.type <- paramSet$anal.type;
   inx <- as.numeric(inx)
   if(anal.type == "onedata"){
@@ -702,8 +701,6 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
   if(any(duplicated(rownames(res.mat)))) {
     res.mat <- res.mat[!duplicated(rownames(res.mat)), ]
     hits.query <- hits.query[match(rownames(res.mat), names(hits.query))]
-
-    print("Duplicates in enr.mat were removed.")
   } else {
     res.mat <- res.mat
   }

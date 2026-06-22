@@ -180,7 +180,7 @@ my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   
   sig.inx <- which(rownames(res) %in% sig.ids) -1
   
-  if(dataSet$annotated){
+  if(isTRUE(dataSet$annotated)){
     anot.id <- rownames(res);
     gene.map <- readDataQs("symbol.map.qs", paramSet$anal.type, dataSet$name);
     anot.res <- doIdMappingGeneric(anot.id, gene.map, "gene_id", "symbol", "matrix")

@@ -14,11 +14,16 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   if(anal.type == "metadata"){
     sel.nms <- names(mdata.all)[mdata.all==1];
     seeds_list <- vector("list", length(sel.nms));
+    meta_list <- vector("list", length(sel.nms));
     for(i in 1:length(sel.nms)){
       dataSet <- readDataset(sel.nms[i]);
       seeds_list[[i]] <- rownames(dataSet$sig.mat);
+      meta_list[[i]] <- dataSet$meta.info;
     }
     seeds <- unlist(seeds_list);
+    # meta_list was referenced here but never built (the loop only collected
+    # seeds) -> "object 'meta_list' not found" on the meta 3D scatter. The shared
+    # metadata gives every study identical meta.info columns, so rbind is safe.
     meta <- do.call(rbind, meta_list);
     sig.tbl <- ov_qs_read("meta.resTable.qs");
     sig.tbl$id <- rownames(sig.tbl);
@@ -186,8 +191,6 @@ my.json.scatter <- function(dataSet, filenm="abc"){
   netData[["misc"]] <- pca3d$score$axis;
   paramSet$partialToBeSaved <- c(paramSet$partialToBeSaved, c(filenm));
   paramSet$jsonNms["scatter3d"] <- filenm;
-  print(filenm)
-  print("scatter3d");
   saveSet(paramSet, "paramSet");
   
   sink(filenm);

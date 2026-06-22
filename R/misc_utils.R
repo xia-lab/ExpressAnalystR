@@ -262,7 +262,9 @@ GetListEnrGeneNumber <- function(){
     }
   }else if(anal.type == "onedata"){
     all.enIDs <- rownames(dataSet$sig.mat);
-    names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
+    # No significant features (or unannotated data) -> all.enIDs is NULL/empty;
+    # guard so `names(NULL) <- ...` can't error and enrichment degrades to empty.
+    if (length(all.enIDs)) names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
     listSizes[[1]] <- list(
       name = "dataSet1",
       label = "dataSet1",
@@ -336,7 +338,9 @@ GetListEnrGeneNumber <- function(){
     }
   }else if(anal.type == "onedata"){
     all.enIDs <- rownames(dataSet$sig.mat);
-    names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
+    # No significant features (or unannotated data) -> all.enIDs is NULL/empty;
+    # guard so `names(NULL) <- ...` can't error and enrichment degrades to empty.
+    if (length(all.enIDs)) names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
     listSizes[[1]] <- list(
       name = "dataSet1",
       label = "dataSet1",
@@ -557,6 +561,31 @@ PerformSetOperation_DataEnr <- function(nms, operation, refNm){
 #' @param args List of arguments passed via do.call
 #' @param timeout_sec Hard timeout before child is killed
 #' @return Result of do.call(func, args)
+# Reusable RSclient connection pool. When opened, repeated run_func_via_rsclient
+# calls share ONE child Rserve session, so heavy packages (fgsea, ggplot2, Cairo)
+# attach ONCE for the whole batch instead of reloading on every call. The
+# multi-library functional generator opens it around its per-library GSEA/ORA loop
+# and closes it after. Outside a pool, behaviour is unchanged: a fresh isolated
+# session per call.
+.ov_rsc_pool <- new.env(parent = emptyenv())
+ov_rsclient_pool_open <- function() {
+  ov_rsclient_pool_close()
+  conn <- tryCatch(RSclient::RS.connect(host = "localhost", port = 6311),
+                   error = function(e) NULL)
+  if (is.null(conn)) return(invisible(FALSE))
+  .ov_rsc_pool$conn <- conn
+  .ov_rsc_pool$injected <- FALSE
+  invisible(TRUE)
+}
+ov_rsclient_pool_close <- function() {
+  if (!is.null(.ov_rsc_pool$conn)) {
+    try(RSclient::RS.close(.ov_rsc_pool$conn), silent = TRUE)
+    .ov_rsc_pool$conn <- NULL
+  }
+  .ov_rsc_pool$injected <- FALSE
+  invisible(NULL)
+}
+
 run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
   # Docker self-host: a NESTED RSclient connection (an Rserve session opening a
   # connection back to Rserve on 6311) reliably crashes the spawned worker with
@@ -569,12 +598,25 @@ run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
     on.exit(setTimeLimit(elapsed = Inf), add = TRUE)
     return(invisible(do.call(func, args)))
   }
-  conn <- RSclient::RS.connect(host = "localhost", port = 6311)
-  on.exit(try(RSclient::RS.close(conn), silent = TRUE))
+  # Reuse the pooled connection when one is open and still alive, so child
+  # packages stay attached across calls; otherwise open a fresh isolated session
+  # (default, unchanged behaviour) and close it on exit.
+  conn <- NULL
+  if (!is.null(.ov_rsc_pool$conn)) {
+    alive <- tryCatch({ RSclient::RS.eval(.ov_rsc_pool$conn, quote(TRUE)); TRUE },
+                      error = function(e) FALSE)
+    if (alive) conn <- .ov_rsc_pool$conn else ov_rsclient_pool_close()
+  }
+  pooled <- !is.null(conn)
+  if (!pooled) {
+    conn <- RSclient::RS.connect(host = "localhost", port = 6311)
+    on.exit(try(RSclient::RS.close(conn), silent = TRUE))
+  }
   # Inject the qs wrapper helpers into the subprocess R session so callers
   # writing ov_qs_read(f) / ov_qs_save(obj, f) inside their subprocess func
-  # body work transparently — the subprocess is a fresh R session and does
-  # not inherit master-session helpers otherwise.
+  # body work transparently — a fresh session does not inherit master-session
+  # helpers. On a pooled connection this only needs to happen once.
+  if (!pooled || !isTRUE(.ov_rsc_pool$injected)) {
   RSclient::RS.eval(conn, quote({
     ov_qs_read <- function(file, ...) {
       if (file.exists(file)) {
@@ -604,6 +646,8 @@ run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
       FALSE
     }
   }))
+    if (pooled) .ov_rsc_pool$injected <- TRUE
+  }
   RSclient::RS.assign(conn, ".exec_wd", getwd())
   RSclient::RS.assign(conn, ".exec_func", func)
   RSclient::RS.assign(conn, ".exec_args", args)

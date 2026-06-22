@@ -48,29 +48,26 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   hits.query <- hits.query[rownames(enr.mat)];
   geneSets <- hits.query;
   n <- nrow(enr.mat);
-  w <- matrix(NA, nrow=n, ncol=n);
+  w  <- matrix(NA_real_, n, n);   # overlap ratio (edge filter)
+  cw <- matrix(0L, n, n);         # shared-gene COUNT (edge weight -> thickness)
   colnames(w) <- rownames(w) <- id;
-
-  # OPTIMIZED: Compute only upper triangle, then make symmetric (2x faster)
-  # Note: No parallelization - web application with concurrent users
-  for (i in 1:n) {
-    for (j in i:n) {
-      w[i,j] <- overlap_ratio(geneSets[id[i]], geneSets[id[j]], overlapType)
-    }
+  # Upper triangle only — compute each pathway PAIR once.
+  for (i in 1:n) for (j in i:n) {
+    if (i == j) next
+    gi <- unlist(geneSets[id[i]]); gj <- unlist(geneSets[id[j]]);
+    w[i, j]  <- overlap_ratio(gi, gj, overlapType);
+    cw[i, j] <- length(intersect(gi, gj));
   }
-
-  # Make matrix symmetric (avoid redundant lower triangle computation)
-  w[lower.tri(w)] <- t(w)[lower.tri(w)]
-  wd <- reshape::melt(w);
-  wd <- wd[wd[,1] != wd[,2],];
-  wd <- wd[!is.na(wd[,3]),];
-  
-  g <- graph_from_data_frame(wd[,-3], directed=F);
-  if(type == "list"){
-    g <- delete_edges(g, E(g)[wd[,3] < 0.3]);
-  }else{
-    g <- delete_edges(g, E(g)[wd[,3] < 0.3]);
-  }
+  # ONE edge per pair (the symmetric melt used to create duplicate i->j AND j->i
+  # edges, crowding the map with parallel edges). Keep pairs with overlap >= 0.3;
+  # edge weight = number of shared genes so the static map can scale thickness.
+  ut <- which(upper.tri(w) & !is.na(w) & w >= 0.3, arr.ind = TRUE);
+  edf <- if (nrow(ut) > 0)
+           data.frame(from = id[ut[, 1]], to = id[ut[, 2]],
+                      weight = as.numeric(cw[ut]), stringsAsFactors = FALSE)
+         else data.frame(from = character(0), to = character(0), weight = numeric(0));
+  g <- graph_from_data_frame(edf, directed = FALSE,
+                             vertices = data.frame(name = id, stringsAsFactors = FALSE));
   idx <- unlist(sapply(V(g)$name, function(x) which(x == id)));
   
   # define local function
@@ -111,7 +108,23 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   pos.xy <- layout_with_fr(g, niter=500)
   # tighten layout to reduce spacing between disconnected components
   pos.xy <- sweep(pos.xy, 2, colMeans(pos.xy), "-") * 0.6
-  
+
+  # Static enrichment-map PNG (pathway nodes, gene-overlap edges) for the report /
+  # dashboard, mirroring this interactive network. WfEmitEnrichNetwork caches the
+  # plot inputs, draws via WfPlotEnrichNet (a file device under a device guard so
+  # it never opens a quartz window), records a PlotEnrichNetReplot() command so
+  # the figure is Refine-able, and emits the dedicated network manifest (caption).
+  # netNm is "enrichNet_<lib>"; the static figure is enrichnet_<lib>_static.
+  if(exists("WfEmitEnrichNetwork")){
+    .lib.nm <- sub("^enrichNet_", "", netNm);
+    tryCatch(WfEmitEnrichNetwork(g, pos.xy,
+                                 counts = cnt2,
+                                 signif = -log10(pmax(pvalue[V(g)$name], 1e-300)),
+                                 labels = V(g)$name,
+                                 lib = .lib.nm),
+             error=function(e) message("[enrichnet/static] ", .lib.nm, " failed: ", conditionMessage(e)));
+  }
+
   # now create the json object
   nodes <- vector(mode="list");
   node.nms <- V(g)$name;
