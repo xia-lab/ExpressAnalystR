@@ -274,18 +274,14 @@ SetupMetaStats <- function(BHth=0.05, paramSet, analSet){
   analSet$meta.stat <- meta.stat;
 
   if(colnames(analSet$meta.mat.all)[1] != "AverageFc" && paramSet$inmex.method != "merge"){
-    #cal sampleNumbers
-    meta.info <- paramSet$dataSet$meta.info;
-    sampleCounts <- table(meta.info$Dataset)
-    sampleNumbers <- as.vector(sampleCounts)
-    sampleNumbers <- unname(sampleNumbers)
+    # Unweighted average logFC: Fisher's p-value combination does not weight by
+    # sample size, so the logFC average should also treat all studies equally.
+    avgFC <- rowMeans(fc.mat, na.rm = TRUE)
 
-    # Compute weighted average of fold change values
-    weightedAvgFC <- rowSums(fc.mat * sampleNumbers) / sum(sampleNumbers)
-    
     # Convert to a data frame for easier handling and naming
-    weightedAvgFC_df <- as.data.frame(weightedAvgFC)
+    weightedAvgFC_df <- as.data.frame(avgFC)
     colnames(weightedAvgFC_df) <- "AverageFc"
+    rownames(weightedAvgFC_df) <- rownames(fc.mat)
     weightedAvgFC_df <- weightedAvgFC_df[match(rownames(analSet$meta.mat.all), rownames(weightedAvgFC_df)), ,drop=F]
     analSet$avg.fc.mat <- weightedAvgFC_df;
     analSet$meta.avgFC <- as.vector(analSet$avg.fc.mat[,1]);

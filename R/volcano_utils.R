@@ -352,14 +352,18 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   # MetaboAnalyst's volcano gradient endpoints.
   vc_cols <- c("Up" = "#d6604d", "Down" = "#2166ac", "Non-sig" = "#9ca3af")
 
+  is.meta.combined <- (anal.type == "metadata" && paramSet$selDataNm == "meta_default")
   x_lab <- if (is.fstat) {
              expression(italic(F)~statistic)
            } else if (is.omnibus) {
              expression(log[2]~"(Max-pairwise Fold Change)")
+           } else if (is.meta.combined) {
+             expression("Weighted avg "~log[2]~"FC (meta-analysis)")
            } else {
              expression(log[2]~"(Fold Change)")
            }
-  y_lab <- expression(-log[10]~"(P-value)")
+  y_lab <- if (is.meta.combined) expression(-log[10]~"(combined p-value)")
+           else expression(-log[10]~"(P-value)")
 
   # Layer non-sig points first, then up/down on top so significant hits aren't buried.
   ns_df  <- volcano_data[volcano_data$significant == "Non-sig", , drop = FALSE]
@@ -382,7 +386,9 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
     scale_color_manual(name = NULL, values = vc_cols, drop = FALSE) +
     labs(x = x_lab, y = y_lab,
          title = sprintf("Up: %d   Down: %d   Total: %d", nUp, nDown, nTot),
-         subtitle = if (is.omnibus)
+         subtitle = if (is.meta.combined)
+                      "Meta-analysis: weighted avg logFC, combined p-value (Fisher's method)"
+                    else if (is.omnibus)
                       "Multi-group ANOVA: omnibus F-test p-value, signed max-pairwise logFC"
                     else NULL) +
     theme_bw(base_size = 13) +

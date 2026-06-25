@@ -695,7 +695,7 @@ PlotEnrichHeatmapPNG <- function(dataName, imgName, format="png", dpi=150, width
     imgPath <- paste0(imgName, ".", format)
     w.val <- if (is.na(width)) max(7, ncol(gp.mat)*0.6+3) else width/dpi
     h.val <- max(5, nrow(gp.mat)*0.25+2)
-    png(imgPath, width=w.val, height=h.val, units="in", res=dpi, bg="white")
+    png(imgPath, width=w.val, height=h.val, units="in", res=dpi, type="cairo", bg="white")
     par(mar=c(1, 8, max(4, max(nchar(colnames(gp.mat)))*0.3), 1))
     nr <- nrow(gp.mat); nc <- ncol(gp.mat)
     plot(NA, xlim=c(0,nc), ylim=c(0,nr), xaxt="n", yaxt="n", xlab="", ylab="", bty="n", asp=NA)
