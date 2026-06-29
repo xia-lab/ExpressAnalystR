@@ -97,7 +97,7 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
   .ov_lib_ok <- nzchar(.ov_lib) && dir.exists(.ov_lib) &&
     any(file.info(list.files(.ov_lib, pattern = "\\.sqlite$", full.names = TRUE))$size > 0, na.rm = TRUE);
   if(isTRUE(.ov_lib_ok)){
-    sqlite.path <- paste0(sub("/+$", "", .ov_lib), "/");  # Docker shared library mount (OMICS_LIB_DIR)
+    sqlite.path <- paste0(sub("/+$", "", .ov_lib), "/");  # shared sqlite library directory
   }else if(file.exists("/home/glassfish/sqlite/")){
     sqlite.path <- "/home/glassfish/sqlite/";  #public server
   }else if(file.exists("/Users/xialab/Dropbox/sqlite/")){
