@@ -109,21 +109,15 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   # tighten layout to reduce spacing between disconnected components
   pos.xy <- sweep(pos.xy, 2, colMeans(pos.xy), "-") * 0.6
 
-  # Static enrichment-map PNG (pathway nodes, gene-overlap edges) for the report /
-  # dashboard, mirroring this interactive network. WfEmitEnrichNetwork caches the
-  # plot inputs, draws via WfPlotEnrichNet (a file device under a device guard so
-  # it never opens a quartz window), records a PlotEnrichNetReplot() command so
-  # the figure is Refine-able, and emits the dedicated network manifest (caption).
-  # netNm is "enrichNet_<lib>"; the static figure is enrichnet_<lib>_static.
-  if(exists("WfEmitEnrichNetwork")){
-    .lib.nm <- sub("^enrichNet_", "", netNm);
-    tryCatch(WfEmitEnrichNetwork(g, pos.xy,
-                                 counts = cnt2,
-                                 signif = -log10(pmax(pvalue[V(g)$name], 1e-300)),
-                                 labels = V(g)$name,
-                                 lib = .lib.nm),
-             error=function(e) message("[enrichnet/static] ", .lib.nm, " failed: ", conditionMessage(e)));
-  }
+  # Cache the plot inputs (graph, layout, counts, significance, labels) to disk
+  # under netNm so a static enrichment-map image matching this interactive
+  # network can be rendered later without recomputing the layout.
+  tryCatch(saveRDS(list(g = g, layout = pos.xy, counts = cnt2,
+                        signif = -log10(pmax(pvalue[V(g)$name], 1e-300)),
+                        labels = V(g)$name),
+                   paste0(netNm, "_plot_inputs.rds")),
+           error = function(e) message("[enrichnet] caching plot inputs for ",
+                                       netNm, " failed: ", conditionMessage(e)));
 
   # now create the json object
   nodes <- vector(mode="list");
