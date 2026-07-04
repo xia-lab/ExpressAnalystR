@@ -231,7 +231,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
   ), bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-  run_func_via_rsclient(
+  run_func_via_rc_microservice(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(DESeq2)
@@ -541,6 +541,20 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
   }
 
   if (dataSet$de.method == "limma") {
+    # limma-trend here fits lmFit(data.norm) directly (no voom), so a count matrix must arrive on a log
+    # scale. When an upstream normalization step failed or used a non-log method, data.norm is still raw
+    # counts and limma reports LINEAR fold-differences mislabelled as logFC (e.g. 21748 instead of ~4).
+    # log2-CPM never exceeds ~22, so a max > 30 on count data means it is not logged: apply log2-CPM here
+    # so logFC is a genuine log2 fold-change. Guarded to the limma branch — edgeR needs raw counts.
+    if (identical(dataSet$type, "count") && length(data.norm) &&
+        suppressWarnings(max(data.norm, na.rm = TRUE)) > 30) {
+      if (requireNamespace("edgeR", quietly = TRUE)) {
+        data.norm <- edgeR::cpm(data.norm, log = TRUE, prior.count = 1)
+      } else {
+        data.norm <- log2(data.norm + 1)
+      }
+      message("[DE] count matrix reached limma on a linear scale; applied log2-CPM so logFC is log2 fold-change.")
+    }
     if (is.null(dataSet$block)) {
       fit <- lmFit(data.norm, design)
     } else {
@@ -640,7 +654,7 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
               bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-    run_func_via_rsclient(
+    run_func_via_rc_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR); require(limma)

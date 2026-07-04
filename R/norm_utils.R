@@ -99,7 +99,7 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     ov_qs_save(list(m = m), bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-    run_func_via_rsclient(
+    run_func_via_rc_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(DESeq2)
@@ -301,7 +301,7 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     ov_qs_save(list(data = data, method = cnf_method), bridge_in_nf, preset = "fast")
     on.exit(unlink(c(bridge_in_nf, bridge_out_nf)), add = TRUE)
 
-    run_func_via_rsclient(
+    run_func_via_rc_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR)
@@ -368,7 +368,7 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     ov_qs_save(list(data = data), bridge_in_uq, preset = "fast")
     on.exit(unlink(c(bridge_in_uq, bridge_out_uq)), add = TRUE)
 
-    run_func_via_rsclient(
+    run_func_via_rc_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR)
@@ -759,7 +759,7 @@ PerformExpressBatchCorrection <- function(dataName, batchVar) {
   ov_qs_save(list(data = data, batch = batch), bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-  run_func_via_rsclient(
+  run_func_via_rc_microservice(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(sva)

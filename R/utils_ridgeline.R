@@ -160,7 +160,7 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
               bridge_in_rl, preset = "fast")
     on.exit(unlink(c(bridge_in_rl, bridge_out_rl)), add = TRUE)
 
-    run_func_via_rsclient(
+    run_func_via_rc_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(fgsea)
