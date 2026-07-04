@@ -586,7 +586,7 @@ ov_rsclient_pool_close <- function() {
   invisible(NULL)
 }
 
-run_func_via_rc_microservice <- function(func, args = list(), timeout_sec = 60) {
+run_func_via_microservice <- function(func, args = list(), timeout_sec = 60) {
   # Run the closure in a fresh, short-lived R process (a microservice), which then exits and reclaims
   # all memory it used plus any packages it attached. Replaces the old nested Rserve-client path, which
   # reliably crashed the worker with "Fatal error: unable to initialize the JIT" (Rserve error 127) —
@@ -622,7 +622,7 @@ run_func_via_rc_microservice <- function(func, args = list(), timeout_sec = 60) 
 }
 
 # Preserved for reference / backward compatibility. No longer called (all call sites use
-# run_func_via_rc_microservice above); its nested-RSclient path crashes the worker on self-host.
+# run_func_via_microservice above); its nested-RSclient path crashes the worker on self-host.
 run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
   # Self-host: a NESTED RSclient connection (an Rserve session opening a
   # connection back to Rserve on 6311) reliably crashes the spawned worker with

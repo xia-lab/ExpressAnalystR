@@ -231,7 +231,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
   ), bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-  run_func_via_rc_microservice(
+  run_func_via_microservice(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(DESeq2)
@@ -654,7 +654,7 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
               bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-    run_func_via_rc_microservice(
+    run_func_via_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR); require(limma)
