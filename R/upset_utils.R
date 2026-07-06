@@ -403,7 +403,7 @@ PlotPairwiseUpsetPNG <- function(dataName  = "",
                                  p.lvl     = 0.05,
                                  fc.lvl    = 0,
                                  FDR       = "true",
-                                 max.sets  = 15,
+                                 max.sets  = 5,
                                  max.inter = 20,
                                  dpi       = 150,
                                  format    = "png") {
@@ -413,6 +413,11 @@ PlotPairwiseUpsetPNG <- function(dataName  = "",
       return(invisible(NULL))
     }
     require(Cairo)
+
+    # Remove any stale plot from a prior run first, so every skip path below
+    # leaves NO misleading old PNG for the manifest emitter to pick up.
+    stale.img <- paste0(imgName, ".", format)
+    if (file.exists(stale.img)) unlink(stale.img)
 
     dataSet <- readDataset(dataName)
     if (is.null(dataSet) || is.null(dataSet$comp.res.list) ||
@@ -462,11 +467,31 @@ PlotPairwiseUpsetPNG <- function(dataName  = "",
     }
     sig.sets <- sig.sets[keep]
 
+    # Cap to the top `max.sets` contrasts by number of significant features. A
+    # many-group design (e.g. 8 groups -> 28 pairwise contrasts) otherwise yields
+    # dozens of squeezed, near-empty columns; keep the most informative ones.
+    if (length(sig.sets) > max.sets) {
+      ord     <- order(vapply(sig.sets, length, integer(1)), decreasing = TRUE)
+      dropped <- length(sig.sets) - max.sets
+      sig.sets <- sig.sets[ord[seq_len(max.sets)]]
+      message("[PlotPairwiseUpsetPNG] ", dropped, " smaller contrast(s) hidden — ",
+              "showing top ", max.sets, " by significant-feature count")
+    }
+
     # Build input matrix. UpSetR::fromList returns a binary
     # data.frame (genes × contrasts).
     upset.df <- UpSetR::fromList(sig.sets)
     if (nrow(upset.df) == 0) {
       message("[PlotPairwiseUpsetPNG] no genes in any sig set — skipping")
+      return(invisible(NULL))
+    }
+    # Degenerate guard: if no feature is shared across >=2 contrasts (every
+    # significant feature is unique to a single contrast) the UpSet has no real
+    # intersections to show and is misleading. Skip drawing; WfEmitUpsetManifest
+    # surfaces a short "no shared features" note in its place.
+    if (max(rowSums(upset.df > 0), 0L) < 2) {
+      message("[PlotPairwiseUpsetPNG] no feature shared across >=2 contrasts — ",
+              "skipping degenerate UpSet")
       return(invisible(NULL))
     }
     # Method-standard invariant: persist the data behind the UpSet plot (the binary
@@ -477,7 +502,7 @@ PlotPairwiseUpsetPNG <- function(dataName  = "",
       tryCatch(WfSaveFigureData("upset", upset.df), error = function(e) NULL)
 
     # Sizing — width scales with N contrasts, height with N intersections.
-    n.sets <- min(length(sig.sets), max.sets)
+    n.sets <- ncol(upset.df)
     w.in <- max(8, 0.45 * n.sets + 6)
     h.in <- 6
 
@@ -488,11 +513,11 @@ PlotPairwiseUpsetPNG <- function(dataName  = "",
       # UpSetR::upset returns a grid object; print it to render under Cairo.
       print(UpSetR::upset(
         upset.df,
-        sets         = rev(colnames(upset.df))[seq_len(min(n.sets, ncol(upset.df)))],
+        sets         = colnames(upset.df),
         nsets        = n.sets,
         nintersects  = max.inter,
         order.by     = "freq",
-        keep.order   = TRUE,
+        keep.order   = FALSE,
         mainbar.y.label = "Genes in intersection",
         sets.x.label    = "Sig. genes per contrast",
         point.size   = 2.4,
