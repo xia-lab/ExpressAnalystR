@@ -402,7 +402,10 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
           legend.key = element_blank()) +
     guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
 
-  # Static (PNG) variant gets text labels for the top sig hits.
+  # Static (PNG) variant gets text labels for the top sig hits, plus the down/up
+  # feature counts in the panel corners (down top-left, up top-right). Black text
+  # — the points already carry the up/down colour. The per-direction counts move
+  # here from the title, which now carries only the total.
   gg_volcano_labeled <- gg_volcano +
     ggrepel::geom_text_repel(
       data = volcano_data[!is.na(volcano_data$label), , drop = FALSE],
@@ -411,7 +414,12 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
       box.padding = 0.45, point.padding = 0.25,
       min.segment.length = 0,
       segment.color = "grey55", segment.size = 0.3,
-      color = "grey15", show.legend = FALSE)
+      color = "grey15", show.legend = FALSE) +
+    labs(title = sprintf("Total: %d features", nTot)) +
+    annotate("text", x = -Inf, y = Inf, label = paste0("Down: ", nDown),
+             hjust = -0.12, vjust = 1.6, color = "black", fontface = "bold", size = 4) +
+    annotate("text", x =  Inf, y = Inf, label = paste0("Up: ", nUp),
+             hjust =  1.12, vjust = 1.6, color = "black", fontface = "bold", size = 4)
 
   # Save outputs
   imgSet <- readSet(imgSet, "imgSet");
