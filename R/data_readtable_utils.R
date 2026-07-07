@@ -705,6 +705,14 @@ ReadMetaData <- function(metafilename){
       saveSet(msgSet, "msgSet");
       return(NULL);
     }
+    # The first column is the sample-ID column by convention (labelled #NAME). A
+    # UTF-8 BOM from an Excel-saved CSV leaves the header as "﻿#NAME", and some
+    # files label it differently; either way mydata$`#NAME` is NULL and the trim
+    # below fails with "replacement has 0 rows, data has N". Normalize the first
+    # column name to #NAME whenever the literal column is absent.
+    if(is.null(mydata[["#NAME"]]) && ncol(mydata) >= 1L){
+      colnames(mydata)[1] <- "#NAME";
+    }
     idx = which(!colnames(datOrig) %in% mydata$`#NAME`)
     if(length(idx)>1){
       if(length(idx)==2){
