@@ -631,6 +631,42 @@ run_func_via_microservice <- function(func, args = list(), timeout_sec = 60) {
   invisible(do.call(func, args))
 }
 
+# Run a self-contained closure in an ISOLATED R subprocess and return its result
+# through qs bridge files. ExpressAnalystR/ProteoAnalystR CALL this (dim-reduction
+# PCA diagnostics, normalization, DE, report) but historically did NOT define it —
+# only microbiome/mirnet/metabo/oa/on did — so express/proteo sessions failed with
+# `could not find function "rsclient_isolated_exec"` and those figures errored.
+# It routes through run_func_via_microservice above, which uses a fresh callr
+# subprocess when on.OmicsVerse is TRUE (this deployment; a nested RSclient fork is
+# unstable here) and falls back to in-process otherwise. The name is legacy — the
+# executor is callr on OmicsVerse, not RSclient.
+rsclient_isolated_exec <- function(func_body, input_data, packages = character(0),
+                                   timeout = 180, output_type = "qs") {
+  bridge_tmp <- file.path(tempdir(), "rsclient_bridge")
+  if (!dir.exists(bridge_tmp)) dir.create(bridge_tmp, recursive = TRUE)
+  uid <- paste0(sample(letters, 6), collapse = "")
+  input_path  <- file.path(bridge_tmp, paste0(uid, "_in.qs"))
+  output_path <- file.path(bridge_tmp, paste0(uid, "_out.qs"))
+  ov_qs_save(input_data, input_path, preset = "fast"); Sys.sleep(0.02)
+  on.exit({ for (p in c(input_path, output_path)) if (file.exists(p)) unlink(p) }, add = TRUE)
+  result <- run_func_via_microservice(
+    func = function(input_path, output_path, func_body, pkgs) {
+      tryCatch({
+        for (pkg in pkgs) suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+        res <- func_body(ov_qs_read(input_path))
+        ov_qs_save(res, output_path, preset = "fast"); Sys.sleep(0.02)
+        list(success = TRUE)
+      }, error = function(e) list(success = FALSE, message = e$message))
+    },
+    args = list(input_path = input_path, output_path = output_path,
+                func_body = func_body, pkgs = packages),
+    timeout_sec = timeout)
+  if (file.exists(output_path)) return(ov_qs_read(output_path))
+  msg <- if (!is.null(result$message)) result$message else "isolated exec subprocess failed"
+  message("[rsclient_isolated_exec] ", msg)
+  return(list(success = FALSE, message = msg))
+}
+
 # Preserved for reference / backward compatibility. No longer called (all call sites use
 # run_func_via_microservice above); its nested-RSclient path crashes the worker on self-host.
 run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
