@@ -424,7 +424,7 @@ dataSet$comp.res <- rbind(resTable, other)
     if (paramSet$data.idType == "ko") {
       gene_links <- paste0("<a href='https://www.genome.jp/dbget-bin/www_bget?", gene_ids, "' target='_blank'>KEGG</a>")
     } else if (paramSet$data.idType == "s2f") {
-      gene_links <- paste0("<a href='https://www.ecoomicsdb.ca/#/query?ortho=", gene_ids, "' target='_blank'>EODB</a>")
+      gene_links <- paste0("<a href='https://www.seq2fun.ca/EcoOmicsDB/#/query?ortho=", gene_ids, "' target='_blank'>EODB</a>")
     } else {
       gene_links <- rep("#", length(gene_ids))
     }

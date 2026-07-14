@@ -1268,7 +1268,7 @@ GetFitResultGeneIDLinks <- function(org){
   } else if (org == "s2f"){
     ids <- as.character(dataSet$html.resTable[,1]);
     symbs <- doEntrez2SymbolMapping(ids)
-    annots <- paste("<a style='color: #a7414a' href='https://www.ecoomicsdb.ca/#/query?ortho=", ids, "' target='_blank'>", symbs, "</a>", sep="");
+    annots <- paste("<a style='color: #a7414a' href='https://www.seq2fun.ca/EcoOmicsDB/#/query?ortho=", ids, "' target='_blank'>", symbs, "</a>", sep="");
     return(annots);    
   } else {
     ids <- as.character(dataSet$html.resTable[,1]);
