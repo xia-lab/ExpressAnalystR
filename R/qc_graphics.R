@@ -110,6 +110,16 @@ qc.density<- function(dataSet, imgNm="abc", dpi=default.dpi, format, interactive
   imgNm <- paste0(fileNm, format, sep="");
   dpi <- as.numeric(dpi)
 
+  # Subsample to 80 samples if too many (for performance)
+  max.samp <- 80
+  if(ncol(dat) > max.samp){
+    set.seed(42)
+    sel.inx <- sort(sample(1:ncol(dat), max.samp))
+    dat <- dat[, sel.inx, drop=FALSE]
+    dataSet$data.norm <- dat
+    dataSet$meta.info <- dataSet$meta.info[sel.inx, , drop=FALSE]
+  }
+
   ######check.names=F is important for names not following conventions (i.e. with -, starts with number)
   df <- data.frame(dataSet$data.norm, stringsAsFactors = FALSE, check.names = FALSE)
   df <- stack(df)
@@ -164,7 +174,7 @@ qc.density<- function(dataSet, imgNm="abc", dpi=default.dpi, format, interactive
     } else if (requireNamespace("cowplot", quietly = TRUE)) {
       g <- cowplot::plot_grid(d1, d2, ncol = 2)
     } else {
-      stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side density plots with separate legends.")
+      AddErrMsg("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side density plots with separate legends."); return(0);
     }
 
     width <- 12
@@ -320,7 +330,7 @@ PlotLibSizeView<-function(fileName, imgNm,dpi=default.dpi, format="png"){
     } else if (requireNamespace("cowplot", quietly = TRUE)) {
       g <- cowplot::plot_grid(l1, l2, ncol = 2)
     } else {
-      stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side library size plots with separate legends.")
+      AddErrMsg("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side library size plots with separate legends."); return(0);
     }
 
     width <- 12
@@ -517,17 +527,18 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
   rownames(data_matrix) <- sample_names
   matrix_size <- nrow(data_matrix) * ncol(data_matrix)
 
-  # For matrices larger than 100k elements, use irlba (truncated SVD)
-  if (matrix_size > 100000) {
-    # Try to load irlba package
+  # For large matrices where truncated SVD is worthwhile, use irlba
+  # Only use when matrix is large AND we can compute far fewer PCs than dimensions
+  n_components <- min(10, ncol(data_matrix), nrow(data_matrix) - 1)
+  use_irlba <- matrix_size > 100000 && n_components < nrow(data_matrix) * 0.5
+
+  if (use_irlba) {
     if (!requireNamespace("irlba", quietly = TRUE)) {
       install.packages("irlba", repos = "https://cloud.r-project.org/")
     }
 
     require('irlba')
 
-    # Use truncated SVD - compute only first 10 PCs (sufficient for visualization)
-    n_components <- min(10, ncol(data_matrix), nrow(data_matrix) - 1)
     pca <- prcomp_irlba(data_matrix, n = n_components, center = TRUE, scale. = FALSE)
 
     # CRITICAL: Restore sample names to PCA results (irlba doesn't preserve them)
@@ -576,7 +587,8 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
   # Find common rows between PCA and metadata
   common_rows <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
   if (length(common_rows) == 0) {
-    stop("[qc.pcaplot] ERROR: No common samples between PCA results and metadata!")
+    AddErrMsg("No common samples between PCA results and metadata!");
+    return(0);
   }
 
   # Align both datasets to common samples
@@ -683,7 +695,7 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
     } else if (requireNamespace("cowplot", quietly = TRUE)) {
       pcafig <- cowplot::plot_grid(p1, p2, ncol = 2)
     } else {
-      stop("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side PCA plots with separate legends.")
+      AddErrMsg("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side PCA plots with separate legends."); return(0);
     }
     width <- 12
     height <- 6
@@ -833,7 +845,8 @@ GetPcaOutliers <- function(){
 PlotDataNcov5 <- function(fileName, imgName, dpi, format){
   dataSet <- readDataset(fileName)
   if (is.null(dataSet$summary_df)) {
-    stop("summary_df not found in dataSet. Please run SummarizeQC first.")
+    AddErrMsg("summary_df not found in dataSet. Please run SummarizeQC first.");
+    return(0);
   }
 
   ncov5_df <- dataSet$summary_df[, c("Sample", "HighCoverageGeneCount")]
@@ -864,9 +877,9 @@ qc.ncov5.plot <- function(ncov5_df,
   require(ggplot2)
   require(ggrepel)
   require(Cairo)
-  
+
   dpi <- as.numeric(dpi)
-  if (dpi <= 0) stop("DPI must be a positive number.")
+  if (dpi <= 0) { AddErrMsg("DPI must be a positive number."); return(0); }
 
   g <- ggplot(ncov5_df, aes(x = "", y = HighCoverageGeneCount)) +
     geom_boxplot(outlier.shape = NA, fill = "grey80") +
@@ -908,7 +921,8 @@ qc.ncov5.plot <- function(ncov5_df,
 PlotDataNsig <- function(fileName, imgName, dpi, format){
   dataSet <- readDataset(fileName)
   if (is.null(dataSet$summary_df)) {
-    stop("summary_df not found in dataSet. Please run SummarizeQC first.")
+    AddErrMsg("summary_df not found in dataSet. Please run SummarizeQC first.");
+    return(0);
   }
 
   nsig_df <- dataSet$summary_df[, c("Sample", "NSig80")]
@@ -941,7 +955,7 @@ qc.nsig.plot <- function(nsig_df,
   require("ggrepel")
 
   dpi <- as.numeric(dpi)
-  if (dpi <= 0) stop("DPI must be a positive number.")
+  if (dpi <= 0) { AddErrMsg("DPI must be a positive number."); return(0); }
 
   g <- ggplot(nsig_df, aes(x = "", y = NSig80)) +
     geom_boxplot(outlier.shape = NA, fill = "grey80") +
@@ -983,7 +997,8 @@ PlotDataDendrogram <- function(fileName, imgName, threshold, dpi, format){
   dataSet <- readDataset(fileName)
 
   if (is.null(dataSet$summary_df)) {
-    stop("summary_df not found in dataSet. Please run SummarizeQC first.")
+    AddErrMsg("summary_df not found in dataSet. Please run SummarizeQC first.");
+    return(0);
   }
   dendro_df <- dataSet$summary_df[, c("Sample", "Dendrogram_Distance")]
   dendro_df$Status <- ifelse(dendro_df$Dendrogram_Distance > threshold, "Outlier", "Normal")
@@ -1015,7 +1030,7 @@ qc.dendrogram.plot <- function(dendro_df,
   require(Cairo)
 
   dpi <- as.numeric(dpi)
-  if (dpi <= 0) stop("DPI must be positive.")
+  if (dpi <= 0) { AddErrMsg("DPI must be positive."); return(0); }
 
   set.seed(1)  # For reproducible jitter
   dendro_df$xj <- jitter(rep(1, nrow(dendro_df)), amount = 0.25)
@@ -1224,7 +1239,8 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
   # Find common samples between PCA and metadata (matching PNG generation logic)
   common_samples <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
   if (length(common_samples) == 0) {
-    stop("[qc.pcaplot.json] ERROR: No common samples between PCA results and metadata!")
+    AddErrMsg("No common samples between PCA results and metadata!");
+    return(0);
   }
 
   # Align both PCA and metadata to common samples (instead of using match which can create NAs)
@@ -1359,7 +1375,8 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
 PlotDataGini <- function(fileName, imgName, threshold, dpi, format){
   dataSet <- readDataset(fileName)
   if (is.null(dataSet$summary_df)) {
-    stop("summary_df not found in dataSet. Please run SummarizeQC first.")
+    AddErrMsg("summary_df not found in dataSet. Please run SummarizeQC first.");
+    return(0);
   }
   
   # Select Gini data
@@ -1383,8 +1400,8 @@ qc.gini.plot <- function(gini_df,
   require(Cairo)
   
   dpi <- as.numeric(dpi)
-  if (dpi <= 0) stop("DPI must be a positive number.")
-  
+  if (dpi <= 0) { AddErrMsg("DPI must be a positive number."); return(0); }
+
   g <- ggplot(gini_df, aes(x = "", y = Gini)) +
     geom_boxplot(outlier.shape = NA, fill = "grey80") +
     geom_jitter(aes(color = Status), width = 0.25, height = 0) +
@@ -2118,7 +2135,8 @@ qc.pcaplot.outliers.json <- function(dataSet, x, imgNm,
   # Find common samples between PCA and metadata (matching PNG generation logic)
   common_samples <- intersect(rownames(pca.res), rownames(dataSet$meta.info))
   if (length(common_samples) == 0) {
-    stop("[qc.pcaplot.outliers.json] ERROR: No common samples between PCA results and metadata!")
+    AddErrMsg("No common samples between PCA results and metadata!");
+    return(0);
   }
 
   # Align both PCA and metadata to common samples (instead of using match which can create NAs)

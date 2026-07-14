@@ -11,6 +11,21 @@ my.prepare.list.heatmap.json <- function(dataSet){
   dat <- dataSet$prot.mat;
   sig.ids <- rownames(dat);
   gene.symbols <- doEntrez2SymbolMapping(sig.ids, paramSet$data.org, paramSet$data.idType);
+
+  # Persist the raw signed log2FC (untransformed) keyed by GENE SYMBOL for the
+  # pathway-map viewer at /vis/HeatmapListView.xhtml. Must happen BEFORE the
+  # bucketing logic below mutates `dat` into bin indices 1-30 (which then get
+  # written to heatmap_matrix.csv for the legacy discrete-palette viewer).
+  # The symbol rownames are essential — fun.anot (pathway membership) uses
+  # gene symbols, so a CSV keyed by Entrez ID can't be cross-referenced.
+  # Existing files don't work for this purpose:
+  #   - heatmap_matrix.csv  → has symbols but VALUES are bucket indices 1-30
+  #   - <datalist>.csv      → has raw values but ROWNAMES are Entrez IDs
+  dat.raw <- dat;
+  rownames(dat.raw) <- gene.symbols;
+  fast.write(dat.raw, "heatmap_raw.csv", row.names = TRUE);
+  rm(dat.raw);
+
   stat.pvals <- dat[,1];
   expval <- 0;
   expval <- sum(dat);
@@ -150,8 +165,21 @@ my.prepare.multilist.heatmap.json <- function(dataSet){
   allmatb[na.inx] <- 0
   allmatb[zero.inx] <- 1
   rownames(allmatb) <- gene.symbols
-  fast.write(allmatb,"heatmap.csv", row.names=TRUE)  
-  
+  fast.write(allmatb,"heatmap.csv", row.names=TRUE)
+
+  # Persist the raw signed log2FC matrix (rows=gene symbols, cols=dataset
+  # names) for the multi-list pathway-map viewer. Must happen BEFORE the
+  # bucketing block below mutates `allmat` into bin indices 1-32. NA is
+  # preserved for genes absent from a given list — JS reads NA as "not in
+  # that list", which is what computeEligibleGeneSet + median aggregation
+  # consume. Mirrors heatmap_raw.csv written by my.prepare.list.heatmap.json
+  # (same filename + column layout so the JS reader is identical).
+  allmat.raw <- allmat;
+  rownames(allmat.raw) <- gene.symbols;
+  colnames(allmat.raw) <- sel.nms;
+  fast.write(allmat.raw, "heatmap_raw.csv", row.names = TRUE);
+  rm(allmat.raw);
+
   if(expval != 0){
     pos.inx <- allmat>0 & !na.inx
     neg.inx <- allmat<0 & !na.inx

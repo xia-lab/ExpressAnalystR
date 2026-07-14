@@ -38,6 +38,12 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
   .on.public.web <<- onWeb;
   dataSet <- list(annotated=FALSE);
   dataSet <<- dataSet;
+  # Also reset the plural dataSets registry so dataset names from a prior
+  # session don't bleed into this one (readDataset() falls through to the
+  # in-memory registry first, and a stale name there causes spurious
+  # "cannot load 'foo.txt'" warnings plus downstream NULL-deref errors in
+  # GetMetaSummary / GetResColType).
+  dataSets <<- list();
   analSet <<- list(objName="analSet");
   paramSet <<- list( objName="paramSet");
 
@@ -82,7 +88,17 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
   #if(file.exists("/data/sqlite/")){
   #  sqlite.path <- "/data/sqlite/";  #vip server
   #}else 
-  if(file.exists("/home/glassfish/sqlite/")){
+  .ov_lib <- Sys.getenv("OMICS_LIB_DIR", "");
+  # Honor OMICS_LIB_DIR only if it actually holds non-empty sqlite DBs. An
+  # existing-but-empty dir — or one holding only 0-byte stub files (a prior
+  # failed dbConnect leaves these behind) — must NOT short-circuit this ladder,
+  # or every lookup resolves to an empty DB and the workflow fails silently.
+  # Fall through to the next populated location (e.g. /home/glassfish/sqlite).
+  .ov_lib_ok <- nzchar(.ov_lib) && dir.exists(.ov_lib) &&
+    any(file.info(list.files(.ov_lib, pattern = "\\.sqlite$", full.names = TRUE))$size > 0, na.rm = TRUE);
+  if(isTRUE(.ov_lib_ok)){
+    sqlite.path <- paste0(sub("/+$", "", .ov_lib), "/");  # shared sqlite library directory
+  }else if(file.exists("/home/glassfish/sqlite/")){
     sqlite.path <- "/home/glassfish/sqlite/";  #public server
   }else if(file.exists("/Users/xialab/Dropbox/sqlite/")){
     sqlite.path <- "/Users/xialab/Dropbox/sqlite/"; #xia local
@@ -177,11 +193,11 @@ RegisterData <- function(dataSet, output=1){
   saveSet(paramSet, "paramSet");
 
   if(paramSet$on.public.web){
-    .expressanalyst_qsave(dataSet, file=replace_extension_with_qs(dataName));
+    ov_qs_save(dataSet, file=replace_extension_with_qs(dataName));
     return(output);
   }else{
     if(paramSet$api.bool){
-        .expressanalyst_qsave(dataSet, file=replace_extension_with_qs(dataName));
+        ov_qs_save(dataSet, file=replace_extension_with_qs(dataName));
         return(output);
     }else{
         dataSets[[dataName]] <- dataSet;
@@ -234,7 +250,7 @@ SetListNms <- function(dataSet){
   
   # convert to entrez
   if(anal.type == "metadata"){
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     en.ids <- rownames(inmex.meta$data);
     nm <- "meta_data"
   }else if(anal.type == "onedata"){
@@ -421,9 +437,6 @@ ReadDataForMetaInfo<-function(dataName){
 
 doScatterJson <- function(dataName, filenm){
     dataSet <- readDataset(dataName);
-    if(!exists("my.json.scatter")){
-        compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_scatter3d.Rc"));    
-    }
     return(my.json.scatter(dataSet, filenm));
 }
 
@@ -450,11 +463,11 @@ doScatterJson <- function(dataName, filenm){
 
 # some utility functions to save memory for large data object
 .save.annotated.data <- function(my.dat){
-  .expressanalyst_qsave(my.dat, "data.anot.qs"); 
+  ov_qs_save(my.dat, "data.anot.qs"); 
 }
 
 .get.annotated.data <- function(){
-   return(.expressanalyst_qread("data.anot.qs"));
+   return(ov_qs_read("data.anot.qs"));
 }
 
 #'Record R Commands
@@ -467,7 +480,7 @@ RecordRCommand <- function(cmd){
   # Only read from disk if the global object doesn't exist in memory yet.
   if(!exists("cmdSet")){
     if(file.exists("cmdSet.qs")){
-      cmdSet <<- .expressanalyst_qread("cmdSet.qs");
+      cmdSet <<- ov_qs_read("cmdSet.qs");
     } else {
       cmdSet <<- list(cmdVec = character(0));
     }
@@ -478,7 +491,7 @@ RecordRCommand <- function(cmd){
   
   # 3. Persist Binary State (cmdSet.qs)
   # We use qsave directly to avoid overhead, or you can keep using saveSet if it does extra logic
-  .expressanalyst_qsave(cmdSet, "cmdSet.qs");
+  ov_qs_save(cmdSet, "cmdSet.qs");
   
   return(1);
 }
@@ -529,7 +542,8 @@ CheckListHasFC <- function(){
 
 replace_extension_with_qs <- function(data_name) {
   if (is.null(data_name) || data_name == "") {
-    stop("Data name must not be null or empty")
+    AddErrMsg("Data name must not be null or empty");
+    return(0);
   }
   
   # Use gsub to replace .csv or .txt with .qs

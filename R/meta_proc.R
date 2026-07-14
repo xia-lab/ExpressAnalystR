@@ -291,7 +291,7 @@ RemoveMissingPercent <- function(dataName="", percent=perct){
   paramSet <- readSet(paramSet, "paramSet");
   msgSet <- readSet(msgSet, "msgSet");
   if(paramSet$anal.type=="onedata"){
-  data.annotated <- .expressanalyst_qread("orig.data.anot.qs")
+  data.annotated <- ov_qs_read("orig.data.anot.qs")
   }else{
   data.annotated <- readDataQs("data.annotated.qs", paramSet$anal.type, dataName);
   }
@@ -881,7 +881,7 @@ CheckMetaIntegrity <- function(){
 #'
 
 PlotMetaPCA <- function(imgNm, dpi, format, interactive=F){
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   x <- inmex.meta[["data"]];
   dpi <- as.numeric(dpi);
   plotlyNm <- paste0(imgNm, ".rda");
@@ -945,11 +945,21 @@ PlotMetaPCA <- function(imgNm, dpi, format, interactive=F){
 
 PlotMetaDensity<- function(imgNm, dpi=default.dpi, format, interactive=F){
   require("ggplot2")
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   dat <- inmex.meta$data;
   imgNm <- paste(imgNm, "dpi", dpi, ".", format, sep="");
   dpi <- as.numeric(dpi);
   plotlyNm <- paste0(imgNm, ".rda");
+
+  # Subsample to 100 samples if too many (for performance)
+  max.samp <- 100
+  if(ncol(dat) > max.samp){
+    set.seed(42)
+    sel.inx <- sort(sample(1:ncol(dat), max.samp))
+    dat <- dat[, sel.inx, drop=FALSE]
+    inmex.meta$data <- dat
+    inmex.meta$data.lbl <- inmex.meta$data.lbl[sel.inx]
+  }
 
   df <- data.frame(inmex.meta$data, stringsAsFactors = FALSE);
   df <- stack(df);

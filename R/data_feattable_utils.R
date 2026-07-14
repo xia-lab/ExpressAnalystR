@@ -46,14 +46,35 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   # for two-class, only one column, multiple columns can be involved
   # for > comparisons - in this case, use the largest logFC among all comparisons
   # further filter by logFC
+  # Guard: comp.res.list may be NULL for dose-response / multi-group ANOVA
+  # designs that store a single result in comp.res rather than a pairwise list.
+  # When the design is "default" (multi-group ANOVA) AND
+  # .perform_limma_edger produced an omnibus F-test result, route
+  # GetSigGenes through that result so the displayed # of Significant
+  # Genes reflects the overall F-test instead of an arbitrary pairwise
+  # contrast (comp.res.list[[inx=1]] used to win even for true ANOVA
+  # designs). Pairwise results remain available in comp.res.list for
+  # drill-down. For "custom" / "reference" / "nested" / "time" the
+  # per-contrast list is still the right view, so they're unchanged.
+  # Multi-group "default" designs surface the overall test (limma F-test, edgeR/
+  # DESeq2 LRT) as comp.res; route significance through it for all methods.
+  use.omnibus <- identical(dataSet$comp.type, "default") &&
+                 !is.null(dataSet$comp.res.omnibus)
+  has.list <- !is.null(dataSet$comp.res.list) && length(dataSet$comp.res.list) >= inx;
   if (dataSet$de.method=="deseq2"){
-    hit.inx <- which(colnames(resTable) == "baseMean"); 
-    dataSet$comp.res <- dataSet$comp.res.list[[inx]];
-    resTable <- dataSet$comp.res;
+    if (use.omnibus) {
+      dataSet$comp.res <- dataSet$comp.res.omnibus; resTable <- dataSet$comp.res;
+    } else if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
+    hit.inx <- which(colnames(resTable) == "baseMean");
    } else if (dataSet$de.method=="limma" || dataSet$de.method=="wtt" ){
     hit.inx <- match("AveExpr", colnames(resTable));
-    dataSet$comp.res <- dataSet$comp.res.list[[inx]];
-    resTable <- dataSet$comp.res;
+    if (use.omnibus) {
+      dataSet$comp.res <- dataSet$comp.res.omnibus
+      resTable <- dataSet$comp.res
+      hit.inx <- match("AveExpr", colnames(resTable))
+    } else if (has.list) {
+      dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res;
+    }
 
     if (is.na(hit.inx) && dataSet$de.method == "wtt") {
       ave.expr <- rowMeans(
@@ -62,12 +83,13 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
       resTable$AveExpr <- ave.expr
       hit.inx <- match("AveExpr", colnames(resTable))
       dataSet$comp.res <- resTable
-      dataSet$comp.res.list[[inx]] <- resTable
+      if (has.list) dataSet$comp.res.list[[inx]] <- resTable
     }
   } else {
+    if (use.omnibus) {
+      dataSet$comp.res <- dataSet$comp.res.omnibus; resTable <- dataSet$comp.res;
+    } else if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
     hit.inx <- which(colnames(resTable) == "logCPM");
-    dataSet$comp.res <- dataSet$comp.res.list[[inx]];
-    resTable <- dataSet$comp.res;
   }
 
   if(length(hit.inx) == 0){
@@ -98,9 +120,13 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     cols_to_take <- seq_len(min(maxFC.inx, ncol(resTable)))
     logfc.mat <- resTable[, cols_to_take, drop = FALSE];
   }
-  if(paramSet$oneDataAnalType == "dose"){
+  if(paramSet$oneDataAnalType == "dose" || use.omnibus){
+    # Dose-response AND multi-group ANOVA omnibus both have multiple
+    # logFC columns. The biologically-meaningful effect-size filter is
+    # "at least ONE pairwise contrast has |logFC| >= fc.lvl" — apply max
+    # across columns. fc.lvl=0 still passes everything (max(abs(.)) >= 0).
     pos.mat <- abs(logfc.mat);
-    fc.vec <- apply(pos.mat, 1, max);   # for > comparisons - in this case, use the largest logFC among all comparisons
+    fc.vec <- apply(pos.mat, 1, max);
     hit.inx.fc <- fc.vec >= fc.lvl;
     resTable <- resTable[hit.inx.fc,];
   } else if (dataSet$de.method=="deseq2" || dataSet$de.method=="edger" || dataSet$de.method=="limma" || dataSet$de.method=="wtt"){
@@ -139,22 +165,28 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     data <- data[,hit.inx];
     meta.info <- dataSet$meta.info[hit.inx,];
   }
-  .expressanalyst_qsave(data, file="data.stat.qs");
-o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
-dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
-dataSet$comp.res <- dataSet$comp.res[
-                      !(rownames(dataSet$comp.res) %in% rownames(resTable)), ]
-dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
+  ov_qs_save(data, file="data.stat.qs");
+if (has.list) {
+  if ("logFC" %in% colnames(dataSet$comp.res)) {
+    o <- with(dataSet$comp.res, order(P.Value, -abs(logFC), na.last = TRUE))
+  } else {
+    o <- order(dataSet$comp.res$P.Value, na.last = TRUE)
+  }
+  dataSet$comp.res <- dataSet$comp.res[o, , drop = FALSE]
+  dataSet$comp.res <- dataSet$comp.res[
+                        !(rownames(dataSet$comp.res) %in% rownames(resTable)), ]
+  dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
+}
   
   
   dataSet$sig.mat <- resTable;
   
-  if (dataSet$annotated){ # annotated to entrez
+  if (isTRUE(dataSet$annotated)){ # annotated to entrez
     anot.id <- rownames(dataSet$comp.res);
     gene.anot <- doEntrezIDAnot(anot.id, paramSet$data.org, paramSet$data.idType)
     fast.write(cbind(EntrezID=anot.id, signif (dataSet$comp.res,5), Symbols = gene.anot$symbol,  Name=gene.anot$name), row.names=F, file=filename);
   } else if (file.exists("annotation.qs")){ # annotation information available
-    anot.id <- .expressanalyst_qread("annotation.qs");
+    anot.id <- ov_qs_read("annotation.qs");
     feature.vec <- rownames(dataSet$comp.res);
     entrez.vec <- anot.id[feature.vec];
     gene.anot <- doEntrezIDAnot(entrez.vec, paramSet$data.org, paramSet$data.idType);
@@ -191,6 +223,21 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
         if (dataSet$de.method %in% c("deseq2", "edger", "limma", "wtt")) {
 
   significant_gene_table <- list()    # holds one data-frame per comparison
+
+  # Preserve the upstream resTable across the per-contrast loop below.
+  # The loop reassigns `resTable` on every iteration (line ~224), so by
+  # the time we exit it `resTable` is the LAST iteration's data — a
+  # single-contrast topTable. Downstream code (line ~381+ "ensure the sig
+  # block (resTable) itself is ordered" and line ~397
+  # `dataSet$comp.res <- rbind(resTable, other)`) then sees that stale
+  # single-contrast table, NOT the omnibus-filtered resTable set by my
+  # use.omnibus override in the limma branch above. Consequence:
+  # dataSet$comp.res after line 397 carries single-contrast columns
+  # (logFC, t, P.Value, adj.P.Val, B) even when comp.type=="default",
+  # ExportFeatureTableArrow writes those into the Arrow file, and the
+  # ResultView table + Volcano.Anal display per-contrast results
+  # instead of the omnibus F-test. Save before / restore after.
+  resTable_before_loop <- resTable
 
   for (inx in seq_along(dataSet$comp.res.list)) {
 
@@ -315,6 +362,20 @@ dataSet$comp.res <- rbind(resTable, dataSet$comp.res)
       write.csv(data.frame(GeneID = character(0)), file = out_bin_file, row.names = FALSE)
       #message("No genes passed any comparison; wrote empty binary matrix to: ", out_bin_file)
     }
+
+  # Restore resTable so downstream code (rbind into dataSet$comp.res,
+  # ExportFeatureTableArrow, Volcano.Anal) sees the upstream
+  # omnibus-filtered set rather than the per-contrast loop's last
+  # iteration. See note where resTable_before_loop is saved above.
+  resTable <- resTable_before_loop
+
+  # UpSet plot: pairwise sig-gene intersections for multi-group limma runs.
+  # Requires comp.res.list (≥2 contrasts) — dose-response / two-group skip.
+  if (dataSet$de.method == "limma" &&
+      !is.null(dataSet$comp.res.list) && length(dataSet$comp.res.list) >= 2) {
+    PlotPairwiseUpsetPNG(dataName = dataName, imgName = "upset_pairwise_0",
+                         p.lvl = p.lvl, fc.lvl = fc.lvl, FDR = FDR)
+  }
 }
 dataSet$comp.res.list <- lapply(dataSet$comp.res.list, function(tbl) {
   if (is.null(tbl) || nrow(tbl) == 0) return(tbl)
@@ -378,7 +439,7 @@ dataSet$comp.res <- rbind(resTable, other)
     symbol_col <- rep(NA_character_, length(gene_ids))
     name_col   <- rep(NA_character_, length(gene_ids))
 
-    if (dataSet$annotated) {
+    if (isTRUE(dataSet$annotated)) {
       anot <- tryCatch(
         doEntrezIDAnot(gene_id_col, paramSet$data.org, paramSet$data.idType),
         error = function(e) data.frame(symbol = symbol_col, name = name_col)
@@ -386,7 +447,7 @@ dataSet$comp.res <- rbind(resTable, other)
       symbol_col <- anot$symbol
       name_col   <- anot$name
     } else if (file.exists("annotation.qs")) {
-      anot.id     <- .expressanalyst_qread("annotation.qs")
+      anot.id     <- ov_qs_read("annotation.qs")
       mapped_ids  <- anot.id[gene_ids]
       gene_id_col <- mapped_ids
       anot <- tryCatch(
@@ -499,7 +560,7 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
     symbol_col <- rep(NA_character_, length(gene_ids))
     name_col <- rep(NA_character_, length(gene_ids))
 
-    if (dataSet$annotated) {
+    if (isTRUE(dataSet$annotated)) {
       anot <- tryCatch(
         doEntrezIDAnot(gene_id_col, paramSet$data.org, paramSet$data.idType),
         error = function(e) data.frame(symbol = symbol_col, name = name_col)
@@ -507,7 +568,7 @@ ExportAllComparisonsZip <- function(dataName = "", p.lvl = 0.05, fc.lvl = 1, FDR
       symbol_col <- anot$symbol
       name_col <- anot$name
     } else if (file.exists("annotation.qs")) {
-      anot.id <- .expressanalyst_qread("annotation.qs")
+      anot.id <- ov_qs_read("annotation.qs")
       mapped_ids <- anot.id[gene_ids]
       gene_id_col <- mapped_ids
       anot <- tryCatch(

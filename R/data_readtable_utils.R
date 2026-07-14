@@ -88,7 +88,7 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
   int.mat <- int.mat[,match(rownames(meta.info$meta.info),colnames(int.mat))]
   dataSet$data <- NULL;
   dataSet$name <- fileName;
-  .expressanalyst_qsave(int.mat, "int.mat.qs");
+  ov_qs_save(int.mat, "int.mat.qs");
   msg <- paste("a total of ", ncol(int.mat), " samples and ", nrow(int.mat), " features were found");
   # remove NA, null
   row.nas <- apply(is.na(int.mat)|is.null(int.mat), 1, sum);
@@ -138,12 +138,29 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
     
   }
   
+  # Surface & collapse duplicate feature IDs (e.g. Excel date-mangled gene
+  # symbols like "01-Mar"/"02-Mar") so downstream DE never errors with
+  # "duplicate 'row.names' are not allowed" even when annotation — which
+  # normally summarizes to unique gene level — is skipped or fails.
+  if (anyDuplicated(rownames(data.proc))) {
+    n.dup <- sum(duplicated(rownames(data.proc)));
+    res <- RemoveDuplicates(data.proc, "mean", quiet=TRUE, paramSet, msgSet);
+    data.proc <- res[[1]]; msgSet <- res[[2]];
+    msgSet$current.msg <- paste0(msgSet$current.msg,
+      "; ", n.dup, " duplicate feature ID(s) collapsed (mean) — check input for Excel date-mangled gene symbols (e.g. 01-Mar).");
+  }
+
   # save processed data for download user option
   data.proc <- sanitizeSmallNumbers(data.proc);
   fast.write(sanitizeSmallNumbers(data.proc), file="data_original.csv");
 
-  .expressanalyst_qsave(data.proc, "data.raw.qs");
+  ov_qs_save(data.proc, "data.raw.qs");
   dataSet$data.norm  <- data.proc;
+  # `annotated` must always be a logical so downstream `if (dataSet$annotated)`
+  # / `... || dataSet$annotated` never hit a length-zero NULL when the
+  # annotation step is skipped or fails. PerformDataAnnot flips it TRUE on a
+  # successful gene-ID map.
+  dataSet$annotated <- FALSE;
   metaInx = which(rownames(dataSet$meta.info) %in% colnames(data.proc))
   
   paramSet$dataSet <- list();
@@ -206,7 +223,7 @@ ReadTabExpressDataWithExclude <- function(fileName, metafileName="", metaContain
     return(readDataset(fileName))
   }
   dataSet <- readDataset(fileName)
-  data.raw <- .expressanalyst_qread("data.raw.qs")
+  data.raw <- ov_qs_read("data.raw.qs")
   keep <- !(colnames(data.raw) %in% exclude.samples)
   data.raw <- data.raw[, keep, drop = FALSE]
   meta <- dataSet$meta.info
@@ -215,10 +232,10 @@ ReadTabExpressDataWithExclude <- function(fileName, metafileName="", metaContain
   dataSet$metaOrig <- meta
   dataSet$data.norm <- data.raw
 
-  .expressanalyst_qsave(data.raw, "data.raw.qs")
-  .expressanalyst_qsave(data.raw, "int.mat.qs")
-  .expressanalyst_qsave(data.raw, "data.anot.qs")
-  .expressanalyst_qsave(data.raw, "data.missed.qs")
+  ov_qs_save(data.raw, "data.raw.qs")
+  ov_qs_save(data.raw, "int.mat.qs")
+  ov_qs_save(data.raw, "data.anot.qs")
+  ov_qs_save(data.raw, "data.missed.qs")
   fast.write(sanitizeSmallNumbers(data.raw), file="data_original.csv")
   .save.annotated.data(data.raw)
 
@@ -257,7 +274,7 @@ ReadAnnotationTable <- function(fileName) {
     msgSet$current.msg <- "Please make sure the annotation contains exactly 3 columns";
   }
   colnames(anot.data) = c("gene_id", "symbol", "name");
-  .expressanalyst_qsave(anot.data, "anot_table.qs");
+  ov_qs_save(anot.data, "anot_table.qs");
   saveSet(msgSet, "msgSet");
   return(1);
 }
@@ -353,7 +370,7 @@ ReadCustomLib <- function(fileName) {
   }
   
   # Step 6: Save the gene set list into a .qs file
-  .expressanalyst_qsave(gene_set_list, "custom_lib.qs")
+  ov_qs_save(gene_set_list, "custom_lib.qs")
   
   # Update paramSet with the custom library file name
   paramSet$custom.lib <- fileName
@@ -687,6 +704,14 @@ ReadMetaData <- function(metafilename){
       msgSet$current.msg <- "Failed to read the metadata table! Please check your data format.";
       saveSet(msgSet, "msgSet");
       return(NULL);
+    }
+    # The first column is the sample-ID column by convention (labelled #NAME). A
+    # UTF-8 BOM from an Excel-saved CSV leaves the header as "﻿#NAME", and some
+    # files label it differently; either way mydata$`#NAME` is NULL and the trim
+    # below fails with "replacement has 0 rows, data has N". Normalize the first
+    # column name to #NAME whenever the literal column is absent.
+    if(is.null(mydata[["#NAME"]]) && ncol(mydata) >= 1L){
+      colnames(mydata)[1] <- "#NAME";
     }
     idx = which(!colnames(datOrig) %in% mydata$`#NAME`)
     if(length(idx)>1){

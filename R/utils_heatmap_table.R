@@ -17,7 +17,7 @@
 # 3 and 1+2 separated by a column of 'null'
 my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   #save.image("prephm.RData")
-  data.stat <- .expressanalyst_qread("data.stat.qs");
+  data.stat <- ov_qs_read("data.stat.qs");
   paramSet <- readSet(paramSet, "paramSet");
   res.tbl <- dataSet$comp.res; #dataSet$sig.mat for sig only
   res.tbl <- res.tbl[which(rownames(res.tbl) %in% rownames(data.stat)),]
@@ -37,13 +37,24 @@ my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   if(displayOpt == "all"){
     #get all
   }else if(displayOpt == "top5000"){
-    gene.variances <- apply(data.stat[all.ids, , drop = FALSE], 1, var)
-    # Sorting genes by variance and selecting top 5000 if there are more than that
-    if (length(gene.variances) > 5000) {
-      all.ids <- names(sort(gene.variances, decreasing = TRUE)[1:5000])
+    # Rank by IQR (matches utils_coexp.R / meta_proc.R / norm_utils.R
+    # convention — IQR is the spread metric EA uses across filter paths).
+    gene.iqr <- apply(data.stat[all.ids, , drop = FALSE], 1, IQR, na.rm = TRUE)
+    if (length(gene.iqr) > 5000) {
+      all.ids <- names(sort(gene.iqr, decreasing = TRUE)[1:5000])
+    }
+  }else if(displayOpt %in% c("top100","top1000")){
+    # Rank by raw p-value from comp.res and pick top N
+    topN <- if(displayOpt == "top100") 100 else 1000
+    p.ord <- order(suppressWarnings(as.numeric(stat.pvals)), na.last = NA)
+    ranked.ids <- rownames(res.tbl)[p.ord]
+    ranked.ids <- ranked.ids[ranked.ids %in% all.ids]
+    if (length(ranked.ids) > topN) {
+      all.ids <- ranked.ids[seq_len(topN)]
     } else {
-      all.ids <- all.ids
-    }  }else{
+      all.ids <- ranked.ids
+    }
+  }else{
     all.ids <- all.ids[all.ids %in% sig.ids];
   }
   
@@ -120,14 +131,14 @@ my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   # prepare meta info    
   # 1) convert meta.data info numbers
   # 2) match number to string (factor level)
-  meta <- data.frame(dataSet$meta.stat);
+  meta <- if (is.null(dataSet$meta.stat)) data.frame() else data.frame(dataSet$meta.stat);
   grps <- colnames(meta);
   nmeta <- meta.vec <- NULL;
   uniq.num <- 0;
   meta.grps <- vector();
-  disc.inx <- rep(F, ncol(meta)*nrow(meta));  
-  
-  for (i in 1:ncol(meta)){
+  disc.inx <- rep(F, ncol(meta)*nrow(meta));
+
+  for (i in seq_len(ncol(meta))){
     cls <- meta[,i];
     grp.nm <- grps[i];
     meta.vec <- c(meta.vec, as.character(cls))
@@ -169,7 +180,7 @@ my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   
   sig.inx <- which(rownames(res) %in% sig.ids) -1
   
-  if(dataSet$annotated){
+  if(isTRUE(dataSet$annotated)){
     anot.id <- rownames(res);
     gene.map <- readDataQs("symbol.map.qs", paramSet$anal.type, dataSet$name);
     anot.res <- doIdMappingGeneric(anot.id, gene.map, "gene_id", "symbol", "matrix")
@@ -244,20 +255,30 @@ my.prepare.metadata.heatmap.json <- function(dataSet,displayOpt="sig"){
   meta.avgFC <- analSet$meta.avgFC;
   meta.mat <- analSet$meta.mat;
   mdata.all <- paramSet$mdata.all;
-  all.meta.mat <- .expressanalyst_qread("allMeta.mat.qs");
+  all.meta.mat <- ov_qs_read("allMeta.mat.qs");
   datanm.vec <- names(mdata.all)[mdata.all==1];
-  inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+  inmex.meta <- ov_qs_read("inmex_meta.qs");
   dat.inx <- inmex.meta$data.lbl %in% datanm.vec;
-  gene.variances <- apply(inmex.meta$plot.data, 1, var)
-  # Sorting genes by variance and selecting top 5000 if there are more than that
-
+  # Rank by IQR (matches utils_coexp.R / meta_proc.R / norm_utils.R
+  # convention — IQR is the spread metric EA uses across filter paths).
   if(displayOpt == "top5000"){
-    gene.variances <- apply(inmex.meta$plot.data, 1, var)
-    # Sorting genes by variance and selecting top 5000 if there are more than that
-    if (length(gene.variances) > 5000) {
-      gene.vec <- names(sort(gene.variances, decreasing = TRUE)[1:5000])
+    gene.iqr <- apply(inmex.meta$plot.data, 1, IQR, na.rm = TRUE)
+    if (length(gene.iqr) > 5000) {
+      gene.vec <- names(sort(gene.iqr, decreasing = TRUE)[1:5000])
     } else{
       gene.vec <- rownames(all.meta.mat);
+    }
+  } else if(displayOpt %in% c("top100","top1000")){
+    # Rank by raw p-value from meta-analysis p-value column
+    topN <- if(displayOpt == "top100") 100 else 1000
+    pcol <- if(paramSet$inmex.method != "votecount") 2 else 1
+    p.vec <- suppressWarnings(as.numeric(all.meta.mat[, pcol]))
+    p.ord <- order(p.vec, na.last = NA)
+    ranked.ids <- rownames(all.meta.mat)[p.ord]
+    if (length(ranked.ids) > topN) {
+      gene.vec <- ranked.ids[seq_len(topN)]
+    } else {
+      gene.vec <- ranked.ids
     }
   } else{
     gene.vec <- rownames(meta.mat);
@@ -367,7 +388,7 @@ my.prepare.metadata.heatmap.json <- function(dataSet,displayOpt="sig"){
   meta.types <- paramSet$dataSet$meta.types;
   disc.inx <- rep(F, ncol(meta)*nrow(meta));  
   
-  for (i in 1:ncol(meta)){
+  for (i in seq_len(ncol(meta))){
     cls <- as.factor(meta[,i]);
     grp.nm <- grps[i];
     meta.vec <- c(meta.vec, as.character(cls))

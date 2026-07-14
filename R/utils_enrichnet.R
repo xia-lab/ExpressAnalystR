@@ -1,7 +1,7 @@
 
 
 my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", analSet){
-  enr.mat <- .expressanalyst_qread("enr.mat.qs");
+  enr.mat <- ov_qs_read("enr.mat.qs");
 
   # Filter by adjusted p-value (FDR) < 0.05 and limit to max 50 pathways
   # If fewer than 20 are significant (or none), show top 20 by FDR
@@ -42,35 +42,32 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   require(igraph);
   require(reshape);
 
-  current.geneset <- .expressanalyst_qread("current_geneset.qs");
-  hits.query <- .expressanalyst_qread("hits_query.qs")
+  current.geneset <- ov_qs_read("current_geneset.qs");
+  hits.query <- ov_qs_read("hits_query.qs")
   # Filter hits.query to match the filtered pathways (FDR < 0.05, max 50)
   hits.query <- hits.query[rownames(enr.mat)];
   geneSets <- hits.query;
   n <- nrow(enr.mat);
-  w <- matrix(NA, nrow=n, ncol=n);
+  w  <- matrix(NA_real_, n, n);   # overlap ratio (edge filter)
+  cw <- matrix(0L, n, n);         # shared-gene COUNT (edge weight -> thickness)
   colnames(w) <- rownames(w) <- id;
-
-  # OPTIMIZED: Compute only upper triangle, then make symmetric (2x faster)
-  # Note: No parallelization - web application with concurrent users
-  for (i in 1:n) {
-    for (j in i:n) {
-      w[i,j] <- overlap_ratio(geneSets[id[i]], geneSets[id[j]], overlapType)
-    }
+  # Upper triangle only — compute each pathway PAIR once.
+  for (i in 1:n) for (j in i:n) {
+    if (i == j) next
+    gi <- unlist(geneSets[id[i]]); gj <- unlist(geneSets[id[j]]);
+    w[i, j]  <- overlap_ratio(gi, gj, overlapType);
+    cw[i, j] <- length(intersect(gi, gj));
   }
-
-  # Make matrix symmetric (avoid redundant lower triangle computation)
-  w[lower.tri(w)] <- t(w)[lower.tri(w)]
-  wd <- reshape::melt(w);
-  wd <- wd[wd[,1] != wd[,2],];
-  wd <- wd[!is.na(wd[,3]),];
-  
-  g <- graph_from_data_frame(wd[,-3], directed=F);
-  if(type == "list"){
-    g <- delete_edges(g, E(g)[wd[,3] < 0.3]);
-  }else{
-    g <- delete_edges(g, E(g)[wd[,3] < 0.3]);
-  }
+  # ONE edge per pair (the symmetric melt used to create duplicate i->j AND j->i
+  # edges, crowding the map with parallel edges). Keep pairs with overlap >= 0.3;
+  # edge weight = number of shared genes so the static map can scale thickness.
+  ut <- which(upper.tri(w) & !is.na(w) & w >= 0.3, arr.ind = TRUE);
+  edf <- if (nrow(ut) > 0)
+           data.frame(from = id[ut[, 1]], to = id[ut[, 2]],
+                      weight = as.numeric(cw[ut]), stringsAsFactors = FALSE)
+         else data.frame(from = character(0), to = character(0), weight = numeric(0));
+  g <- graph_from_data_frame(edf, directed = FALSE,
+                             vertices = data.frame(name = id, stringsAsFactors = FALSE));
   idx <- unlist(sapply(V(g)$name, function(x) which(x == id)));
   
   # define local function
@@ -111,7 +108,17 @@ my.enrich.net<-function(dataSet, netNm="abc", type="list", overlapType="mixed", 
   pos.xy <- layout_with_fr(g, niter=500)
   # tighten layout to reduce spacing between disconnected components
   pos.xy <- sweep(pos.xy, 2, colMeans(pos.xy), "-") * 0.6
-  
+
+  # Cache the plot inputs (graph, layout, counts, significance, labels) to disk
+  # under netNm so a static enrichment-map image matching this interactive
+  # network can be rendered later without recomputing the layout.
+  tryCatch(saveRDS(list(g = g, layout = pos.xy, counts = cnt2,
+                        signif = -log10(pmax(pvalue[V(g)$name], 1e-300)),
+                        labels = V(g)$name),
+                   paste0(netNm, "_plot_inputs.rds")),
+           error = function(e) message("[enrichnet] caching plot inputs for ",
+                                       netNm, " failed: ", conditionMessage(e)));
+
   # now create the json object
   nodes <- vector(mode="list");
   node.nms <- V(g)$name;

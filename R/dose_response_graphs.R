@@ -129,7 +129,7 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
     
     #generate dataframe with model fit interpolations
     fit.interp <- interpFits();
-    .expressanalyst_qsave(fit.interp, "fit.interp.qs");
+    ov_qs_save(fit.interp, "fit.interp.qs");
 
     # fill blank gene names with NA
     geneNms <- doEntrez2SymbolMapping(bmdcalc.res$id)[order(bmdcalc.res$bmd)]
@@ -235,7 +235,9 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
   
   imgName <- paste("Gene_bmd_", gene.id, ".png", sep="");
   Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
-  print(p)
+  tryCatch(print(p), error = function(err) {
+    warning(paste("PlotGeneBMD error:", err$message))
+  })
   dev.off();
 
   imgSet <- readSet(imgSet, "imgSet");
@@ -358,7 +360,9 @@ if (scale == "log2") {
   
   imgName <- paste("Gene_", gene.symbol, "_", model.nm, "_", scale,".png", sep="");
   Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
-  print(p)
+  tryCatch(print(p), error = function(err) {
+    warning(paste("PlotGeneDRCurve error:", err$message))
+  })
   dev.off();
 
   imgSet <- readSet(imgSet, "imgSet");
@@ -638,7 +642,7 @@ PlotPWHeatmap <- function(pathway, pwcount, units){
     require(grid)
 
     pws <- dataSet$pathway.ids
-    fit.interp <- .expressanalyst_qread("fit.interp.qs");
+    fit.interp <- ov_qs_read("fit.interp.qs");
     bmd.vals <- dataSet$html.resTable[,c(1,5)]
 
     pw.genes <- pws[pws$pathway == pathway,][,c(1,3)]

@@ -445,10 +445,10 @@ install.packages(&#39;devtools&#39;)
 library(devtools)
 
 # Step 2: Install ExpressAnalystR WITHOUT documentation
-devtools::install_github(&quot;xia-lab/ExpressAnalystR&quot;, build = TRUE, build_opts = c(&quot;--no-resave-data&quot;, &quot;--no-manual&quot;, &quot;--no-build-vignettes&quot;))
+devtools::install_github(&quot;xia-lab/expressR&quot;, build = TRUE, build_opts = c(&quot;--no-resave-data&quot;, &quot;--no-manual&quot;, &quot;--no-build-vignettes&quot;))
 
 # Step 2: Install ExpressAnalystR WITH documentation
-devtools::install_github(&quot;xia-lab/ExpressAnalystR&quot;, build = TRUE, build_opts = c(&quot;--no-resave-data&quot;, &quot;--no-manual&quot;), build_vignettes = TRUE)</code></pre>
+devtools::install_github(&quot;xia-lab/expressR&quot;, build = TRUE, build_opts = c(&quot;--no-resave-data&quot;, &quot;--no-manual&quot;), build_vignettes = TRUE)</code></pre>
 </div>
 </div>
 <div id="tips-for-using-the-expressanalystr-package" class="section level2">
@@ -484,7 +484,7 @@ named “datalist1”. use this function to access:
 <h2>Examples</h2>
 <div id="starting-from-a-gene-expression-matrix" class="section level3">
 <h3>1. Starting from a gene expression matrix</h3>
-<p>Before you start, please download the <a href="https://www.expressanalyst.ca/ExpressAnalyst/resources/data/test/estrogen.txt">example</a>
+<p>Before you start, please download the <a href="https://www.expressanalyst.ca/express/resources/data/test/estrogen.txt">example</a>
 dataset. It is a microarray gene expression data of a human
 breast-cancer cell line. <br /> #### 1.1 Load ExpressAnalystR library
 and initialize R objects</p>
@@ -660,7 +660,7 @@ print(head(analSet$meta.mat));
 #16819        100.880   2.7728e-14</code></pre>
 <p>For a more detailed table containing additionally log fold change and
 p-values of features for individual dataset, please check this csv file
-<a href="https://dev.expressanalyst.ca/ExpressAnalyst/resources/data/RTutorial/meta_sig_genes_metap.csv">meta_sig_genes_metap.csv</a>,
+<a href="https://dev.expressanalyst.ca/express/resources/data/RTutorial/meta_sig_genes_metap.csv">meta_sig_genes_metap.csv</a>,
 it is also generated in your working directory.</p>
 </div>
 </div>

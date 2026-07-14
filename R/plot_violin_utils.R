@@ -11,7 +11,8 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
   require(see)
   require(ggplot2)
   require(lattice)
-  
+  require(Cairo)
+
   paramSet <- readSet(paramSet, "paramSet");
   analSet <- readSet(analSet, "analSet");
   dataSet <- readDataset(dataName);
@@ -24,10 +25,15 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
     data.norm <- dataSet$data.norm;
   }
   if(anal.type == "onedata"){
+    if(is.null(data.norm) || !(gene.id %in% rownames(data.norm))){
+      message("[PlotSelectedGene] gene.id '", gene.id, "' not found in data.norm rownames; skipping plot.");
+      return(0);
+    }
     cmpdNm <- doEntrez2SymbolMapping(gene.id, paramSet$data.org, paramSet$data.idType);
+    if(is.null(cmpdNm) || length(cmpdNm) == 0 || is.na(cmpdNm)) cmpdNm <- gene.id;
     if(type== "volcano"){
       cmpdNm <- "";
-    }    
+    }
     if (length(dataSet$sec.cls) == 1) {
 
       # Collect classes & expression ---------------------------------------
@@ -137,7 +143,7 @@ PlotSelectedGene <-function(dataName="",imageName="", gene.id="", type="notvolca
 
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     if(inmex.meta$id.type == "entrez"){
       cmpdNm <- inmex.meta$gene.symbls[gene.id];
     }else{
@@ -286,7 +292,7 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
 
   }else{ # metadata
     mdata.all <- paramSet$mdata.all;
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     if(inmex.meta$id.type == "entrez"){
       cmpdNm <- inmex.meta$gene.symbls[gene.id];
     }else{

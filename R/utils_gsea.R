@@ -60,10 +60,14 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- .expressanalyst_qread("inmex_meta.qs");
+      inmex <- ov_qs_read("inmex_meta.qs");
       sampleNms <- colnames(inmex$plot_data);
       colnums <- dim(inmex$plot.data)[2]
       inx  <- rep(T, colnums)
+      if(is.null(analSet$meta.mat.all) || nrow(analSet$meta.mat.all) == 0){
+        AddErrMsg("Meta-analysis results are not available. Please perform meta-analysis first.");
+        return(0);
+      }
       rankedVec <- analSet$meta.mat.all[,1];
       names(rankedVec) <- rownames(analSet$meta.mat.all);
     }else{
@@ -76,6 +80,19 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     }
   }
 
+  # Guard against NULL / empty rankedVec — this is the root of the
+  # "Error in array(x, c(length(x), 1L)... 'data' must be of a vector
+  # type, was 'NULL'" error from fgsea::fgsea when the DE table is empty
+  # (e.g. annotation failed → no gene mapping → ComputeRankedVec returns
+  # NULL). Bail cleanly with a user-visible message instead of letting
+  # fgsea blow up the report render.
+  if (is.null(rankedVec) || length(rankedVec) == 0
+      || all(is.na(rankedVec)) || !any(is.finite(rankedVec))) {
+    msgSet$current.msg <- "No ranked features available for GSEA — check that DE analysis and ID annotation completed successfully.";
+    saveSet(msgSet, "msgSet");
+    return(0);
+  }
+
   if(length(rankedVec) == 1){
     if(rankedVec == 0){
         msgSet$current.msg <- "Selected ranking method is not suitable. Please select another one!";
@@ -86,18 +103,18 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
 
   set.seed(123)
   use_nperm <- fun.type %in% c("go_bp", "go_mf", "go_cc")
-  bridge_in <- .expressanalyst_bridge_file("in")
-  bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-  .expressanalyst_qsave(list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
+  bridge_in <- ov_bridge_file("in")
+  bridge_out <- sub("_in.qs2", "_out.qs2", bridge_in)
+  ov_qs_save(list(geneset = current.geneset, ranked = rankedVec, use_nperm = use_nperm),
             bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-  run_func_via_rsclient(
+  run_func_via_microservice(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(fgsea)
       set.seed(123)
-      input <- .expressanalyst_qread(bridge_in)
+      input <- ov_qs_read(bridge_in)
       result <- if (input$use_nperm) {
         fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                      minSize = 5, maxSize = 500, scoreType = "std", nperm = 1000)
@@ -105,13 +122,13 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
         fgsea::fgsea(pathways = input$geneset, stats = input$ranked,
                      minSize = 5, maxSize = 500, scoreType = "std")
       }
-      .expressanalyst_qsave(result, bridge_out, preset = "fast")
+      ov_qs_save(result, bridge_out, preset = "fast")
     },
     args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
     timeout_sec = 600
   )
 
-  response <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
+  response <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
   if (is.null(response)) { msgSet$current.msg <- "fGSEA analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
   fgseaRes <- response
   
@@ -151,13 +168,23 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   set.num <- unlist(lapply(current.mset, function(x){length(unique(x))}), use.names=TRUE);
   names(hits.query) <- names(current.mset);
   hit.num<-unlist(lapply(hits.query, function(x){length(x)}), use.names=TRUE);
-  .expressanalyst_qsave(hits.query, "hits_query.qs");
+  ov_qs_save(hits.query, "hits_query.qs");
   fgseaRes$hits <- hit.num[which(fgseaRes$pathway  %in% names(hit.num))] 
   fgseaRes$total <- set.num[which(fgseaRes$pathway %in% names(set.num))]
   
-  fgseaRes <- fgseaRes[which(fgseaRes$hits>1),];
-  fgseaRes <- fgseaRes[which(fgseaRes$hits<500),];
-  fgseaRes <- fgseaRes[which(fgseaRes$total<2000),];
+  fgseaRes.filt <- fgseaRes[which(fgseaRes$hits>1),];
+  fgseaRes.filt <- fgseaRes.filt[which(fgseaRes.filt$hits<500),];
+  fgseaRes.filt <- fgseaRes.filt[which(fgseaRes.filt$total<2000),];
+
+  # If fewer than 10 pathways pass the hits/size quality filters, fall back to the
+  # top 10 by p-value (fgsea already vetted each via minSize=5). Prevents the table
+  # collapsing to 1-2 rows when the hits remap is sparse (e.g. non-model organisms).
+  if(nrow(fgseaRes.filt) < 10){
+    fgseaRes <- head(fgseaRes[order(fgseaRes$pval),], 10L);
+  } else {
+    fgseaRes <- fgseaRes.filt;
+  }
+
   if(nrow(fgseaRes)<1){
     analSet <- SetListNms(dataSet);
     initsbls <- doEntrez2SymbolMapping(analSet$list.genes, paramSet$data.org, paramSet$data.idType)
@@ -193,6 +220,18 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   
   fgseaRes <- .signif_df(fgseaRes, 4);
 
+  # Build cls: for meta_default use inmex metadata, otherwise use dataSet
+  if(anal.type == "metadata" && paramSet$selDataNm == "meta_default"){
+    inmex.meta <- qs::qread("inmex_meta.qs");
+    cls.info <- data.frame(class = as.character(inmex.meta$cls.lbl), dataset = as.character(inmex.meta$data.lbl), stringsAsFactors = FALSE);
+    rownames(cls.info) <- colnames(inmex.meta$plot.data);
+  } else if(!is.null(dataSet$meta.info)){
+    cls.info <- dataSet$meta.info[inx,,drop=FALSE];
+  } else {
+    cls.info <- data.frame(class = as.character(dataSet$fst.cls[inx]), stringsAsFactors = FALSE);
+    rownames(cls.info) <- sampleNms;
+  }
+
   json.res <- list(
     fun.link = setres$current.setlink[1],
     fun.anot = fun.anot,
@@ -203,7 +242,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
     es.num = es.num,
     hits = fgseaRes[,"hits"],
     total = fgseaRes[,"total"],
-    cls = dataSet$meta.info[inx,],
+    cls = cls.info,
     sample.nms = sampleNms
   );
 
@@ -220,13 +259,11 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   if(any(duplicated(rownames(res.mat)))) {
     res.mat <- res.mat[!duplicated(rownames(res.mat)), ]
     hits.query <- hits.query[match(rownames(res.mat), names(hits.query))]
-
-    print("Duplicates in enr.mat were removed.")
   } else {
     res.mat <- res.mat
   }
 
-    .expressanalyst_qsave(res.mat, "enr.mat.qs");
+    ov_qs_save(res.mat, "enr.mat.qs");
 
   imgSet <- readSet(imgSet, "imgSet");
   if(mType == "network"){
@@ -310,14 +347,16 @@ my.compute.ranked.vec <- function(data, opt, inx = 1){
   paramSet$gseaRankOpt <- opt
   if(anal.type == "metadata"){
     if(paramSet$selDataNm == "meta_default"){
-      matr <- as.matrix(.expressanalyst_qread("meta.resTable.qs"));
+      matr <- as.matrix(ov_qs_read("meta.resTable.qs"));
     }else{
       matr <- as.matrix(data$data)
     }
   }else{
     if(opt %in% c("mwt", "s2n", "wcx", "stu")){
+      if (is.null(data$data.norm)) return(0);
       matr <- as.matrix(data$data.norm)
     }else{
+      if (is.null(data$comp.res) || nrow(data$comp.res) == 0) return(0);
       matr <- as.matrix(data$comp.res);
     }
   }
@@ -595,7 +634,7 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
     
   }else{
     if(paramSet$selDataNm == "meta_default"){
-      inmex <- .expressanalyst_qread("inmex_meta.qs");
+      inmex <- ov_qs_read("inmex_meta.qs");
       dat <- inmex$plot.data
       gene.map <- data.frame(gene_id=names(inmex$gene.symbls), symbol=unname(inmex$gene.symbls));
     }else{
@@ -712,7 +751,7 @@ PlotGShm <-function(dataName="", cmpdNm="", IDs){
 
 plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgName=NA){
   require("ggplot2");
-  current.geneset <- .expressanalyst_qread("current_geneset.qs");
+  current.geneset <- ov_qs_read("current_geneset.qs");
   analSet <- readSet(analSet, "analSet");
   if(is.na(imgName)){
    imgName <- gsub("\\/", "_",  fileName);
@@ -724,25 +763,25 @@ plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgNa
 
   cmpdNm <- gsub("barcode_", "",fileName);
 
-  bridge_in_gs <- .expressanalyst_bridge_file("in")
-  bridge_out_gs <- sub("_in.qs", "_out.qs", bridge_in_gs)
-  .expressanalyst_qsave(list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
+  bridge_in_gs <- ov_bridge_file("in")
+  bridge_out_gs <- sub("_in.qs2", "_out.qs2", bridge_in_gs)
+  ov_qs_save(list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
                  imgName = imgName, dpi = dpi, format = format),
             bridge_in_gs, preset = "fast")
   on.exit(unlink(c(bridge_in_gs, bridge_out_gs)), add = TRUE)
 
-  run_func_via_rsclient(
+  run_func_via_microservice(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(fgsea); require(ggplot2); require(Cairo)
-      input <- .expressanalyst_qread(bridge_in)
+      input <- ov_qs_read(bridge_in)
       Cairo::Cairo(file = input$imgName, dpi = input$dpi,
                    width = 5, height = 4, unit = "in",
                    type = input$format, bg = "transparent")
       g <- fgsea::plotEnrichment(input$geneset, input$ranked)
       print(g)
       dev.off()
-      .expressanalyst_qsave(input$imgName, bridge_out, preset = "fast")
+      ov_qs_save(input$imgName, bridge_out, preset = "fast")
     },
     args = list(wd = getwd(), bridge_in = bridge_in_gs, bridge_out = bridge_out_gs),
     timeout_sec = 120

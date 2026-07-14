@@ -51,15 +51,22 @@ GetSigDRItems <- function(deg.pval = 1, FC = 1.5, deg.FDR = FALSE, wtt = FALSE, 
   res <- dataSet$comp.res
   
   # Checks
-  if (!inherits(omicdata, "omicdata"))
-    stop("Use only with 'omicdata' objects, created with the function omicdata")
-  
-  if (!is.logical(deg.FDR))
-    stop("deg.FDR must be either TRUE or FALSE")
-  if (!is.logical(wtt))
-    stop("wtt must be either TRUE or FALSE")
-  if ((wtt.pval <=0) | (wtt.pval > 1))
-    stop("deg.pval must be in ]0; 1[.")
+  if (!inherits(omicdata, "omicdata")) {
+    AddErrMsg("Use only with 'omicdata' objects, created with the function omicdata");
+    return(0);
+  }
+  if (!is.logical(deg.FDR)) {
+    AddErrMsg("deg.FDR must be either TRUE or FALSE");
+    return(0);
+  }
+  if (!is.logical(wtt)) {
+    AddErrMsg("wtt must be either TRUE or FALSE");
+    return(0);
+  }
+  if ((wtt.pval <=0) | (wtt.pval > 1)) {
+    AddErrMsg("deg.pval must be in ]0; 1[.");
+    return(0);
+  }
   
   # load libraries
   #require(nparcomp)
@@ -203,18 +210,26 @@ PerformDRFit <- function(ncpus = 2)
     print("Could not find models vector!");
     return(0);
   }
+  # Persist so the report subprocess can print the user's model choices.
+  paramSet$dr.models <- models;
+  saveSet(paramSet, "paramSet");
 
   itemselect <- dataSet$itemselect;
   
   # Checks
-  if (!inherits(itemselect, "itemselect"))
-    stop("Use only with 'itemselect' objects, created with the function itemselect")
-  
+  if (!inherits(itemselect, "itemselect")) {
+    AddErrMsg("Use only with 'itemselect' objects, created with the function itemselect");
+    return(0);
+  }
   model.choices <- c("Exp2","Exp3","Exp4","Exp5","Lin","Poly2","Poly3","Poly4","Hill","Power")
-  if (sum(models %in% model.choices) != length(models))
-    stop("You must identify statistical models with the correct identifiers")
-  if (sum(duplicated(model.choices)) > 0)
-    stop("Do not add duplicate model choices")
+  if (sum(models %in% model.choices) != length(models)) {
+    AddErrMsg("You must identify statistical models with the correct identifiers");
+    return(0);
+  }
+  if (sum(duplicated(model.choices)) > 0) {
+    AddErrMsg("Do not add duplicate model choices");
+    return(0);
+  }
   
   require(data.table)
   require(dplyr)
@@ -684,11 +699,15 @@ FilterDRFit <- function()
   dataSet <- readDataset(paramSet$dataName);
   f.drc <- dataSet$drcfit.obj;
   # Checks
-  if (!inherits(f.drc, "drcfit"))
-    stop("Use only with 'drcfit' objects, created with the function drcfit")
-  
+  if (!inherits(f.drc, "drcfit")) {
+    AddErrMsg("Use only with 'drcfit' objects, created with the function drcfit");
+    return(0);
+  }
   require(data.table)
   lof.pval <- as.numeric(lof.pval)
+  # Persist so the report subprocess can print the user's lack-of-fit cutoff.
+  paramSet$dr.lof.pval <- lof.pval;
+  saveSet(paramSet, "paramSet");
 
   # get results
   fitres.all <- as.data.table(dataSet$drcfit.obj$fitres.all)
@@ -718,6 +737,12 @@ FilterDRFit <- function()
   dataSet$drcfit.obj$data <- data
   dataSet$drcfit.obj$data.mean <- data.mean
   dataSet$drcfit.obj$item <- item
+
+  # Persist DR params for report subprocess (callr doesn't inherit RC.assign globals)
+  paramSet$dr.lof.pval <- lof.pval
+  paramSet$dr.fit.select <- fit.select
+  paramSet$dr.models <- models
+
   saveSet(paramSet, "paramSet");
   RegisterData(dataSet);
   return(1)
@@ -735,19 +760,26 @@ PerformBMDCalc <- function(ncpus = 1)
   f.its <- dataSet$itemselect;
 
   num.sds <- as.numeric(num.sds);
+  # Persist so the report subprocess can print the user's BMR factor.
+  paramSet$dr.num.sds <- num.sds;
+  saveSet(paramSet, "paramSet");
 
   # Convert constrain.bmd.range from string to logical
   if (exists("constrain.bmd.range")) {
     constrain.bmd.range <- as.logical(constrain.bmd.range)
   }
 
+  # Persist for report subprocess
+  paramSet$dr.num.sds <- num.sds
+  saveSet(paramSet, "paramSet");
   # Checks
-  if (!inherits(f.drc, "drcfit"))
-    stop("Use only with 'drcfit' objects, created with the function drcfit")
-  
+  if (!inherits(f.drc, "drcfit")) {
+    AddErrMsg("Use only with 'drcfit' objects, created with the function drcfit");
+    return(0);
+  }
   require(data.table)
   require(dplyr)
-  
+
   dfitall <- f.drc$fitres.filt # filter this based on constant model
   dfitall$mod.name <- as.character(dfitall$mod.name)
   nselect <- nrow(dfitall)
@@ -1052,8 +1084,8 @@ sensPOD <- function(pod = c("feat.20", "feat.10th", "mode", "lcrd"), scale) {
   dataSet  <- readDataset(paramSet$dataName)
 
   pod.choices <- c("feat.20", "feat.10th", "mode", "lcrd")
-  if (sum(pod %in% pod.choices) != length(pod)) stop("You must identify pod methods with the correct identifiers")
-  if (sum(duplicated(pod)) > 0) stop("Do not add duplicate pod methods")
+  if (sum(pod %in% pod.choices) != length(pod)) { AddErrMsg("You must identify pod methods with the correct identifiers"); return(0); }
+  if (sum(duplicated(pod)) > 0) { AddErrMsg("Do not add duplicate pod methods"); return(0); }
 
   require(data.table)
   require(dplyr)
@@ -1153,8 +1185,10 @@ gsPOD <- function(obj.data, bmd.res, gene.vec, geneDB, pval = 1.0, FDR = FALSE)
 { 
   paramSet <- readSet(paramSet, "paramSet");
   gs <- geneDB;
-  if (!inherits(obj.data, "omicdata"))
-    stop("Use only with 'omicdata' objects, created with the function omicdata")
+  if (!inherits(obj.data, "omicdata")) {
+    AddErrMsg("Use only with 'omicdata' objects, created with the function omicdata");
+    return(0);
+  }
 
   require(data.table)
   require(dplyr)
@@ -1227,7 +1261,19 @@ GetFitResultMatrix <- function(){
   res <- signif(res, 5)
   res[is.na(res)] <- NaN;
   res <- as.data.frame(res);
-  colnames(res) <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
+  # bmd.lcrd is dropped above, so display names always exclude it. The
+  # previous code hard-coded the pre-drop list of 9 names, which tripped
+  # `names(x) <- value : [9] must be the same length as the vector [8]`
+  # whenever bmd.lcrd was present in the source. A failed names<- here
+  # leaves the Arrow export with stale / empty data, which surfaces as a
+  # Java NPE in populateResBeans (resMat[i][m]).
+  display_names <- c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e");
+  if (length(display_names) == ncol(res)) {
+    colnames(res) <- display_names;
+  } else {
+    warning(sprintf("GetFitResultMatrix: column-name mismatch (%d names vs %d cols); keeping inherited names",
+                    length(display_names), ncol(res)));
+  }
 
   res <- apply(res, 2, function(x) as.numeric(as.character(x)));
   RegisterData(dataSet);
@@ -1241,8 +1287,11 @@ GetFitResultMatrix <- function(){
 }
 
 GetFitResultColNames <-function(){
-  names <- c("P-val", "BMDl", "BMD", "BMDu", "bmd.lcrd", "b", "c", "d", "e");
-  return(names);
+  # GetFitResultMatrix always drops bmd.lcrd, so this Rserve-fallback must
+  # return the same 8 names (no bmd.lcrd). The Arrow path on the Java side
+  # reads names directly from the file; this function only matters when the
+  # Arrow file is unavailable, but the two must agree.
+  return(c("P-val", "BMDl", "BMD", "BMDu", "b", "c", "d", "e"));
 }
 
 GetFitResultGeneIDs <- function(){

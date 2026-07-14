@@ -70,7 +70,8 @@ my.build.cemi.net <- function(dataName,
       classCol <- colnames(meta_df)[1]              # first column by default
     }
     if (!classCol %in% colnames(meta_df)) {
-      stop("classCol '", classCol, "' not found in meta.info")
+      AddErrMsg(paste0("classCol '", classCol, "' not found in meta.info"));
+      return(0);
     }
 
     ## build annotation table (SampleName + all meta)
@@ -251,7 +252,7 @@ print("buildingceminet");
     }
 
     cem <- .trim_cem_object_for_save(cem)
-    .expressanalyst_qsave(cem, "cem.qs")
+    ov_qs_save(cem, "cem.qs")
 
    if (is.null(mod) || !is.data.frame(mod) || nrow(mod) == 0 || !("modules" %in% colnames(mod))) {
       if(nrow(cem@sample_annotation) < 25){
@@ -309,7 +310,7 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
     options(device = old_device, bitmapType = old_bitmapType)
   }, add = TRUE)
 
-  cem <- .expressanalyst_qread("cem.qs")
+  cem <- ov_qs_read("cem.qs")
   if (!inherits(cem, "CEMiTool"))
     stop("'cem.qs' does not contain a valid CEMiTool object.")
 
@@ -388,16 +389,24 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
   ## choose metadata column sensibly
   if (is.na(metaClass) || metaClass == "NA") metaClass <- 2  # 1 is SampleName
   if (is.numeric(metaClass)) {
-    if (metaClass < 1 || metaClass > ncol(sa))
-      stop("'metaClass' index out of range.")
-    if (metaClass == 1)
-      stop("metaClass 1 is 'SampleName'; choose a metadata column (>=2).")
+    if (metaClass < 1 || metaClass > ncol(sa)) {
+      AddErrMsg("'metaClass' index out of range.");
+      return(0);
+    }
+    if (metaClass == 1) {
+      AddErrMsg("metaClass 1 is 'SampleName'; choose a metadata column (>=2).");
+      return(0);
+    }
     classes <- sa[[metaClass]]
   } else {
-    if (!metaClass %in% colnames(sa))
-      stop("metaClass '", metaClass, "' not found in sample_annotation.")
-    if (metaClass == "SampleName")
-      stop("metaClass 'SampleName' is invalid; choose real metadata.")
+    if (!metaClass %in% colnames(sa)) {
+      AddErrMsg(paste0("metaClass '", metaClass, "' not found in sample_annotation."));
+      return(0);
+    }
+    if (metaClass == "SampleName") {
+      AddErrMsg("metaClass 'SampleName' is invalid; choose real metadata.");
+      return(0);
+    }
     classes <- sa[[metaClass]]
   }
 
@@ -452,7 +461,7 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
       options(device = old_device, bitmapType = old_bitmapType)
     }, add = TRUE)
 
-    cem <- .expressanalyst_qread("cem.qs")
+    cem <- ov_qs_read("cem.qs")
     stopifnot(inherits(cem, "CEMiTool"))
 
     sa <- cem@sample_annotation
@@ -623,7 +632,7 @@ PlotCemiScaleFree <- function(imgName = "coexp_scalefree",
     options(device = old_device, bitmapType = old_bitmapType)
   }, add = TRUE)
 
-  cem <- .expressanalyst_qread("cem.qs")
+  cem <- ov_qs_read("cem.qs")
   stopifnot(inherits(cem, "CEMiTool"))
 
   # Ensure the plot exists (some versions only populate it after calling plot_beta)

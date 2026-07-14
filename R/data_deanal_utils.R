@@ -89,6 +89,82 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
   }
 }
 
+# ── AI multi-factor covariate design setup ──────────────────────────────────
+# Like SetSelectedMetaInfo, but stores an additive covariate SET
+# (dataSet$adj.frame) instead of a single blocking factor. Computes rmidx over
+# the primary factor + ALL covariates (drops any sample with "NA" in a modeled
+# column), sets dataSet$cls / fst.cls to the FILTERED primary factor, and stores
+# the FILTERED covariate columns (factor for discrete, numeric for continuous) in
+# dataSet$adj.frame. The DE design builders (.ov_group_design + .run.deseq) then
+# append these additively => ~ primary + cov1 + cov2 + ... across limma, edgeR
+# and DESeq2. block is cleared (covariates live in the design, not a
+# duplicateCorrelation block). Everything is GATED on adj.frame; when it is NULL
+# the engine behaves exactly as the single-factor path.
+SetCovariateVars <- function(dataName = "", primaryVar = "", adjVarsCsv = "") {
+  dataSet <- readDataset(dataName);
+  dataSet$adj.frame <- NULL; dataSet$adj.vars <- NULL;
+  dataSet$block <- NULL; dataSet$sec.cls <- "NA"; dataSet$secondVar <- "NA";
+  dataSet$rmidx <- NULL;
+  if (primaryVar == "NA" || is.null(dataSet$meta.info) ||
+      !(primaryVar %in% colnames(dataSet$meta.info))) {
+    AddErrMsg(paste("Primary factor", primaryVar, "not found!"));
+    return(RegisterData(dataSet, 0));
+  }
+  adj <- trimws(unlist(strsplit(adjVarsCsv, ",")));
+  adj <- adj[nzchar(adj) & adj != "NA"];
+  adj <- intersect(adj, colnames(dataSet$meta.info));
+  adj <- setdiff(adj, primaryVar);
+  vars.all <- c(primaryVar, adj);
+  rmidx <- which(apply(dataSet$meta.info[, vars.all, drop = FALSE], 1,
+                       function(x) any(x == "NA")));
+  if (length(rmidx) > 0) {
+    meta <- dataSet$meta.info[-rmidx, , drop = FALSE]; dataSet$rmidx <- rmidx;
+  } else {
+    meta <- dataSet$meta.info;
+  }
+  cls <- droplevels(factor(meta[, primaryVar]));
+  uniq <- levels(cls)[levels(cls) != "NA"];
+  if (length(uniq) < 2) {
+    AddErrMsg(paste("Primary factor", primaryVar,
+                    "must have at least 2 groups! Found:", length(uniq)));
+    return(RegisterData(dataSet, 0));
+  }
+  dataSet$cls <- cls; dataSet$fst.cls <- cls;
+  dataSet$analysisVar <- primaryVar; dataSet$secondVar <- "NA";
+  if (length(adj) > 0) {
+    af <- meta[, adj, drop = FALSE];
+    for (v in adj) {
+      is.cont <- !is.null(dataSet$cont.inx) && v %in% names(dataSet$cont.inx) &&
+                 isTRUE(dataSet$cont.inx[[v]]);
+      af[[v]] <- if (is.cont) as.numeric(as.character(af[[v]]))
+                 else droplevels(factor(af[[v]]));
+    }
+    dataSet$adj.frame <- af; dataSet$adj.vars <- adj;
+  }
+  return(RegisterData(dataSet, uniq));
+}
+
+# Build a no-intercept group design, optionally augmented with additive covariate
+# columns: ~ 0 + group (+ cov1 + cov2 + ...). The group columns are renamed to the
+# factor levels so existing makeContrasts(levels = design) contrasts still apply
+# unchanged — covariate columns are nuisance and receive 0 coefficients in those
+# group contrasts. cov.frame NULL / 0-col => plain ~ 0 + group.
+.ov_group_design <- function(grp, cov.frame = NULL) {
+  grp <- factor(grp);
+  if (!is.null(cov.frame) && ncol(cov.frame) > 0) {
+    df  <- data.frame(.grp = grp, cov.frame, check.names = FALSE);
+    rhs <- paste(c("0", ".grp", colnames(cov.frame)), collapse = " + ");
+    design <- model.matrix(stats::as.formula(paste("~", rhs)), data = df);
+    gc <- match(paste0(".grp", levels(grp)), colnames(design));
+    ok <- !is.na(gc);
+    colnames(design)[gc[ok]] <- levels(grp)[ok];
+  } else {
+    design <- model.matrix(~ 0 + grp);
+    colnames(design) <- levels(grp);
+  }
+  design
+}
+
 #' Perform Differential Analysis
 #'
 #' This function performs differential analysis based on different types of comparisons.
@@ -110,6 +186,16 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
+  # Guard: dataSet$de.method is normally set by SetupDesignMatrix(deMethod).
+  # When a caller skips that step (e.g. a workflow that jumps straight from
+  # normalization to DE), de.method is NULL and the next == comparison
+  # errors with "argument is of length zero". Default to "limma" (the most
+  # general DE method for normalized expression data) and warn so the
+  # upstream gap is visible in logs.
+  if (is.null(dataSet$de.method) || length(dataSet$de.method) == 0L || !nzchar(dataSet$de.method)) {
+    warning("PerformDEAnal: dataSet$de.method not set (SetupDesignMatrix was likely skipped); defaulting to 'limma'.")
+    dataSet$de.method <- "limma"
+  }
   if (dataSet$de.method == "deseq2") {
     dataSet <- prepareContrast(dataSet, anal.type, par1, par2, nested.opt);
     dataSet <- .run.deseq(dataSet, anal.type, par1, par2, nested.opt);
@@ -129,31 +215,33 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 .run.deseq <- function(dataSet, anal.type, par1, par2, nested.opt) {
 
   # Read annotated data in parent (not available in child)
-  data.anot <- .expressanalyst_qread("data.anot.qs")
+  data.anot <- ov_qs_read("data.anot.qs")
 
-  bridge_in <- .expressanalyst_bridge_file("in")
-  bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-  .expressanalyst_qsave(list(
+  bridge_in <- ov_bridge_file("in")
+  bridge_out <- sub("_in.qs2", "_out.qs2", bridge_in)
+  ov_qs_save(list(
     data.anot = data.anot,
     rmidx = dataSet$rmidx,
     fst.cls = dataSet$fst.cls,
     analysisVar = dataSet$analysisVar,
     block = dataSet$block,
+    adj_frame = dataSet$adj.frame,
     anal.type = anal.type,
     par1 = par1
   ), bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-  run_func_via_rsclient(
+  run_func_via_microservice(
     func = function(wd, bridge_in, bridge_out) {
       setwd(wd)
       require(DESeq2)
-      input <- .expressanalyst_qread(bridge_in)
+      input <- ov_qs_read(bridge_in)
 
       rmidx <- input$rmidx
       fst.cls <- input$fst.cls
       analysisVar <- input$analysisVar
       block <- input$block
+      adj_frame <- input$adj_frame
       anal.type <- input$anal.type
       par1 <- input$par1
       data.anot <- input$data.anot
@@ -186,7 +274,14 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       # ---- Single-factor designs ----
       colData <- data.frame(condition = factor(fst.cls, levels = all_conditions))
 
-      if (!is.null(block)) {
+      if (!is.null(adj_frame) && ncol(adj_frame) > 0) {
+        # Additive covariate adjustment: ~ cov1 + cov2 + ... + condition. adj_frame
+        # rows are already rmidx-filtered (SetCovariateVars) and in sample order, so
+        # they align positionally with condition / data.anot[, -rmidx].
+        colData <- cbind(colData, adj_frame)
+        design <- stats::as.formula(
+          paste("~", paste(c(colnames(adj_frame), "condition"), collapse = " + ")))
+      } else if (!is.null(block)) {
         colData$block <- factor(block)
         design <- ~ block + condition
       } else {
@@ -232,7 +327,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
                                     design    = design)
       set.seed(123)
       dds <- DESeq(dds, betaPrior = FALSE)
-      .expressanalyst_qsave(dds, "deseq.res.obj.rds")
+      ov_qs_save(dds, "deseq.res.obj.rds")
 
       # ---- Extract contrast results ----
       results_list <- list()
@@ -271,18 +366,50 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
         results_list[[1]] <- topFeatures
       }
 
-      .expressanalyst_qsave(results_list, bridge_out, preset = "fast")
+      # Multi-group overall test: likelihood-ratio test of the full vs the
+      # intercept-only (or block-only) reduced model — "does any group differ".
+      omni.res <- NULL
+      if (length(contrast_list) > 1) {
+        reduced.fml <- if ("block" %in% colnames(colData)) ~ block else ~ 1
+        dds.lrt <- tryCatch(DESeq(dds, test = "LRT", reduced = reduced.fml),
+                            error = function(e) NULL)
+        if (!is.null(dds.lrt)) {
+          ro <- results(dds.lrt, independentFiltering = FALSE, cooksCutoff = Inf)
+          omni.res <- data.frame(ro@listData); rownames(omni.res) <- rownames(ro)
+          colnames(omni.res) <- sub("padj", "adj.P.Val", colnames(omni.res))
+          colnames(omni.res) <- sub("pvalue", "P.Value", colnames(omni.res))
+          colnames(omni.res) <- sub("log2FoldChange", "logFC", colnames(omni.res))
+          keep <- intersect(c("logFC","baseMean","lfcSE","stat","P.Value","adj.P.Val"), colnames(omni.res))
+          omni.res <- omni.res[keep]
+          omni.res <- omni.res[order(omni.res$P.Value), ]
+        }
+      }
+
+      ov_qs_save(list(contrasts = results_list, omnibus = omni.res), bridge_out, preset = "fast")
     },
     args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
     timeout_sec = 300
   )
 
-  results_list <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
+  bundle <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
+  results_list <- bundle$contrasts
+  deseq.omni   <- bundle$omnibus
 
   # Process result (what .save.deseq.res did)
   dataSet$comp.res.list <- results_list
-  dataSet$comp.res <- results_list[[1]]
-  .expressanalyst_qsave(results_list, file = "dat.comp.res.qs")
+  dataSet$comp.res.omnibus <- NULL
+  if (!is.null(deseq.omni) && length(results_list) > 1) {
+    dataSet$comp.res.omnibus <- deseq.omni
+    if (identical(anal.type, "default")) {
+      dataSet$comp.res <- deseq.omni
+      dataSet$filename <- "sig_genes_multigroup_ANOVA_deseq2"
+    } else {
+      dataSet$comp.res <- results_list[[1]]
+    }
+  } else {
+    dataSet$comp.res <- results_list[[1]]
+  }
+  ov_qs_save(results_list, file = "dat.comp.res.qs")
   return(dataSet)
 }
 
@@ -396,7 +523,8 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
   require(limma)
 
   if (is.null(dataSet$design) || is.null(dataSet$contrast.matrix)) {
-    stop("design and/or contrast.matrix missing in dataSet. Run prepareEdgeRContrast() first.")
+    AddErrMsg("design and/or contrast.matrix missing in dataSet. Run prepareEdgeRContrast() first.");
+    return(0);
   }
 
   design           <- dataSet$design
@@ -413,6 +541,20 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
   }
 
   if (dataSet$de.method == "limma") {
+    # limma-trend here fits lmFit(data.norm) directly (no voom), so a count matrix must arrive on a log
+    # scale. When an upstream normalization step failed or used a non-log method, data.norm is still raw
+    # counts and limma reports LINEAR fold-differences mislabelled as logFC (e.g. 21748 instead of ~4).
+    # log2-CPM never exceeds ~22, so a max > 30 on count data means it is not logged: apply log2-CPM here
+    # so logFC is a genuine log2 fold-change. Guarded to the limma branch — edgeR needs raw counts.
+    if (identical(dataSet$type, "count") && length(data.norm) &&
+        suppressWarnings(max(data.norm, na.rm = TRUE)) > 30) {
+      if (requireNamespace("edgeR", quietly = TRUE)) {
+        data.norm <- edgeR::cpm(data.norm, log = TRUE, prior.count = 1)
+      } else {
+        data.norm <- log2(data.norm + 1)
+      }
+      message("[DE] count matrix reached limma on a linear scale; applied log2-CPM so logFC is log2 fold-change.")
+    }
     if (is.null(dataSet$block)) {
       fit <- lmFit(data.norm, design)
     } else {
@@ -438,12 +580,59 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     result.list <- list()
     for (nm in colnames(contrast.matrix)) {
       tbl <- topTable(fit2, coef = nm, number = Inf, adjust.method = "fdr")
+      if (!is.null(tbl$ID)) { rownames(tbl) <- tbl$ID; tbl$ID <- NULL; }
       colnames(tbl)[colnames(tbl) == "FDR"] <- "adj.P.Val"
       result.list[[nm]] <- tbl
     }
 
     dataSet$comp.res.list <- result.list
-    dataSet$comp.res <- result.list[[1]]
+
+    # Omnibus F-test: when the design has >1 contrast (multi-group
+    # ANOVA, dose-response, time-series), compute topTable(coef=NULL)
+    # to get the overall F-statistic + per-contrast logFCs in one
+    # table. This is what "Multi-group (ANOVA)" actually means
+    # statistically; the per-pairwise results in comp.res.list stay
+    # available for drill-down. For single-contrast designs (custom
+    # two-group), there's only one column in the contrast matrix —
+    # the F-test reduces to the same t-test, so we keep the first
+    # pairwise result as comp.res for backward compatibility.
+    dataSet$comp.res.omnibus <- NULL
+    if (ncol(contrast.matrix) > 1) {
+      omnibus <- tryCatch(
+        topTable(fit2, coef = NULL, number = Inf, sort.by = "F",
+                 adjust.method = "fdr"),
+        error = function(e) {
+          message("[limma omnibus] topTable(coef=NULL) failed: ",
+                  conditionMessage(e))
+          NULL
+        }
+      )
+      if (!is.null(omnibus)) {
+        if (!is.null(omnibus$ID)) { rownames(omnibus) <- omnibus$ID; omnibus$ID <- NULL; }
+        colnames(omnibus)[colnames(omnibus) == "FDR"] <- "adj.P.Val"
+        dataSet$comp.res.omnibus <- omnibus
+        # Surface the omnibus as the canonical comp.res for multi-group
+        # designs so the ResultView "# of Significant Genes" count
+        # reflects the F-test, not an arbitrary pairwise contrast.
+        # GetSigGenes branches on dataSet$comp.type and uses the omnibus
+        # when comp.type == "default"; for "custom"/"reference"/"nested"
+        # it keeps using comp.res.list[[inx]].
+        if (identical(dataSet$comp.type, "default")) {
+          dataSet$comp.res <- omnibus
+          # Rename the exported-CSV filename so the download is
+          # self-explanatory ("sig_genes_pairwise_limma.csv" was the
+          # legacy name from prepareContrast — misleading now that
+          # the table is the overall F-test, not a pairwise contrast).
+          dataSet$filename <- "sig_genes_multigroup_ANOVA_limma"
+        } else {
+          dataSet$comp.res <- result.list[[1]]
+        }
+      } else {
+        dataSet$comp.res <- result.list[[1]]
+      }
+    } else {
+      dataSet$comp.res <- result.list[[1]]
+    }
 
   } else if (dataSet$de.method == "edger") {
 
@@ -452,22 +641,25 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     if (length(dataSet$rmidx) > 0)
       cnt.mat <- cnt.mat[, -dataSet$rmidx, drop = FALSE]
 
-    cls <- if (length(dataSet$rmidx) > 0) dataSet$cls[-dataSet$rmidx] else dataSet$cls
+    # dataSet$cls is ALREADY rmidx-filtered (SetSelectedMetaInfo / SetCovariateVars
+    # store the filtered factor), so it aligns with cnt.mat[, -rmidx] directly. The
+    # previous dataSet$cls[-rmidx] double-filtered when rmidx was non-empty.
+    cls <- factor(dataSet$cls)
     block <- dataSet$block
 
-    bridge_in <- .expressanalyst_bridge_file("in")
-    bridge_out <- sub("_in.qs", "_out.qs", bridge_in)
-    .expressanalyst_qsave(list(cnt_mat = cnt.mat, design = design,
+    bridge_in <- ov_bridge_file("in")
+    bridge_out <- sub("_in.qs2", "_out.qs2", bridge_in)
+    ov_qs_save(list(cnt_mat = cnt.mat, design = design,
                    contrast_matrix = contrast.matrix, cls = cls, block = block),
               bridge_in, preset = "fast")
     on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
-    run_func_via_rsclient(
+    run_func_via_microservice(
       func = function(wd, bridge_in, bridge_out) {
         setwd(wd)
         require(edgeR); require(limma)
         set.seed(1)
-        input <- .expressanalyst_qread(bridge_in)
+        input <- ov_qs_read(bridge_in)
         cnt.mat <- input$cnt_mat
         design <- input$design
         contrast_matrix <- input$contrast_matrix
@@ -475,10 +667,12 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
         block <- input$block
 
         grp.fac <- factor(cls)
-        if (!is.null(block)) {
-          blk.fac <- factor(block)
-          design <- model.matrix(~ grp.fac + blk.fac)
-        } else if (is.null(attr(design, "assign"))) {
+        # Use the design built by prepareEdgeRContrast (~ 0 + group [+ covariates]),
+        # which is column-aligned with contrast_matrix. The old block branch rebuilt
+        # an intercept design (~ grp.fac + blk.fac) that did NOT match contrast_matrix
+        # — a latent contrast/design mismatch. Covariates now enter additively via
+        # the prepareEdgeRContrast design, so there is no per-child rebuild.
+        if (is.null(attr(design, "assign"))) {
           design <- model.matrix(~ 0 + grp.fac)
         }
 
@@ -499,18 +693,40 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
           colnames(tbl)[colnames(tbl) == "PValue"] <- "P.Value"
           result.list[[nm]] <- tbl
         }
-        .expressanalyst_qsave(result.list, bridge_out, preset = "fast")
+        # Multi-group overall test: joint LRT over all pairwise contrasts (full-
+        # rank subset) — "any group differs".
+        omni <- NULL
+        if (ncol(contrast_matrix) > 1) {
+          qrc <- qr(contrast_matrix); ind <- qrc$pivot[seq_len(qrc$rank)]
+          lrt.o <- edgeR::glmLRT(fit, contrast = contrast_matrix[, ind, drop = FALSE])
+          omni  <- edgeR::topTags(lrt.o, n = Inf)$table
+          colnames(omni)[colnames(omni) == "FDR"]    <- "adj.P.Val"
+          colnames(omni)[colnames(omni) == "PValue"] <- "P.Value"
+        }
+        ov_qs_save(list(contrasts = result.list, omnibus = omni), bridge_out, preset = "fast")
       },
       args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
       timeout_sec = 300
     )
 
-    response <- if (file.exists(bridge_out)) .expressanalyst_qread(bridge_out) else NULL
+    response <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
     if (is.null(response)) { msgSet$current.msg <- "edgeR analysis failed in child process"; saveSet(msgSet, "msgSet"); return(0) }
-    result.list <- response
+    result.list <- response$contrasts
+    edger.omni  <- response$omnibus
 
     dataSet$comp.res.list <- result.list
-    dataSet$comp.res <- result.list[[1]]
+    dataSet$comp.res.omnibus <- NULL
+    if (!is.null(edger.omni) && length(result.list) > 1) {
+      dataSet$comp.res.omnibus <- edger.omni
+      if (identical(dataSet$comp.type, "default")) {
+        dataSet$comp.res <- edger.omni
+        dataSet$filename <- "sig_genes_multigroup_ANOVA_edger"
+      } else {
+        dataSet$comp.res <- result.list[[1]]
+      }
+    } else {
+      dataSet$comp.res <- result.list[[1]]
+    }
   }
 
   return(dataSet);
@@ -540,8 +756,10 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
   grp <- factor(cls_vals, levels = ord_levels, ordered = TRUE)
   grp <- droplevels(grp)
 
-  if (nlevels(grp) < 3L)
-    stop("Williams trend test requires ≥ 3 ordered doses.")
+  if (nlevels(grp) < 3L) {
+    AddErrMsg("Williams trend test requires at least 3 ordered doses.");
+    return(0);
+  }
 
   grp_levels <- levels(grp)
   grp_index  <- lapply(grp_levels, function(lv) which(grp == lv))
@@ -549,8 +767,10 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
 
   total_n  <- sum(n_per_grp)
   df_resid <- total_n - length(grp_levels)
-  if (df_resid <= 0)
-    stop("Williams trend test requires replication (df <= 0).")
+  if (df_resid <= 0) {
+    AddErrMsg("Williams trend test requires replication (df <= 0).");
+    return(0);
+  }
 
   gene_ids   <- rownames(expr)
   gene_count <- nrow(expr)
@@ -654,9 +874,10 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
 SetupDesignMatrix<-function(dataName="", deMethod){
   dataSet <- readDataset(dataName);
   paramSet <- readSet(paramSet, "paramSet");
-  cls <- dataSet$cls; 
-  design <- model.matrix(~ 0 + cls) # no intercept
-  colnames(design) <- levels(cls);
+  cls <- dataSet$cls;
+  # ~ 0 + cls, plus additive covariate columns when an AI multi-factor run set
+  # dataSet$adj.frame (covariate-adjusted limma); identical to before otherwise.
+  design <- .ov_group_design(cls, dataSet$adj.frame)
   dataSet$design <- design;
   dataSet$de.method <- deMethod;
   dataSet$pval <- 0.05;
@@ -816,11 +1037,11 @@ MultiCovariateRegression <- function(fileName,
   if(internal){
     if(useMeta){
     print("batchadjustedcov");
-    inmex.meta <- .expressanalyst_qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     }else{
     print("notbatchadjusted");
 
-    inmex.meta <- .expressanalyst_qread("inmex.meta.orig.qs");
+    inmex.meta <- ov_qs_read("inmex.meta.orig.qs");
 
     }
     feature_table <- inmex.meta$data[, colnames(inmex.meta$data) %in% colnames(dataSet$data.norm)];
@@ -929,8 +1150,16 @@ MultiCovariateRegression <- function(fileName,
     fit <- contrasts.fit(fit, contrast.matrix);
     fit <- eBayes(fit, trend=robustTrend, robust=robustTrend);
     rest <- topTable(fit, number = Inf);
-    
-    if(contrast != "anova"){    
+    # limma >= 3.x topTable prepends an "ID" column when rownames(fit) is
+    # non-null (i.e. always — feature_table carries gene IDs as rownames).
+    # Downstream `make_comp_res_list` and `GetSigGenes` assume the first
+    # column is the logFC, so strip the ID column the same way
+    # `GetLimmaResTable` already does. Without this, comp.res.list gets a
+    # character "ID" column that crashes abs(logfc.mat) in GetSigGenes
+    # with "non-numeric-alike variable(s) in data frame: ID".
+    if (!is.null(rest$ID)) { rownames(rest) <- rest$ID; rest$ID <- NULL; }
+
+    if(contrast != "anova"){
       colnames(rest)[1] <- myargs[[1]];
       grp.nms<-c(ref,contrast)
       
@@ -946,6 +1175,7 @@ MultiCovariateRegression <- function(fileName,
         fit <- contrasts.fit(fit, contrast.matrix);
         fit <- eBayes(fit, trend=robustTrend, robust=robustTrend);
         res.noadj <- topTable(fit, number = Inf);
+        if (!is.null(res.noadj$ID)) { rownames(res.noadj) <- res.noadj$ID; res.noadj$ID <- NULL; }
         dataSet$res.noadj <- res.noadj;
     }
 
@@ -989,6 +1219,10 @@ MultiCovariateRegression <- function(fileName,
     # get results
     fit <- eBayes(fit, trend=robustTrend, robust=robustTrend);
     rest <- topTable(fit, number = Inf, coef = analysis.var);
+    # See note above: strip the ID column that newer limma topTable
+    # injects when fit has rownames. Otherwise it ends up as col 1,
+    # gets renamed by the line below, and the real logFC ends up at col 2.
+    if (!is.null(rest$ID)) { rownames(rest) <- rest$ID; rest$ID <- NULL; }
     colnames(rest)[1] <- dataSet$par1 <- analysis.var;
     
     ### get results with no adjustment
@@ -996,10 +1230,11 @@ MultiCovariateRegression <- function(fileName,
     design <- model.matrix(formula(paste0("~", analysis.var)), data = covariates);
     fit <- eBayes(lmFit(feature_table, design), trend=robustTrend, robust=robustTrend);
     res.noadj <- topTable(fit, number = Inf);
+    if (!is.null(res.noadj$ID)) { rownames(res.noadj) <- res.noadj$ID; res.noadj$ID <- NULL; }
     dataSet$res.noadj <- res.noadj;
     }
   }
-  
+
   dataSet$design <- design;
   dataSet$contrast.type <- analysis.type;
   dataSet$comp.res <- rest;
@@ -1037,9 +1272,10 @@ make_comp_res_list <- function(resTab,
 
   uniq.core <- unique(strip_logfc(lfc.cand))
 
-  if (length(uniq.core) == 0L)
-      stop("Could not detect any log-fold-change columns automatically. ",
-           "Pass lfc.cols explicitly.")
+  if (length(uniq.core) == 0L) {
+      AddErrMsg("Could not detect any log-fold-change columns automatically. Pass lfc.cols explicitly.");
+      return(0);
+  }
 
   ## build list --------------------------------------------------------
   out <- lapply(uniq.core, function(core) {
@@ -1069,13 +1305,14 @@ parse_contrast_groups <- function(contrast_str) {
 }
 
 .get.interaction.results <- function(dds.path = "deseq.res.obj.rds") {
-  dds <- .expressanalyst_qread(dds.path)
+  dds <- ov_qs_read(dds.path)
   cat("Available result names:\n")
   
   # Automatically detect the interaction term
   interaction_name <- grep("factorA.*factorB.*", resultsNames(dds), value = TRUE)
   if (length(interaction_name) == 0) {
-    stop("No interaction term found in model.")
+    AddErrMsg("No interaction term found in model.");
+    return(0);
   }
 
   cat("Extracting interaction term:", interaction_name, "\n")
@@ -1115,8 +1352,13 @@ prepareEdgeRContrast <- function(dataSet,
   dataSet$comp.type <- anal.type
   dataSet$par1      <- par1
 
-  design <- model.matrix(~ 0 + cls_syn)
-  colnames(design) <- syn_levels
+  # ~ 0 + group [+ additive covariates]. Group columns keep the syn_level names so
+  # the makeContrasts(levels = design) call below applies unchanged; covariate
+  # columns (when dataSet$adj.frame is set) are nuisance terms with 0 weight in the
+  # group contrasts. This is also the FIX for the old block path, which rebuilt an
+  # intercept design (~ grp.fac + blk.fac) in the child that did NOT match this
+  # contrast matrix's columns.
+  design <- .ov_group_design(cls_syn, dataSet$adj.frame)
 
   # helper: map a UI label (raw or syn) into sanitized
   to_syn <- function(x) {
@@ -1139,9 +1381,10 @@ prepareEdgeRContrast <- function(dataSet,
   if (anal.type == "reference") {
     ref_syn <- to_syn(par1)
     if (is.null(ref_syn) || !(ref_syn %in% syn_levels)) {
-      stop("`par1` must specify a valid reference level. You gave '",
+      AddErrMsg(paste0("`par1` must specify a valid reference level. You gave '",
            if (is.null(par1)) "NULL" else par1,
-           "'. Valid (raw): ", paste(raw_levels, collapse = ", "))
+           "'. Valid (raw): ", paste(raw_levels, collapse = ", ")));
+      return(0);
     }
     others <- setdiff(syn_levels, ref_syn)
     conts  <- setNames(lapply(others, \(g) paste0(g, " - ", ref_syn)),
@@ -1161,8 +1404,9 @@ prepareEdgeRContrast <- function(dataSet,
   } else if (anal.type == "custom") {
     grp <- parse_vs(par1)
     if (anyNA(grp) || !all(grp %in% syn_levels)) {
-      stop("`par1` must be 'A vs. B'. Valid (raw): ",
-           paste(raw_levels, collapse = ", "))
+      AddErrMsg(paste0("`par1` must be 'A vs. B'. Valid (raw): ",
+           paste(raw_levels, collapse = ", ")));
+      return(0);
     }
     conts <- setNames(list(paste0(grp[1], " - ", grp[2])),
                       paste0(grp[1], "_vs_", grp[2]))
@@ -1170,8 +1414,9 @@ prepareEdgeRContrast <- function(dataSet,
   } else if (anal.type == "nested") {
     g1 <- parse_vs(par1); g2 <- parse_vs(par2)
     if (anyNA(g1) || anyNA(g2) || !all(c(g1, g2) %in% syn_levels)) {
-      stop("`par1` and `par2` must be 'A vs. B'. Valid (raw): ",
-           paste(raw_levels, collapse = ", "))
+      AddErrMsg(paste0("`par1` and `par2` must be 'A vs. B'. Valid (raw): ",
+           paste(raw_levels, collapse = ", ")));
+      return(0);
     }
     if (identical(nested.opt, "intonly")) {
       expr  <- paste0("(", g1[1], " - ", g1[2], ") - (", g2[1], " - ", g2[2], ")")
@@ -1187,7 +1432,8 @@ prepareEdgeRContrast <- function(dataSet,
     }
 
   } else {
-    stop("Unsupported `anal.type`: ", anal.type)
+    AddErrMsg(paste0("Unsupported `anal.type`: ", anal.type));
+    return(0);
   }
 
   contrast.matrix <- do.call(makeContrasts, c(conts, list(levels = design)))

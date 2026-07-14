@@ -31,7 +31,7 @@ readVolcano <- function() {
 
     # Load metadata (small, ~1KB)
     if (file.exists(meta_file)) {
-      meta <- .expressanalyst_qread(meta_file)
+      meta <- ov_qs_read(meta_file)
       vcn <- c(vcn, meta)
     }
     return(vcn)
@@ -89,7 +89,7 @@ saveVolcanoArrow <- function(volcano) {
     dat.opt = volcano$dat.opt,
     naviString = volcano$naviString
   )
-  .expressanalyst_qsave(meta, "volcano_meta.qs")
+  ov_qs_save(meta, "volcano_meta.qs")
 
   return(arrow_path)
 }
@@ -117,7 +117,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
          paramSet$fc.thresh <- 0; 
        }
 
-      data <- .expressanalyst_qread("allMeta.mat.qs")    
+      data <- ov_qs_read("allMeta.mat.qs")    
       p.value <- data[, 2]
       data <- cbind(unname(analSet$meta.avgFC[rownames(data)]), data);
       fcthresh <- paramSet$fc.thresh;
@@ -150,7 +150,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   if(paramSet$data.org == "omk"){
     anot.id <- rownames(data);
     gene.anot <- data.frame(gene_id=anot.id, symbol=anot.id, name=anot.id, stringsAsFactors=FALSE)
-  }else if (anal.type == "metadata" || dataSet$annotated ){ # annotated to entrez
+  }else if (anal.type == "metadata" || isTRUE(dataSet$annotated) ){ # annotated to entrez
     anot.id <- rownames(data);
     gene.anot <- doEntrezIDAnot(anot.id, paramSet$data.org, paramSet$data.idType);
   }else{
@@ -159,15 +159,37 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
     paramSet$init.lib <- "NA"
   }
   
-  #gene symbol to be used for boxplot   
-  
-  # create a named matrix of sig vars for display
-  fc.log <- data[, inx];
+  #gene symbol to be used for boxplot
+
+  # ── Effect-size metric for the X-axis ─────────────────────────────
+  # Detect an omnibus F-test result (multi-group ANOVA produced by
+  # .perform_limma_edger when ncol(contrast.matrix) > 1 and
+  # comp.type == "default"). In that case `data` has columns
+  # `logFC.1, ..., logFC.N, AveExpr, F, P.Value, adj.P.Val` and `data[, inx]`
+  # (inx=1) would read ONLY the first pairwise contrast's logFC — making
+  # the volcano look like a "0 vs 25"-only plot even though the analysis
+  # is a 6-way ANOVA. Replace with signed max-|logFC| across all
+  # pairwise contrasts: each gene's X coordinate is the strongest
+  # (largest absolute) pairwise logFC, sign preserved. This gives a
+  # proper two-wing volcano where the "up" / "down" coloring reflects
+  # the direction of the dominant effect across the design.
+  fc.cols <- grep("^logFC", colnames(data), value = TRUE)
+  is.omnibus <- length(fc.cols) > 1 && "F" %in% colnames(data)
+  if (is.omnibus) {
+    fc.mat  <- as.matrix(data[, fc.cols, drop = FALSE])
+    storage.mode(fc.mat) <- "double"
+    abs.mat <- abs(fc.mat)
+    max.idx <- max.col(abs.mat, ties.method = "first")
+    fc.log  <- fc.mat[cbind(seq_len(nrow(fc.mat)), max.idx)]
+    names(fc.log) <- rownames(data)
+  } else {
+    fc.log <- data[, inx];
+  }
   if(limit_fc){
     hit.maxPos <- (which(fc.log> 10) )
     hit.maxNeg <- (which(fc.log< -10) )
     fc.log[hit.maxPos] <- 10;
-    fc.log[hit.maxNeg] <- 10;
+    fc.log[hit.maxNeg] <- -10;
   }
   #fc.all <- res$fc.all;
   
@@ -257,7 +279,7 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   if(paramSet$init.lib == "NA"){
     enr.mat <- "NA"
   }else{
-    enr.mat <- .expressanalyst_qread("enr.mat.qs");
+    enr.mat <- ov_qs_read("enr.mat.qs");
     #fast.write(enr.mat, file="enrichment_result.csv", row.names=T);
   }
   sink("enrichment_result.json");
@@ -266,58 +288,138 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
   paramSet$jsonNms["volcano"] <- fileNm;
 
   # Generate volcano data frame
+  # Detect x-axis semantics:
+  #   is.omnibus → multi-group ANOVA omnibus: fc.log is the signed
+  #     max-|logFC| across all pairwise contrasts (computed above);
+  #     X-axis label communicates this.
+  #   is.fstat  → kept for forward compat if someone wires the F-stat
+  #     column directly as the X axis (current code doesn't); label
+  #     "F statistic", suppress symmetric vertical guides.
+  #   else      → standard two-group / pairwise logFC.
+  xCol <- if (is.null(colnames(data))) "logFC" else colnames(data)[inx]
+  is.fstat <- !is.null(xCol) && grepl("^F([. ]|stat|val|$)", xCol, ignore.case = TRUE)
+
   volcano_data <- data.frame(
     gene = gene.anot$symbol,
     log2FoldChange = fc.log,
     pValue = p.value,
     negLog10PValue = p.log,
-    significant = ifelse(inx.up & inx.p, "upregulated",
-                         ifelse(inx.down & inx.p, "downregulated", "nonsignificant"))
+    significant = ifelse(inx.up & inx.p, "Up",
+                         ifelse(inx.down & inx.p, "Down", "Non-sig")),
+    stringsAsFactors = FALSE
   )
 
+  # Hover text retained for plotly interactive widget
   volcano_data$hover_text <- with(volcano_data, paste("Gene:", gene,
-                                                      "<br>Log2 FC:", log2FoldChange,
-                                                      "<br>P-value:", pValue))
+                                                      "<br>Log2 FC:", signif(log2FoldChange, 3),
+                                                      "<br>P-value:", format(pValue, scientific = TRUE, digits = 3)))
 
-  # Add labels for top 10 features on each side
-  volcano_data$label <- NA
-  labelNum <- 10
+  # Label the top-N most significant up/down hits (by -log10(p), |logFC| as tiebreaker).
+  labelNum <- 8
+  volcano_data$label <- NA_character_
 
-  up_idx <- which(volcano_data$significant == "upregulated")
+  up_idx <- which(volcano_data$significant == "Up")
   if(length(up_idx) > 0) {
-    up_ordered <- up_idx[order(volcano_data$log2FoldChange[up_idx], decreasing = TRUE)]
-    top_up <- head(up_ordered, labelNum)
+    up_ord <- up_idx[order(volcano_data$negLog10PValue[up_idx],
+                           abs(volcano_data$log2FoldChange[up_idx]),
+                           decreasing = TRUE)]
+    top_up <- head(up_ord, labelNum)
     volcano_data$label[top_up] <- volcano_data$gene[top_up]
   }
 
-  down_idx <- which(volcano_data$significant == "downregulated")
+  down_idx <- which(volcano_data$significant == "Down")
   if(length(down_idx) > 0) {
-    down_ordered <- down_idx[order(volcano_data$log2FoldChange[down_idx], decreasing = FALSE)]
-    top_down <- head(down_ordered, labelNum)
+    down_ord <- down_idx[order(volcano_data$negLog10PValue[down_idx],
+                               abs(volcano_data$log2FoldChange[down_idx]),
+                               decreasing = TRUE)]
+    top_down <- head(down_ord, labelNum)
     volcano_data$label[top_down] <- volcano_data$gene[top_down]
   }
+
+  # Stable factor order so the legend always reads Up / Down / Non-sig
+  volcano_data$significant <- factor(volcano_data$significant, levels = c("Up", "Down", "Non-sig"))
+
+  # Hit counts annotate the title for quick scanning
+  nUp   <- sum(volcano_data$significant == "Up",   na.rm = TRUE)
+  nDown <- sum(volcano_data$significant == "Down", na.rm = TRUE)
+  nTot  <- nrow(volcano_data)
 
   library(ggplot2)
   library(plotly)
 
-  # Create base ggplot
-  gg_volcano <- ggplot(volcano_data, aes(x = log2FoldChange, y = negLog10PValue,
-                                         color = significant,
-                                         text = paste("Gene:", gene, "<br>Log2 FC:", log2FoldChange,
-                                                      "<br>P-value:", format(pValue, scientific = TRUE)))) +
-    geom_point(alpha = 0.6) +
-    scale_color_manual(values = c("upregulated" = "red", "downregulated" = "blue", "nonsignificant" = "grey")) +
-    geom_vline(xintercept = c(-fcthresh, fcthresh), linetype = "dashed", color = "darkgrey", linewidth = 0.5) +
-    geom_hline(yintercept = -log10(threshp), linetype = "dashed", color = "darkgrey", linewidth = 0.5) +
-    labs(x = "Log2 Fold Change", y = "-Log10 P-value") +
-    theme_bw() +
-    theme(legend.title = element_blank())
+  # Categorical palette: warm red for up, cool blue for down, mid-grey for the
+  # non-significant cloud. Sourced from the same RdBu/diverging family used by
+  # MetaboAnalyst's volcano gradient endpoints.
+  vc_cols <- c("Up" = "#d6604d", "Down" = "#2166ac", "Non-sig" = "#9ca3af")
 
-  # Add labels for static plot
+  is.meta.combined <- (anal.type == "metadata" && paramSet$selDataNm == "meta_default")
+  x_lab <- if (is.fstat) {
+             expression(italic(F)~statistic)
+           } else if (is.omnibus) {
+             expression(log[2]~"(Max-pairwise Fold Change)")
+           } else if (is.meta.combined) {
+             expression("Weighted avg "~log[2]~"FC (meta-analysis)")
+           } else {
+             expression(log[2]~"(Fold Change)")
+           }
+  y_lab <- if (is.meta.combined) expression(-log[10]~"(combined p-value)")
+           else expression(-log[10]~"(P-value)")
+
+  # Layer non-sig points first, then up/down on top so significant hits aren't buried.
+  ns_df  <- volcano_data[volcano_data$significant == "Non-sig", , drop = FALSE]
+  sig_df <- volcano_data[volcano_data$significant != "Non-sig", , drop = FALSE]
+
+  gg_volcano <- ggplot() +
+    geom_hline(yintercept = -log10(threshp),
+               linetype = "dashed", color = "grey40", linewidth = 0.4) +
+    {if (!is.fstat && fcthresh > 0)
+       geom_vline(xintercept = c(-fcthresh, fcthresh),
+                  linetype = "dashed", color = "grey40", linewidth = 0.4)} +
+    geom_point(data = ns_df,
+               aes(x = log2FoldChange, y = negLog10PValue,
+                   color = significant, text = hover_text),
+               alpha = 0.45, size = 1.4, shape = 16) +
+    geom_point(data = sig_df,
+               aes(x = log2FoldChange, y = negLog10PValue,
+                   color = significant, text = hover_text),
+               alpha = 0.85, size = 1.9, shape = 16) +
+    scale_color_manual(name = NULL, values = vc_cols, drop = FALSE) +
+    labs(x = x_lab, y = y_lab,
+         title = sprintf("Up: %d   Down: %d   Total: %d", nUp, nDown, nTot),
+         subtitle = if (is.meta.combined)
+                      "Meta-analysis: weighted avg logFC, combined p-value (Fisher's method)"
+                    else if (is.omnibus)
+                      "Multi-group ANOVA: omnibus F-test p-value, signed max-pairwise logFC"
+                    else NULL) +
+    theme_bw(base_size = 13) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_line(color = "grey92", linewidth = 0.3),
+          plot.title = element_text(size = 11, color = "grey30", hjust = 0),
+          axis.title = element_text(size = 13),
+          axis.text  = element_text(size = 11, color = "grey20"),
+          legend.position = "right",
+          legend.text = element_text(size = 11),
+          legend.key = element_blank()) +
+    guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
+
+  # Static (PNG) variant gets text labels for the top sig hits, plus the down/up
+  # feature counts in the panel corners (down top-left, up top-right). Black text
+  # — the points already carry the up/down colour. The per-direction counts move
+  # here from the title, which now carries only the total.
   gg_volcano_labeled <- gg_volcano +
-    ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 20,
-                             box.padding = 0.5, point.padding = 0.3,
-                             segment.color = "grey50", show.legend = FALSE)
+    ggrepel::geom_text_repel(
+      data = volcano_data[!is.na(volcano_data$label), , drop = FALSE],
+      aes(x = log2FoldChange, y = negLog10PValue, label = label),
+      size = 3.2, max.overlaps = Inf,
+      box.padding = 0.45, point.padding = 0.25,
+      min.segment.length = 0,
+      segment.color = "grey55", segment.size = 0.3,
+      color = "grey15", show.legend = FALSE) +
+    labs(title = sprintf("Total: %d features", nTot)) +
+    annotate("text", x = -Inf, y = Inf, label = paste0("Down: ", nDown),
+             hjust = -0.12, vjust = 1.6, color = "black", fontface = "bold", size = 4) +
+    annotate("text", x =  Inf, y = Inf, label = paste0("Up: ", nUp),
+             hjust =  1.12, vjust = 1.6, color = "black", fontface = "bold", size = 4)
 
   # Save outputs
   imgSet <- readSet(imgSet, "imgSet");
@@ -332,7 +434,11 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
     imgSet$volcanoPlotly <- NULL;
   }
 
-  Cairo::Cairo(file = imgSet$volcanoPlot, unit="in", dpi=96, width=13.9, height=11.1, type=format, bg="white");
+  # PNG sizing: previous 13.9 x 11.1 in @ 96 dpi produced a stretched, low-res
+  # image (~1334 x 1066 px). 7 x 6 in @ dpi parameter (default ~150) yields a
+  # crisper, properly-proportioned figure (~1050 x 900 px at 150 dpi).
+  Cairo::Cairo(file = imgSet$volcanoPlot, unit = "in", dpi = dpi,
+               width = 7, height = 6, type = format, bg = "white");
   print(gg_volcano_labeled)
   dev.off()
 
@@ -426,7 +532,6 @@ PerformVolcanoEnrichment<-function(dataName="", file.nm, fun.type, IDs, type, in
 
   fcthreshu <- paramSet$fcthreshu;
   fcthreshu <- as.numeric(fcthreshu);
-  print(paste0(fcthreshu, "===fcthresh"));
   anal.type <- paramSet$anal.type;
   inx <- as.numeric(inx)
   if(anal.type == "onedata"){
@@ -441,20 +546,24 @@ PerformVolcanoEnrichment<-function(dataName="", file.nm, fun.type, IDs, type, in
       sigmat <- cbind(unname(analSet$meta.avgFC[rownames(sigmat)]), sigmat);
       inx <- 1;
     }else{
-      sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),];
+      sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),,drop=FALSE];
     }
   }
-  
+
+  if(!is.matrix(sigmat)) sigmat <- as.matrix(sigmat);
+
   if(type == "focus"){
     gene.vec <- unlist(strsplit(IDs, "; "));
+  }else if(nrow(sigmat) == 0){
+    gene.vec <- character(0);
   }else if(type == "all"){
-    gene.vecup <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),]);
-    gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),]);
+    gene.vecup <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),,drop=FALSE]);
+    gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),,drop=FALSE]);
     gene.vec <- c(gene.vecup, gene.vecdown);
   }else if(type == "up"){
-    gene.vec <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),]);
+    gene.vec <- rownames(sigmat[which(sigmat[,inx] > fcthreshu),,drop=FALSE]);
   }else{
-    gene.vec <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),]);
+    gene.vec <- rownames(sigmat[which(sigmat[,inx] < -fcthreshu),,drop=FALSE]);
   }
   sym.vec <- doEntrez2SymbolMapping(gene.vec, paramSet$data.org, paramSet$data.idType);
   names(gene.vec) <- sym.vec;
@@ -481,13 +590,20 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
       sigmat <- dataSet$sig.mat
     }
   }else{
-    sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),];
+    sigmat <- analSet$inmex.ind[paramSet$selDataNm][[1]][which(analSet$inmex.ind[paramSet$selDataNm][[1]][,'Pval'] < as.numeric(paramSet$pvalu)),,drop=FALSE];
   }
-  
+
+  if(!is.matrix(sigmat)) sigmat <- as.matrix(sigmat);
+
   one.path.vec <- unlist(strsplit(IDs, "; "));
-  
-  gene.vecup <- rownames(sigmat[which(sigmat[,inx] > paramSet$fcthreshu),]);
-  gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -paramSet$fcthreshu),]);
+
+  if(nrow(sigmat) == 0){
+    gene.vecup <- character(0);
+    gene.vecdown <- character(0);
+  }else{
+    gene.vecup <- rownames(sigmat[which(sigmat[,inx] > paramSet$fcthreshu),,drop=FALSE]);
+    gene.vecdown <- rownames(sigmat[which(sigmat[,inx] < -paramSet$fcthreshu),,drop=FALSE]);
+  }
   ora.vec <- c(gene.vecup, gene.vecdown);
   
   
@@ -516,7 +632,7 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
       data.anot <- .get.annotated.data();
       current.universe <- rownames(data.anot); 
     }else if(paramSet$anal.type == "metadata"){
-      inmex <- .expressanalyst_qread("inmex_meta.qs");
+      inmex <- ov_qs_read("inmex_meta.qs");
       current.universe <- rownames(inmex$data); 
     }else{
       if(!is.null(paramSet$backgroundUniverse)){
@@ -540,7 +656,7 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
                        }
   );
   
-  .expressanalyst_qsave(hits.query, "hits_query.qs");
+  ov_qs_save(hits.query, "hits_query.qs");
   
   names(hits.query) <- names(current.geneset);
   hit.num<-unlist(lapply(hits.query, function(x){length(unique(x))}), use.names=FALSE);
@@ -599,13 +715,11 @@ PerformVolcanoBatchEnrichment <- function(dataName="", file.nm, fun.type, IDs, i
   if(any(duplicated(rownames(res.mat)))) {
     res.mat <- res.mat[!duplicated(rownames(res.mat)), ]
     hits.query <- hits.query[match(rownames(res.mat), names(hits.query))]
-
-    print("Duplicates in enr.mat were removed.")
   } else {
     res.mat <- res.mat
   }
 
-  .expressanalyst_qsave(res.mat, "enr.mat.qs");
+  ov_qs_save(res.mat, "enr.mat.qs");
   msgSet$current.msg <- "Functional enrichment analysis was completed";
   
   # write json

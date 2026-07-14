@@ -261,11 +261,45 @@ GetMappedTable <- function(){
 
 GetNumNAs <- function(){
   paramSet <- readSet(paramSet, "paramSet")
-  
+
   # Calculate the number of NA values in the combined.mapping.df
   numNAs <- sum(is.na(paramSet$combined.mapping.df))
-  
+
   return(numNAs)
+}
+
+#'Size of the intersection across all parsed datalists.
+#'@description Returns the number of feature IDs (post-MapListIds, so entrez
+#'  / mapped IDs) that are present in every datalist1..N created by
+#'  MapListIds from a "//"-separated multi-list paste. Used by the AI
+#'  workflow orchestrator to decide whether to queue an "overlap" batch
+#'  pass: if the intersection is empty, the orchestrator marks the pass
+#'  as skipped with a clear reason instead of letting downstream steps
+#'  (enrichment, ridgeline, heatmap) fail with cryptic empty-input errors.
+#'@return Non-negative integer. 0 when fewer than 2 datalists exist or
+#'  when the intersection is empty.
+#'@author Jeff Xia \email{jeff.xia@mcgill.ca}
+#'McGill University, Canada
+#'License: MIT
+#'@export
+GetListIntersectionSize <- function(){
+  paramSet <- readSet(paramSet, "paramSet");
+  n <- paramSet$numOfLists;
+  if (is.null(n) || n < 2) return(0L);
+  ids <- list();
+  for (i in seq_len(n)) {
+    nm <- paste0("datalist", i);
+    ds <- tryCatch(readDataset(nm), error = function(e) NULL);
+    if (!is.null(ds)) {
+      if (!is.null(ds$seeds.proteins) && length(ds$seeds.proteins) > 0) {
+        ids[[length(ids) + 1L]] <- ds$seeds.proteins;
+      } else if (!is.null(ds$prot.mat)) {
+        ids[[length(ids) + 1L]] <- rownames(ds$prot.mat);
+      }
+    }
+  }
+  if (length(ids) < 2) return(0L);
+  return(length(Reduce(intersect, ids)));
 }
 
 #########################################
@@ -277,20 +311,66 @@ GetNumNAs <- function(){
 # parse out return the a matrix containing the logFc, with rows named by gene ID
 # if no 2nd col (logFC), the value will be padded by 0s
 .parseListInput <- function(geneIDs, paramSet, msgSet){
-  spl <- unlist(strsplit(geneIDs, "\\//")[1]);
-  spl <- spl[unlist(lapply(spl,function(x){!x %in% ""}))]
-  spl <- lapply(spl,function(x){gsub("\\/", "",x)})
+  # Split into lines first, then group by standalone "//" separators.
+  # The previous implementation split on "//" anywhere in the text, which
+  # only works when "//" happens to be surrounded by newlines and produces
+  # chunks that still contain leading/trailing blank lines (those break
+  # rbind() of strsplit() results downstream). Now: tokenise into lines,
+  # trim whitespace, mark exact "//" lines as separators, and emit one
+  # sub-list per group of non-empty content lines between separators.
+  lines.all <- unlist(strsplit(geneIDs, "\r\n|\r|\n", perl = TRUE));
+  lines.all <- sub("^[[:space:]]*(.*?)[[:space:]]*$", "\\1", lines.all, perl = TRUE);
+  sep.mask <- grepl("^//$", lines.all);
+
+  if (any(sep.mask)) {
+    grp <- cumsum(sep.mask) + 1L;
+    grp[sep.mask] <- NA;
+    keep <- !is.na(grp) & lines.all != "";
+    chunks <- split(lines.all[keep], grp[keep]);
+  } else {
+    chunks <- list(lines.all[lines.all != ""]);
+  }
+  chunks <- chunks[lengths(chunks) > 0];
+
   dataList <- list();
   inxU <- 0;
-  for (i in 1:length(spl)){
-    lines <- unlist(strsplit(spl[[i]], "\r|\n|\r\n")[1]);
-    # remove the beginning & trailing space 
-    lines <- sub("^[[:space:]]*(.*?)[[:space:]]*$", "\\1", lines, perl=TRUE);
+  if (length(chunks) == 0) {
+    return(list(dataList, paramSet, msgSet));
+  }
+  for (i in seq_along(chunks)){
+    lines <- chunks[[i]];
     if(substring(lines[1],1,1)=="#"){
       lines <- lines[-1];
     }
-    gene.lists <- strsplit(lines, "\\s+");
+    # Accept comma as a separator in addition to whitespace so users
+    # uploading or pasting CSV-style lists ("AKT1,0.6") get the same
+    # 2-column shape as tab/space-separated ones. Without commas in the
+    # split class, every CSV line becomes a single token like "AKT1,0.6"
+    # which fails ID mapping at ~0%.
+    gene.lists <- strsplit(lines, "[,[:space:]]+");
     gene.mat <- do.call(rbind, gene.lists);
+
+    # Header detection — strip the first row when it looks like a column
+    # header so its label strings (e.g. "Gene", "LogFC") don't try to map
+    # as IDs and drag the mapping success rate below the 50% hard-fail
+    # gate. Two cases:
+    #   (a) multi-column lists where row 1 col 2 is non-numeric
+    #       ("Gene,LogFC" → "LogFC" is text → header)
+    #   (b) single-column lists whose first cell matches a common header
+    #       keyword case-insensitively
+    if (nrow(gene.mat) > 1) {
+      if (ncol(gene.mat) >= 2 && !.is_valid_numeric(gene.mat[1, 2])) {
+        gene.mat <- gene.mat[-1, , drop = FALSE];
+      } else if (ncol(gene.mat) == 1 &&
+                 tolower(gene.mat[1, 1]) %in%
+                   c("gene", "genes", "symbol", "symbols", "id", "ids",
+                     "name", "names", "feature", "features",
+                     "protein", "proteins", "metabolite", "metabolites",
+                     "compound", "compounds", "mirna", "mirnas",
+                     "taxon", "taxa")) {
+        gene.mat <- gene.mat[-1, , drop = FALSE];
+      }
+    }
 
     if(dim(gene.mat)[2] == 1){ # add 0
       gene.mat <- cbind(gene.mat, rep(0, nrow(gene.mat)));
@@ -305,7 +385,7 @@ GetNumNAs <- function(){
 
     rownames(gene.mat) <- gene.mat[,1];
     gene.mat <- gene.mat[,-1, drop=F];
-    res <- RemoveDuplicates(gene.mat, "mean", quiet=F, paramSet, msgSet); 
+    res <- RemoveDuplicates(gene.mat, "mean", quiet=F, paramSet, msgSet);
     gene.mat <- res[[1]];
     msgSet <- res[[2]];
     good.inx <- !is.na(gene.mat[,1]);

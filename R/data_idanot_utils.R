@@ -46,9 +46,9 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   dataSet$annotated <- F;
   # should not contain duplicates, however sanity check
   if(dataType=="prot"){
-    data.proc <- .expressanalyst_qread("int.mat.qs");
+    data.proc <- ov_qs_read("int.mat.qs");
   }else{
-    data.proc <- .expressanalyst_qread("data.raw.qs");
+    data.proc <- ov_qs_read("data.raw.qs");
   }
   data.anot <- data.proc;
   
@@ -56,6 +56,13 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     feature.vec <- rownames(data.proc);
     
     anot.id <- .doAnnotation(feature.vec, idType, paramSet);
+    # Save named vector (feature → entrez) only when ≥50% of IDs matched.
+    # Below 50% is treated as annotation failure: original IDs are used for
+    # stats; functional analysis is cancelled by the orchestrator.
+    hit.check <- !is.na(anot.id);
+    if (sum(hit.check) / length(anot.id) >= 0.5) {
+      ov_qs_save(anot.id, "annotation.qs");
+    }
     anot.id <- unname(anot.id);
     print(head(anot.id));
     if(idType %in% c("s2f", "generic", "ko")){
@@ -64,18 +71,29 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
       symbol.map <- .doGeneIDMapping(anot.id , "entrez", paramSet, "matrix");
     }
     symbol.map <- symbol.map[which(symbol.map$gene_id %in% anot.id),];
-    
+
     saveDataQs(symbol.map, "symbol.map.qs", paramSet$anal.type, dataName);
-    
-    .expressanalyst_qsave(symbol.map, "annotation.qs");
     
     hit.inx <- !is.na(anot.id);
     matched.len <- sum(hit.inx);
     perct <- round(matched.len/length(feature.vec),3)*100;
-    thresh <- 0.1 # previous value of 0.25 is causing challenges 
-    #for datasets like Ppromelas with low annotation quality
+    thresh <- 0.5 # < 50% match = annotation failure; use original IDs
     if (matched.len < length(feature.vec)*thresh){
-      current.msg <- paste('Only ', perct, '% ID were matched. You may want to choose another ID type or use default.', sep=""); 
+      current.msg <- paste('Only ', perct, '% ID were matched. You may want to choose another ID type or use default.', sep="");
+      # Even when annotation is poor, raw rownames may already contain
+      # duplicates (e.g. probes mapping to the same gene symbol in the input
+      # file). Without dedup, limma::topTable downstream errors when assigning
+      # tbl$ID as rownames. Collapse here using lvlOpt (mean for arrays, sum
+      # for counts) — same as the matched-annotation branch already does.
+      if (anyDuplicated(rownames(data.anot))) {
+        n.dup <- sum(duplicated(rownames(data.anot)));
+        collapse.opt <- if (lvlOpt != "NA") lvlOpt else "mean";
+        res <- RemoveDuplicates(data.anot, collapse.opt, quiet = TRUE, paramSet, msgSet);
+        data.anot <- res[[1]];
+        msgSet   <- res[[2]];
+        current.msg <- paste(current.msg,
+          sprintf("%d duplicate IDs were collapsed by %s.", n.dup, collapse.opt));
+      }
     } else {
       current.msg <- paste("ID annotation: ", "Total [", length(anot.id), 
                            "] Matched [", matched.len, "] Unmatched [", sum(!hit.inx),"]", collapse="\n");    
@@ -103,7 +121,25 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     hit.inx <- !is.na(anot.id);
     matched.len <- length(feature.vec); # dummies
     minLvl <- 1;
-    current.msg <- paste("No annotation was performed. Make sure organism and gene ID are specified correctly!"); 
+    current.msg <- paste("No annotation was performed. Make sure organism and gene ID are specified correctly!");
+
+    # Without entrez-level annotation we don't get the dedup that RemoveDuplicates
+    # normally performs. Duplicate rownames downstream cause limma::topTable to
+    # spill rownames into an "ID" column and break GetSigGenes. Collapse here.
+    if (anyDuplicated(rownames(data.anot))) {
+      n.dup <- sum(duplicated(rownames(data.anot)));
+      collapse.opt <- if (lvlOpt != "NA") lvlOpt else "mean";
+      res <- RemoveDuplicates(data.anot, collapse.opt, quiet = TRUE, paramSet, msgSet);
+      data.anot <- res[[1]];
+      msgSet   <- res[[2]];
+      feature.vec <- rownames(data.anot);
+      anot.id     <- feature.vec;
+      hit.inx     <- !is.na(anot.id);
+      matched.len <- length(feature.vec);
+      current.msg <- paste(current.msg,
+        sprintf("%d duplicate IDs were collapsed by %s. For proper annotation, please specify organism and ID type.",
+                n.dup, collapse.opt));
+    }
   }
   id.map <- data.frame(
     original_id = feature.vec,
@@ -111,13 +147,13 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     match_status = !is.na(anot.id),
     stringsAsFactors = FALSE
   );
-  .expressanalyst_qsave(id.map, file="id.map.qs");
+  ov_qs_save(id.map, file="id.map.qs");
   # need to save the ids (mixed gene annotation and original id) 
   # in case, users needs to keep unannotated features
   # this need to be updated to gether with data from now on
   dataSet$data.norm <- data.anot;
   
-  .expressanalyst_qsave(data.anot, file="orig.data.anot.qs"); # keep original copy, not in mem
+  ov_qs_save(data.anot, file="orig.data.anot.qs"); # keep original copy, not in mem
   col.sum <- colSums(dataSet$data.norm);
   totalCount <-  sum(col.sum);
   avgCount <- totalCount / ncol(dataSet$data.norm);
@@ -139,7 +175,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     RemoveMissingPercent(dataSet$name, 0.5)
     ImputeMissingVar(dataSet$name, method="min")
   }else{
-    .expressanalyst_qsave(data.anot, file="data.missed.qs");
+    ov_qs_save(data.anot, file="data.missed.qs");
   }
 
   data.anot <- sanitizeSmallNumbers(data.anot);
@@ -148,7 +184,17 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
 
   saveSet(paramSet, "paramSet");
   saveSet(msgSet, "msgSet");
-  return(RegisterData(dataSet, matched.len));   
+  # Return 0 when < 50% matched so Java performDataAnnot can throw and trigger
+  # the orchestrator's annotationFailed flag → functional steps are cancelled.
+  # RegisterData still runs so dataSet$annotated <- F (set at the top of this
+  # function) is persisted; otherwise downstream readDataset() calls return
+  # the pre-annotation dataSet whose `annotated` field is NULL, and
+  # `if (dataSet$annotated)` / `... || dataSet$annotated` throw on length-zero.
+  if (matched.len < length(feature.vec) * 0.5) {
+    RegisterData(dataSet, matched.len);
+    return(0);
+  }
+  return(RegisterData(dataSet, matched.len));
 }
 
 
@@ -324,6 +370,16 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
   }
   
   db.map <- queryGeneDB(db.nm, org);
+  # Guard: an unsupported/mismatched idType resolves db.nm to a table that does
+  # not exist, so queryGeneDB returns a non-2D object and the db.map[, col.nm]
+  # indexing below dies with the cryptic "incorrect number of dimensions". Fail
+  # with a clear, actionable message instead (surfaced to the user via the
+  # workflow loader's geterrmessage()).
+  if (is.null(dim(db.map)) || !(col.nm %in% colnames(db.map))) {
+    stop("Unsupported ID type '", idType, "' for organism '", org,
+         "': annotation table '", db.nm, "' with a '", col.nm,
+         "' column was not found. Check that the selected gene ID type matches the input.");
+  }
   if (org == "smm" && idType == "symbol") {
     q.mat <- do.call(rbind, strsplit(feature.vec, "\\."));
     feature.vec <- q.mat[, 1];
@@ -400,13 +456,14 @@ queryGeneDB <- function(db.nm, org){
   }
   paramSet <- readSet(paramSet, "paramSet");    
   if(db.nm == "custom" || org == "custom"){
-    db.map <- .expressanalyst_qread("anot_table.qs");
+    db.map <- ov_qs_read("anot_table.qs");
   }else{
     require('RSQLite');
     
     db.path <- paste(paramSet$sqlite.path, org, "_genes.sqlite", sep="")
     if(!PrepareSqliteDB(db.path, paramSet$on.public.web)){
-      stop("Sqlite database is missing, please check your internet connection!");
+      AddErrMsg("Sqlite database is missing, please check your internet connection!");
+      return(0);
     }
     conv.db <- dbConnect(SQLite(), db.path); 
     tbls <- dbListTables(conv.db)
@@ -570,7 +627,7 @@ firstup <- function(x) {
         #'@export
         GenerateGeneMappingReport <- function(dataName=""){
           output_file <- "gene_mapping_report.csv";
-            id.map <- .expressanalyst_qread("id.map.qs");
+            id.map <- ov_qs_read("id.map.qs");
             write.csv(id.map, file=output_file, row.names=FALSE);
             return(output_file);
           

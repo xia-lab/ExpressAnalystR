@@ -183,6 +183,25 @@ PerformHeatmapEnrichment <- function(dataName="", file.nm, fun.type, IDs){
     }else{
       gene.vec <- rownames(paramSet$all.ent.mat);
     }
+  }else if(IDs=="overlap"){
+    # Multi-list overlap view: enrich on the intersection of all uploaded
+    # lists, not the union. Each dataset's prot.mat rownames are Entrez IDs;
+    # take the intersection across all sel.nms. Falls back to all.ent.mat
+    # if state is unexpected (single-list arrives here only on programmer
+    # error or if the page reloaded with stale URL).
+    mdata.all <- paramSet$mdata.all;
+    sel.nms <- names(mdata.all);
+    shared <- NULL;
+    for(nm in sel.nms){
+      ds <- readDataset(nm);
+      ids <- rownames(ds$prot.mat);
+      shared <- if(is.null(shared)) ids else intersect(shared, ids);
+    }
+    if(length(shared)==0){
+      gene.vec <- rownames(paramSet$all.ent.mat);
+    }else{
+      gene.vec <- shared;
+    }
   }else{
     gene.vec <- unlist(strsplit(IDs, "; "));
   }
@@ -193,9 +212,6 @@ PerformHeatmapEnrichment <- function(dataName="", file.nm, fun.type, IDs){
 }
 
 .prepareEnrichNet<-function(dataSet, netNm, type, overlapType, analSet){
-    if(!exists("my.enrich.net")){ 
-        compiler::loadcmp(paste0(resource.dir, "rscripts/ExpressAnalystR/R/utils_enrichnet.Rc"));    
-    }
     return(my.enrich.net(dataSet, netNm, type, overlapType, analSet));
 }
 
@@ -246,7 +262,9 @@ GetListEnrGeneNumber <- function(){
     }
   }else if(anal.type == "onedata"){
     all.enIDs <- rownames(dataSet$sig.mat);
-    names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
+    # No significant features (or unannotated data) -> all.enIDs is NULL/empty;
+    # guard so `names(NULL) <- ...` can't error and enrichment degrades to empty.
+    if (length(all.enIDs)) names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
     listSizes[[1]] <- list(
       name = "dataSet1",
       label = "dataSet1",
@@ -320,7 +338,9 @@ GetListEnrGeneNumber <- function(){
     }
   }else if(anal.type == "onedata"){
     all.enIDs <- rownames(dataSet$sig.mat);
-    names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
+    # No significant features (or unannotated data) -> all.enIDs is NULL/empty;
+    # guard so `names(NULL) <- ...` can't error and enrichment degrades to empty.
+    if (length(all.enIDs)) names(all.enIDs) <- doEntrez2SymbolMapping(all.enIDs, paramSet$data.org, paramSet$data.idType)
     listSizes[[1]] <- list(
       name = "dataSet1",
       label = "dataSet1",
@@ -541,9 +561,174 @@ PerformSetOperation_DataEnr <- function(nms, operation, refNm){
 #' @param args List of arguments passed via do.call
 #' @param timeout_sec Hard timeout before child is killed
 #' @return Result of do.call(func, args)
+# Reusable RSclient connection pool. When opened, repeated run_func_via_rsclient
+# calls share ONE child Rserve session, so heavy packages (fgsea, ggplot2, Cairo)
+# attach ONCE for the whole batch instead of reloading on every call. The
+# multi-library functional generator opens it around its per-library GSEA/ORA loop
+# and closes it after. Outside a pool, behaviour is unchanged: a fresh isolated
+# session per call.
+.ov_rsc_pool <- new.env(parent = emptyenv())
+ov_rsclient_pool_open <- function() {
+  ov_rsclient_pool_close()
+  conn <- tryCatch(RSclient::RS.connect(host = "localhost", port = 6311),
+                   error = function(e) NULL)
+  if (is.null(conn)) return(invisible(FALSE))
+  .ov_rsc_pool$conn <- conn
+  .ov_rsc_pool$injected <- FALSE
+  invisible(TRUE)
+}
+ov_rsclient_pool_close <- function() {
+  if (!is.null(.ov_rsc_pool$conn)) {
+    try(RSclient::RS.close(.ov_rsc_pool$conn), silent = TRUE)
+    .ov_rsc_pool$conn <- NULL
+  }
+  .ov_rsc_pool$injected <- FALSE
+  invisible(NULL)
+}
+
+# Backward-compatible alias: external/community callers of the old name still resolve.
+run_func_via_rc_microservice <- function(...) run_func_via_microservice(...)
+
+run_func_via_microservice <- function(func, args = list(), timeout_sec = 60) {
+  # Default to the more efficient RSclient fork. The host app sets on.OmicsVerse = TRUE at startup to
+  # force a fresh callr subprocess in deployments where a nested RSclient fork is unstable (a startup
+  # flag is used rather than a filesystem probe, which is not a reliable signal).
+  if (!isTRUE(tryCatch(get("on.OmicsVerse", envir = globalenv()), error = function(e) FALSE)) &&
+      requireNamespace("RSclient", quietly = TRUE)) {
+    return(run_func_via_rsclient(func, args, timeout_sec))
+  }
+  # Run the closure in a fresh, short-lived R process (a microservice), which then exits and reclaims
+  # all memory it used plus any packages it attached. Replaces the old nested Rserve-client path, which
+  # reliably crashed the worker with "Fatal error: unable to initialize the JIT" (Rserve error 127) —
+  # the failure that left count normalization (logcount/RLE/TMM/MORlog) throwing and downstream DE
+  # running on raw counts. Falls back to in-process if callr is unavailable or the child errors, so a
+  # caller never breaks. `func` is a self-contained closure that exchanges data via ov_qs_* bridge
+  # files, so the child only needs those helpers defined; the result travels back through the files.
+  if (requireNamespace("callr", quietly = TRUE)) {
+    ok <- tryCatch({
+      callr::r(
+        func = function(func, args) {
+          ov_qs_read <- function(file, ...) {
+            if (file.exists(file)) { r <- try(qs2::qs_read(file, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(file, ...)) }
+            if (endsWith(tolower(file), ".qs")) { v2 <- paste0(substr(file, 1, nchar(file) - 3L), ".qs2"); if (file.exists(v2)) { r <- try(qs2::qs_read(v2, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v2, ...)) } }
+            else if (endsWith(tolower(file), ".qs2")) { v1 <- paste0(substr(file, 1, nchar(file) - 4L), ".qs"); if (file.exists(v1)) { r <- try(qs2::qs_read(v1, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v1, ...)) } }
+            stop("ov_qs_read: neither .qs2 nor .qs found for: ", file, call. = FALSE)
+          }
+          ov_qs_save <- function(obj, file, ...) { .a <- list(...); for (.k in c("preset", "nthreads", "check_hash")) .a[[.k]] <- NULL; do.call(qs2::qs_save, c(list(object = obj, file = file), .a)); invisible(file) }
+          ov_qs_exists <- function(file) { if (file.exists(file)) return(TRUE); if (endsWith(tolower(file), ".qs")) return(file.exists(paste0(substr(file, 1, nchar(file) - 3L), ".qs2"))); if (endsWith(tolower(file), ".qs2")) return(file.exists(paste0(substr(file, 1, nchar(file) - 4L), ".qs"))); FALSE }
+          assign("ov_qs_read", ov_qs_read, globalenv()); assign("ov_qs_save", ov_qs_save, globalenv()); assign("ov_qs_exists", ov_qs_exists, globalenv())
+          do.call(func, args)
+        },
+        args = list(func = func, args = args), timeout = timeout_sec, show = FALSE
+      )
+      TRUE
+    }, error = function(e) { message("[rc_microservice] child failed (", conditionMessage(e), "); running in-process"); FALSE })
+    if (isTRUE(ok)) return(invisible(NULL))
+  }
+  # Fallback: run in-process (correct result; no separate-process memory reclaim).
+  setTimeLimit(elapsed = timeout_sec, transient = TRUE)
+  on.exit(setTimeLimit(elapsed = Inf), add = TRUE)
+  invisible(do.call(func, args))
+}
+
+# Run a self-contained closure in an ISOLATED R subprocess and return its result
+# through qs bridge files. ExpressAnalystR/ProteoAnalystR CALL this (dim-reduction
+# PCA diagnostics, normalization, DE, report) but historically did NOT define it —
+# only microbiome/mirnet/metabo/oa/on did — so express/proteo sessions failed with
+# `could not find function "rsclient_isolated_exec"` and those figures errored.
+# It routes through run_func_via_microservice above, which uses a fresh callr
+# subprocess when on.OmicsVerse is TRUE (this deployment; a nested RSclient fork is
+# unstable here) and falls back to in-process otherwise. The name is legacy — the
+# executor is callr on OmicsVerse, not RSclient.
+rsclient_isolated_exec <- function(func_body, input_data, packages = character(0),
+                                   timeout = 180, output_type = "qs") {
+  bridge_tmp <- file.path(tempdir(), "rsclient_bridge")
+  if (!dir.exists(bridge_tmp)) dir.create(bridge_tmp, recursive = TRUE)
+  uid <- paste0(sample(letters, 6), collapse = "")
+  input_path  <- file.path(bridge_tmp, paste0(uid, "_in.qs"))
+  output_path <- file.path(bridge_tmp, paste0(uid, "_out.qs"))
+  ov_qs_save(input_data, input_path, preset = "fast"); Sys.sleep(0.02)
+  on.exit({ for (p in c(input_path, output_path)) if (file.exists(p)) unlink(p) }, add = TRUE)
+  result <- run_func_via_microservice(
+    func = function(input_path, output_path, func_body, pkgs) {
+      tryCatch({
+        for (pkg in pkgs) suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+        res <- func_body(ov_qs_read(input_path))
+        ov_qs_save(res, output_path, preset = "fast"); Sys.sleep(0.02)
+        list(success = TRUE)
+      }, error = function(e) list(success = FALSE, message = e$message))
+    },
+    args = list(input_path = input_path, output_path = output_path,
+                func_body = func_body, pkgs = packages),
+    timeout_sec = timeout)
+  if (file.exists(output_path)) return(ov_qs_read(output_path))
+  msg <- if (!is.null(result$message)) result$message else "isolated exec subprocess failed"
+  message("[rsclient_isolated_exec] ", msg)
+  return(list(success = FALSE, message = msg))
+}
+
+# Preserved for reference / backward compatibility. No longer called (all call sites use
+# run_func_via_microservice above); its nested-RSclient path crashes the worker on self-host.
 run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
-  conn <- RSclient::RS.connect(host = "localhost", port = 6311)
-  on.exit(try(RSclient::RS.close(conn), silent = TRUE))
+  # Self-host: a NESTED RSclient connection (an Rserve session opening a
+  # connection back to Rserve on 6311) reliably crashes the spawned worker with
+  # "Fatal error: unable to initialize the JIT", which leaves the caller looping.
+  # The subprocess buys nothing here, so run the function in-process. `func` is a
+  # self-contained closure that exchanges data through its bridge files via the
+  # globally-defined ov_qs_* helpers, so it behaves identically here or in a worker.
+  if (isTRUE(tryCatch(get("on.OmicsVerse", envir = globalenv()), error = function(e) FALSE))) {
+    return(run_func_via_microservice(func, args, timeout_sec))
+  }
+  # Reuse the pooled connection when one is open and still alive, so child
+  # packages stay attached across calls; otherwise open a fresh isolated session
+  # (default, unchanged behaviour) and close it on exit.
+  conn <- NULL
+  if (!is.null(.ov_rsc_pool$conn)) {
+    alive <- tryCatch({ RSclient::RS.eval(.ov_rsc_pool$conn, quote(TRUE)); TRUE },
+                      error = function(e) FALSE)
+    if (alive) conn <- .ov_rsc_pool$conn else ov_rsclient_pool_close()
+  }
+  pooled <- !is.null(conn)
+  if (!pooled) {
+    conn <- RSclient::RS.connect(host = "localhost", port = 6311)
+    on.exit(try(RSclient::RS.close(conn), silent = TRUE))
+  }
+  # Inject the qs wrapper helpers into the subprocess R session so callers
+  # writing ov_qs_read(f) / ov_qs_save(obj, f) inside their subprocess func
+  # body work transparently — a fresh session does not inherit master-session
+  # helpers. On a pooled connection this only needs to happen once.
+  if (!pooled || !isTRUE(.ov_rsc_pool$injected)) {
+  RSclient::RS.eval(conn, quote({
+    ov_qs_read <- function(file, ...) {
+      if (file.exists(file)) {
+        r <- try(qs2::qs_read(file, ...), silent = TRUE)
+        if (!inherits(r, "try-error")) return(r)
+        return(qs::qread(file, ...))
+      }
+      if (endsWith(tolower(file), ".qs")) {
+        v2 <- paste0(substr(file, 1, nchar(file) - 3L), ".qs2")
+        if (file.exists(v2)) { r <- try(qs2::qs_read(v2, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v2, ...)) }
+      } else if (endsWith(tolower(file), ".qs2")) {
+        v1 <- paste0(substr(file, 1, nchar(file) - 4L), ".qs")
+        if (file.exists(v1)) { r <- try(qs2::qs_read(v1, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v1, ...)) }
+      }
+      stop("ov_qs_read: neither .qs2 nor .qs found for: ", file, call. = FALSE)
+    }
+    ov_qs_save <- function(obj, file, ...) {
+      .args <- list(...)
+      for (.k in c("preset", "nthreads", "check_hash")) .args[[.k]] <- NULL
+      do.call(qs2::qs_save, c(list(object = obj, file = file), .args))
+      invisible(file)
+    }
+    ov_qs_exists <- function(file) {
+      if (file.exists(file)) return(TRUE)
+      if (endsWith(tolower(file), ".qs"))  return(file.exists(paste0(substr(file, 1, nchar(file) - 3L), ".qs2")))
+      if (endsWith(tolower(file), ".qs2")) return(file.exists(paste0(substr(file, 1, nchar(file) - 4L), ".qs")))
+      FALSE
+    }
+  }))
+    if (pooled) .ov_rsc_pool$injected <- TRUE
+  }
   RSclient::RS.assign(conn, ".exec_wd", getwd())
   RSclient::RS.assign(conn, ".exec_func", func)
   RSclient::RS.assign(conn, ".exec_args", args)
@@ -552,48 +737,6 @@ run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
     setwd(.exec_wd)
     setTimeLimit(elapsed = .exec_timeout, transient = TRUE)
     on.exit(setTimeLimit(elapsed = Inf))
-    if (!exists(".expressanalyst_qsave", envir = .GlobalEnv, inherits = FALSE)) {
-      assign(".expressanalyst_qsave", function(object, file, ...) {
-        if (requireNamespace("qs2", quietly = TRUE)) {
-          qs2::qs_save(object, file = file)
-        } else if (requireNamespace("qs", quietly = TRUE)) {
-          qs::qsave(object, file = file, preset = "fast")
-        } else {
-          stop("Neither qs2 nor qs is available")
-        }
-      }, envir = .GlobalEnv)
-      assign(".expressanalyst_qread", function(file, ...) {
-        if (requireNamespace("qs2", quietly = TRUE)) {
-          qs2::qs_read(file)
-        } else if (requireNamespace("qs", quietly = TRUE)) {
-          qs::qread(file)
-        } else {
-          stop("Neither qs2 nor qs is available")
-        }
-      }, envir = .GlobalEnv)
-      assign(".expressanalyst_qd_read", function(raw_or_file, ...) {
-        if (is.raw(raw_or_file)) {
-          tmp <- tempfile(pattern = "load_qs_", fileext = ".qs", tmpdir = getwd())
-          on.exit(unlink(tmp), add = TRUE)
-          writeBin(raw_or_file, tmp)
-          if (requireNamespace("qs2", quietly = TRUE)) {
-            qs2::qd_read(tmp, ...)
-          } else if (requireNamespace("qs", quietly = TRUE)) {
-            qs::qdeserialize(raw_or_file)
-          } else {
-            stop("Neither qs2 nor qs is available")
-          }
-        } else {
-          if (requireNamespace("qs2", quietly = TRUE)) {
-            qs2::qd_read(raw_or_file, ...)
-          } else if (requireNamespace("qs", quietly = TRUE)) {
-            qs::qdeserialize(raw_or_file)
-          } else {
-            stop("Neither qs2 nor qs is available")
-          }
-        }
-      }, envir = .GlobalEnv)
-    }
     do.call(.exec_func, .exec_args)
   }))
 }
@@ -750,6 +893,7 @@ GetDatNms <- function(){
 
 # Adds an error message
 AddErrMsg <- function(msg){
+  current.msg <<- c(current.msg, msg);
   msgSet <- readSet(msgSet, "msgSet");
   msgSet$current.msg <- c(msgSet$current.msg, msg);
   message("[ERROR] ", msg);
@@ -975,16 +1119,18 @@ saveSet <- function(obj=NA, set="", output=1){
         cmdSet <<- obj;
       }
 
-      .expressanalyst_qsave(obj, paste0(set, ".qs"));
+      ov_qs_save(obj, paste0(set, ".qs"));
       Sys.sleep(0.05);
       return(output);
 }
 
 readSet <- function(obj = NULL, set = "") {
+  # ov_qs_exists + ov_qs_read check BOTH .qs2 and legacy .qs, so existing user
+  # projects persisted as .qs keep working while new writes land in .qs2.
   file_path <- paste0(set, ".qs")
 
-  if (file.exists(file_path)) {
-    obj <- .expressanalyst_qread(file_path)
+  if (ov_qs_exists(file_path)) {
+    obj <- ov_qs_read(file_path)
   } else {
     if (is.null(obj)) {
       warning(sprintf("readSet: File '%s' not found and no default object supplied.", file_path))
@@ -999,7 +1145,7 @@ load_qs <- function(url) {
   tmp <- tempfile(pattern = "load_qs_", fileext = ".qs", tmpdir = getwd())
   on.exit(unlink(tmp), add = TRUE)
   writeBin(curl::curl_fetch_memory(url)$content, tmp)
-  .expressanalyst_qd_read(tmp)
+  ov_qs_read(tmp)
 }
 
 readDataset <- function(dataName = "", quiet = FALSE) {
@@ -1021,7 +1167,7 @@ readDataset <- function(dataName = "", quiet = FALSE) {
 
       } else {                                              # fall back to .qs
         qsfile <- replace_extension_with_qs(dataName)
-        obj <- .expressanalyst_qread(qsfile)
+        obj <- ov_qs_read(qsfile)
       }
 
     invisible(obj)  # Suppress console output in R Markdown
@@ -1038,6 +1184,17 @@ readDataset <- function(dataName = "", quiet = FALSE) {
 getCurrentMsg <- function(){
     msgSet <- readSet(msgSet, "msgSet");
     return(msgSet$current.msg);
+}
+
+GetErrMsg <- function(){
+    return(current.msg);
+}
+
+ClearErrMsg <- function(){
+    current.msg <<- "";
+    msgSet <- readSet(msgSet, "msgSet");
+    msgSet$current.msg <- "";
+    saveSet(msgSet, "msgSet");
 }
 
 getPrefilterMsg <- function(){
@@ -1062,17 +1219,17 @@ PrepareSqliteDB <- function(sqlite_Path, onweb = TRUE) {
 
 saveDataQs <-function(data, name, module.nm, dataName){
   if(module.nm == "metadata"){
-    .expressanalyst_qsave(data, file=paste0(dataName, "_data/", name));
+    ov_qs_save(data, file=paste0(dataName, "_data/", name));
   }else{
-    .expressanalyst_qsave(data, file=name);
+    ov_qs_save(data, file=name);
   }
 }
 
 readDataQs <-function(name, module.nm, dataName){
   if(module.nm == "metadata"){
-    dat <- .expressanalyst_qread(file=paste0(dataName, "_data/", name));
+    dat <- ov_qs_read(file=paste0(dataName, "_data/", name));
   }else{
-    dat <- .expressanalyst_qread(file=name);
+    dat <- ov_qs_read(file=name);
   }
   return(dat);
 }
@@ -1084,7 +1241,7 @@ PrepareReport <- function(objective, abstract, animalDetails, exposureDetails, c
   dataSet$reportSummary$animal <<- animalDetails;
   dataSet$reportSummary$exposure <<- exposureDetails;
   dataSet$reportSummary$chip <<- ecotoxchipDetails;
-  data.orig <- .expressanalyst_qread("data.raw.qs"); 
+  data.orig <- ov_qs_read("data.raw.qs"); 
   dataSet$reportSummary$read.msg <<- paste("In this analysis, the uploaded data files were combined into a ", nrow(data.orig),
                                           " (wells) by ", ncol(data.orig), " (samples) data matrix.", sep="");
 }
@@ -1307,19 +1464,7 @@ BuildCEMiNet <- function(dataName,
                          cor_method  = "pearson",
                          verbose     = TRUE) {
 
-  ## If a compiled helper exists, load it; otherwise fall back to R version
-  if (!exists("my.build.cemi.net", mode = "function")) {
-    cmp_file <- file.path(resource.dir,
-                          "rscripts/ExpressAnalystR/R/utils_coexp.Rc")
-    if (file.exists(cmp_file))
-      compiler::loadcmp(cmp_file)
-    cmp_file2 <- file.path(resource.dir,
-                          "rscripts/ExpressAnalystR/R/utils_coexp_net.Rc")
-    if (file.exists(cmp_file2))
-      compiler::loadcmp(cmp_file2)
-  }
-
-  ## Call the implementation (compiled or pure-R)
+  ## Call the implementation (loaded at session init)
   res <- my.build.cemi.net(
     dataName   = dataName,
     filter     = filter,

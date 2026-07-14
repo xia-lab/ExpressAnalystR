@@ -1,9 +1,30 @@
 ##################################################
-## R script for ExpressAnalyst 
+## R script for ExpressAnalyst
 ## Description: Arrow utilities for zero-copy data exchange with Java
 ## Author: ExpressAnalyst Team
 ## Part of the Rserve/qs to Apache Arrow migration
 ###################################################
+
+# Convenience alias used by helper_functions.R
+arrow_save <- function(obj, file) {
+  tryCatch({
+    df <- as.data.frame(obj)
+    for (col in names(df)) {
+      if (is.factor(df[[col]])) df[[col]] <- as.character(df[[col]])
+    }
+    rn <- rownames(obj)
+    if (!is.null(rn) && length(rn) > 0 && !all(rn == as.character(seq_len(nrow(df))))) {
+      df <- cbind(row_names_id = as.character(rn), df)
+    }
+    if (file.exists(file)) { unlink(file); Sys.sleep(0.01) }
+    arrow::write_feather(df, file, compression = "uncompressed")
+    Sys.sleep(0.02)
+    return(base::normalizePath(file, mustWork = TRUE))
+  }, error = function(e) {
+    warning(paste("Arrow save failed:", e$message))
+    return(NULL)
+  })
+}
 
 #' Sync file to disk and verify existence (Safe-Handshake pattern)
 #'
@@ -143,7 +164,7 @@ validateColumns <- function(tab, required, context = "") {
 #' @export
 shadow_save <- function(obj, file, compress = "uncompressed") {
     # Always save to qs for R compatibility
-    .expressanalyst_qsave(obj, file)
+    ov_qs_save(obj, file)
 
     # Generate Arrow path
     arrow_path <- sub("\\.qs$", ".arrow", file)
@@ -199,7 +220,7 @@ shadow_save <- function(obj, file, compress = "uncompressed") {
 #' @export
 shadow_save_mixed <- function(obj, file, compress = "uncompressed") {
     # Always save qs format for backward compatibility
-    .expressanalyst_qsave(obj, file)
+    ov_qs_save(obj, file)
 
     # Derive Arrow path
     arrow_path <- sub("\\.qs$", ".arrow", file)
@@ -486,7 +507,7 @@ ExportFeatureTableArrow <- function(comp_res, symbols = NULL, links = NULL,
         arrow::write_feather(result_df, arrow_path, compression = "uncompressed")
 
         # Also save column names for Java reference
-        .expressanalyst_qsave(colnames(comp_res), "express.de.res.qs")
+        ov_qs_save(colnames(comp_res), "express.de.res.qs")
 
         # SAFE-HANDSHAKE: Verify file is ready
         Sys.sleep(0.02)

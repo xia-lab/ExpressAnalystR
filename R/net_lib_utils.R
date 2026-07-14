@@ -219,9 +219,10 @@ QueryMetSQLiteNet <- function(sqlite.path, table.nm, q.vec, inv){
 
 .connect.sqlite <- function(db.path){
   if(!PrepareSqliteDB(db.path, paramSet$on.public.web)){
-    stop("Sqlite database is missing, please check your internet connection!");
+    AddErrMsg("Sqlite database is missing, please check your internet connection!");
+    return(0);
   }
-  return(dbConnect(SQLite(), db.path)); 
+  return(dbConnect(SQLite(), db.path));
 }
 
 PrepareSqliteDB <- function(sqlite_Path, onweb = TRUE) {
@@ -241,13 +242,14 @@ queryGeneDB <- function(table.nm, data.org){
   }
 
   if(table.nm == "custom" || data.org == "custom"){
-    db.map <- .expressanalyst_qread("anot_table.qs");
+    db.map <- ov_qs_read("anot_table.qs");
   }else{
     require('RSQLite');
     db.path <- paste(paramSet$sqlite.path, data.org, "_genes.sqlite", sep="")
 
     if(!PrepareSqliteDB(db.path, paramSet$on.public.web)){
-      stop("Sqlite database is missing, please check your internet connection!");
+      AddErrMsg("Sqlite database is missing, please check your internet connection!");
+      return(0);
     }
     conv.db <- dbConnect(SQLite(), db.path); 
     tbls <- dbListTables(conv.db)
