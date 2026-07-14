@@ -228,7 +228,7 @@ GetExpressResultGeneIDLinks <- function(dataName=""){
     if(paramSet$data.idType == "ko"){
       annots <- paste0("<a href='https://www.genome.jp/dbget-bin/www_bget?", ids, "' target='_blank'>KEGG</a>");
     } else if(paramSet$data.idType == "s2f"){
-      annots <- paste0("<a href='https://www.ecoomicsdb.ca/#/query?ortho=", ids, "' target='_blank'>EODB</a>");
+      annots <- paste0("<a href='https://www.seq2fun.ca/EcoOmicsDB/#/query?ortho=", ids, "' target='_blank'>EODB</a>");
     } else {
       annots <- ids; # Keep as-is
     }
@@ -260,6 +260,44 @@ GetExpressResultMatrix <- function(dataName = "", inxt) {
     dataSet  <- readDataset(dataName);
     paramSet <- readSet(paramSet, "paramSet");
     inxt     <- as.numeric(inxt)
+
+    ## --- Dose/time-series feature table --------------------------------------
+    ## For dose analysis the reported count is the UNION of DE genes across ALL
+    ## dose/time points (de.Num.total in GetSigGenes; this is also the gene set
+    ## carried forward to curve fitting). The Java feature table recomputes the
+    ## "significant" highlight as max(|logFC|) across all logFC columns AND the
+    ## shared p-value <= threshold. So we must expose EVERY contrast's logFC
+    ## column here (named "*.logFC" so the Java table detects them), not just the
+    ## single selected comparison's logFC -- otherwise the highlighted rows count
+    ## the selected comparison only and no longer match the reported total.
+    if (!is.null(paramSet$oneDataAnalType) && paramSet$oneDataAnalType == "dose"
+        && !is.null(dataSet$comp.res.list) && length(dataSet$comp.res.list) > 1) {
+
+        base <- dataSet$comp.res;                 # already ordered (sig first, then p)
+        ord  <- rownames(base);
+        cl   <- dataSet$comp.res.list;
+
+        ## one logFC column per contrast, aligned by gene ID to the table rows
+        lfc <- vapply(cl, function(tb) as.numeric(tb[ord, "logFC"]),
+                      numeric(length(ord)));
+        if (is.null(dim(lfc))) {
+            lfc <- matrix(lfc, nrow = length(ord));
+        }
+        colnames(lfc) <- paste0(names(cl), ".logFC");
+        rownames(lfc) <- ord;
+
+        ## keep the shared statistic columns (AveExpr, F, P.Value, adj.P.Val, ...)
+        stat.cols <- setdiff(colnames(base), "logFC");
+        res <- cbind(as.data.frame(lfc, check.names = FALSE),
+                     base[, stat.cols, drop = FALSE]);
+
+        .expressanalyst_qsave(res, "express.de.res.qs")
+        result <- head(signif(as.matrix(res), 5), 1000)
+        tryCatch({
+          arrow_save(result, "express_res_mat.arrow")
+        }, error = function(e) { warning(paste("Arrow save failed:", e$message)) })
+        return(result)
+    }
 
     if (dataSet$de.method == "deseq2") {
 

@@ -106,7 +106,12 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
         input <- .expressanalyst_qread(bridge_in)
         cd <- S4Vectors::DataFrame(row.names = colnames(input$m))
         dds <- DESeq2::DESeqDataSetFromMatrix(countData = input$m, colData = cd, design = ~ 1)
-        dds <- DESeq2::estimateSizeFactors(dds)
+        # fall back to the "poscounts" estimator when the default median-of-ratios
+        # method can't compute geometric means (every gene has at least one zero)
+        dds <- tryCatch(
+          DESeq2::estimateSizeFactors(dds),
+          error = function(e) DESeq2::estimateSizeFactors(dds, type = "poscounts")
+        )
         norm_counts <- DESeq2::counts(dds, normalized = TRUE)
         result <- log2(norm_counts + 1)
         .expressanalyst_qsave(result, bridge_out, preset = "fast")
@@ -544,22 +549,53 @@ LoessNorm <- function(x, weights = NULL, span=0.7, iterations = 3){
 morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   requireNamespace("DESeq2", quietly = TRUE)
 
-  di <- .expressanalyst_qread("dat.in.qs")
+  # This runs in an isolated Rserve session that only sources norm_utils.R, so
+  # the package helpers .expressanalyst_qread/qsave (defined in 00_qs_compat.R)
+  # may be undefined here. Use a local reader/writer that prefers those helpers
+  # when present and otherwise falls back to qs2/qs directly (the microservice
+  # loads qs2 before calling this).
+  .rd <- if (exists(".expressanalyst_qread", mode = "function")) {
+    get(".expressanalyst_qread")
+  } else if (requireNamespace("qs2", quietly = TRUE)) {
+    function(f) qs2::qs_read(f)
+  } else {
+    function(f) qs::qread(f)
+  }
+  .sv <- if (exists(".expressanalyst_qsave", mode = "function")) {
+    get(".expressanalyst_qsave")
+  } else if (requireNamespace("qs2", quietly = TRUE)) {
+    function(o, f) qs2::qs_save(o, file = f)
+  } else {
+    function(o, f) qs::qsave(o, file = f, preset = "fast")
+  }
+
+  di <- .rd("dat.in.qs")
   m  <- as.matrix(di[[expr_field]])
 
   # basic checks
   if (any(m < 0, na.rm = TRUE)) stop("MORlog expects non-negative counts")
+  if (any(!is.finite(m))) m[!is.finite(m)] <- 0
   if (!is.integer(m)) m <- round(m)
 
   # minimal DESeq2 object
   cd  <- S4Vectors::DataFrame(row.names = colnames(m))
   dds <- DESeq2::DESeqDataSetFromMatrix(countData = m, colData = cd, design = ~ 1)
-  dds <- DESeq2::estimateSizeFactors(dds)
+
+  # Median-of-ratios size factors. The default "ratio" estimator needs at least
+  # one gene with no zero counts across ALL samples to compute the reference
+  # geometric mean; with sparse RNA-seq data every gene often has a zero, which
+  # makes it stop with "every gene contains at least one zero". Fall back to the
+  # "poscounts" estimator (geometric mean over positive counts only) so MORlog
+  # still works on such data instead of failing in the microservice.
+  dds <- tryCatch(
+    DESeq2::estimateSizeFactors(dds),
+    error = function(e) DESeq2::estimateSizeFactors(dds, type = "poscounts")
+  )
 
   norm_counts <- DESeq2::counts(dds, normalized = TRUE)
   di[[norm_field]] <- log2(norm_counts + 1)
 
-  .expressanalyst_qsave(di, "dat.in.qs")
+  .sv(di, "dat.in.qs")
   return(1L)
 }
 
