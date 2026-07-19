@@ -559,7 +559,7 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   } else if (requireNamespace("qs2", quietly = TRUE)) {
     function(f) qs2::qs_read(f)
   } else {
-    function(f) qs::qread(f)
+    function(f) ov_qs_read(f)
   }
   .sv <- if (exists(".expressanalyst_qsave", mode = "function")) {
     get(".expressanalyst_qsave")

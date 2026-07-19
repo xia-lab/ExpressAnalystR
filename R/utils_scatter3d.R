@@ -111,7 +111,7 @@ my.json.scatter <- function(dataSet, filenm="abc"){
 
   if(anal.type == "metadata"){
     # For metadata, use the meta results table for p-values
-    meta.res <- qs::qread("allMeta.mat.qs");
+    meta.res <- ov_qs_read("allMeta.mat.qs");
     common.ids <- intersect(rownames(meta.res), rownames(loading.data));
     if (length(common.ids) == 0) {
       # No overlap — use all loading features with uniform p-values
