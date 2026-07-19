@@ -222,7 +222,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
 
   # Build cls: for meta_default use inmex metadata, otherwise use dataSet
   if(anal.type == "metadata" && paramSet$selDataNm == "meta_default"){
-    inmex.meta <- qs::qread("inmex_meta.qs");
+    inmex.meta <- ov_qs_read("inmex_meta.qs");
     cls.info <- data.frame(class = as.character(inmex.meta$cls.lbl), dataset = as.character(inmex.meta$data.lbl), stringsAsFactors = FALSE);
     rownames(cls.info) <- colnames(inmex.meta$plot.data);
   } else if(!is.null(dataSet$meta.info)){
