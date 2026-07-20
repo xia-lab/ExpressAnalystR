@@ -52,7 +52,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   }
   data.anot <- data.proc;
   
-  if (org != 'NA' & idType != 'NA'){
+  if (toupper(org) != 'NA' & toupper(idType) != 'NA'){   # NA check is case-insensitive (na/NA/Na all = unresolved)
     feature.vec <- rownames(data.proc);
     
     anot.id <- .doAnnotation(feature.vec, idType, paramSet);
