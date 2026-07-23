@@ -57,11 +57,24 @@ my.prepare.heatmap.json <- function(dataSet, displayOpt="sig"){
   }else{
     all.ids <- all.ids[all.ids %in% sig.ids];
   }
-  
+
+  # A selection that yields fewer than two features (e.g. displayOpt="sig" when the
+  # comparison has no significant hits) leaves an empty/single-row matrix that breaks
+  # the scaling and clustering below (subscript out of bounds). Fall back to the
+  # highest-variance features so a heatmap can still be rendered.
+  if(length(all.ids) < 2L){
+    var.ids <- rownames(res.tbl)[rownames(res.tbl) %in% rownames(data.stat)];
+    if(length(var.ids) > 2L){
+      gene.vars <- apply(data.stat[var.ids, , drop = FALSE], 1, stats::var);
+      var.ids <- names(sort(gene.vars, decreasing = TRUE))[seq_len(min(500L, length(var.ids)))];
+    }
+    all.ids <- var.ids;
+  }
+
   if("logFC" %in% colnames(res.tbl)){
-    stat.fc <- res.tbl$logFC; 
+    stat.fc <- res.tbl$logFC;
   }else{
-    stat.fc <- res.tbl[,paramSet$selectedFactorInx]; 
+    stat.fc <- res.tbl[,paramSet$selectedFactorInx];
   }
   
   # scale each gene 
