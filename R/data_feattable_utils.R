@@ -28,6 +28,14 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   analSet <- readSet(analSet, "analSet");
   dataSet <- readDataset(dataName);
 
+  # de.method can be absent when a workflow reaches result extraction without
+  # SetupDesignMatrix (dose-response jumps normalization -> Williams trend DE).
+  # The == comparisons below would then fail with "argument is of length zero".
+  # Mirrors the same default applied in PerformDEAnal.
+  if (is.null(dataSet$de.method) || length(dataSet$de.method) == 0L || !nzchar(dataSet$de.method)) {
+    dataSet$de.method <- "limma"
+  }
+
   paramSet$use.fdr <- as.logical(FDR);
   total <- nrow(dataSet$comp.res);
   resTable <- dataSet$comp.res;
