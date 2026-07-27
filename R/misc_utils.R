@@ -590,10 +590,10 @@ ov_rsclient_pool_close <- function() {
 run_func_via_rc_microservice <- function(...) run_func_via_microservice(...)
 
 run_func_via_microservice <- function(func, args = list(), timeout_sec = 60) {
-  # Default to the more efficient RSclient fork. The host app sets on.OmicsVerse = TRUE at startup to
+  # Default to the more efficient RSclient fork. The host app sets on.ov = TRUE at startup to
   # force a fresh callr subprocess in deployments where a nested RSclient fork is unstable (a startup
   # flag is used rather than a filesystem probe, which is not a reliable signal).
-  if (!isTRUE(tryCatch(get("on.OmicsVerse", envir = globalenv()), error = function(e) FALSE)) &&
+  if (!isTRUE(tryCatch(get("on.ov", envir = globalenv()), error = function(e) FALSE)) &&
       requireNamespace("RSclient", quietly = TRUE)) {
     return(run_func_via_rsclient(func, args, timeout_sec))
   }
@@ -637,7 +637,7 @@ run_func_via_microservice <- function(func, args = list(), timeout_sec = 60) {
 # only microbiome/mirnet/metabo/oa/on did — so express/proteo sessions failed with
 # `could not find function "rsclient_isolated_exec"` and those figures errored.
 # It routes through run_func_via_microservice above, which uses a fresh callr
-# subprocess when on.OmicsVerse is TRUE (this deployment; a nested RSclient fork is
+# subprocess when on.ov is TRUE (this deployment; a nested RSclient fork is
 # unstable here) and falls back to in-process otherwise. The name is legacy — the
 # executor is callr on OmicsVerse, not RSclient.
 rsclient_isolated_exec <- function(func_body, input_data, packages = character(0),
@@ -676,7 +676,7 @@ run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
   # The subprocess buys nothing here, so run the function in-process. `func` is a
   # self-contained closure that exchanges data through its bridge files via the
   # globally-defined ov_qs_* helpers, so it behaves identically here or in a worker.
-  if (isTRUE(tryCatch(get("on.OmicsVerse", envir = globalenv()), error = function(e) FALSE))) {
+  if (isTRUE(tryCatch(get("on.ov", envir = globalenv()), error = function(e) FALSE))) {
     return(run_func_via_microservice(func, args, timeout_sec))
   }
   # Reuse the pooled connection when one is open and still alive, so child
