@@ -639,7 +639,7 @@ run_func_via_microservice <- function(func, args = list(), timeout_sec = 60) {
 # It routes through run_func_via_microservice above, which uses a fresh callr
 # subprocess when on.ov is TRUE (this deployment; a nested RSclient fork is
 # unstable here) and falls back to in-process otherwise. The name is legacy — the
-# executor is callr on OmicsVerse, not RSclient.
+# executor is callr here, not RSclient.
 rsclient_isolated_exec <- function(func_body, input_data, packages = character(0),
                                    timeout = 180, output_type = "qs") {
   bridge_tmp <- file.path(tempdir(), "rsclient_bridge")
