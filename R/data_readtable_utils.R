@@ -818,6 +818,18 @@ ReadMetaData <- function(metafilename){
     match.msg <- paste0(match.msg, "Columns ",paste(names(meta.info)[rmcol],collapse = ", ")," are removed due to lack of replicates!   " )
   }
   
+  # Removal and re-ordering are two separate things, and folding them into one guard made the
+  # message above a lie half the time: rmcol columns were announced as "removed" unconditionally,
+  # but the cbind that actually removed them only ran when a continuous column happened to exist.
+  # With no continuous column they were announced and kept; with one they were removed and then
+  # vanished from colnames(meta.info), so a covariate assigned to such a column was dropped by
+  # ov_covariate_setup's intersect() with nothing reported. Drop always, re-order only when there
+  # is something to re-order.
+  if(length(rmcol) > 0){
+    meta.info <- meta.info[, -rmcol, drop=FALSE];
+    disc.inx  <- disc.inx[colnames(meta.info)];
+    cont.inx  <- cont.inx[colnames(meta.info)];
+  }
   if(sum(cont.inx)>0){
     # make sure the discrete data is on the left side
     meta.info <- cbind(meta.info[,disc.inx, drop=FALSE], meta.info[,cont.inx, drop=FALSE]);
