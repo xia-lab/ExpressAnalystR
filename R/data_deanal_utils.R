@@ -110,38 +110,20 @@ SetCovariateVars <- function(dataName = "", primaryVar = "", adjVarsCsv = "") {
     AddErrMsg(paste("Primary factor", primaryVar, "not found!"));
     return(RegisterData(dataSet, 0));
   }
-  adj <- trimws(unlist(strsplit(adjVarsCsv, ",")));
-  adj <- adj[nzchar(adj) & adj != "NA"];
-  adj <- intersect(adj, colnames(dataSet$meta.info));
-  adj <- setdiff(adj, primaryVar);
-  vars.all <- c(primaryVar, adj);
-  rmidx <- which(apply(dataSet$meta.info[, vars.all, drop = FALSE], 1,
-                       function(x) any(x == "NA")));
-  if (length(rmidx) > 0) {
-    meta <- dataSet$meta.info[-rmidx, , drop = FALSE]; dataSet$rmidx <- rmidx;
-  } else {
-    meta <- dataSet$meta.info;
-  }
-  cls <- droplevels(factor(meta[, primaryVar]));
-  uniq <- levels(cls)[levels(cls) != "NA"];
-  if (length(uniq) < 2) {
-    AddErrMsg(paste("Primary factor", primaryVar,
-                    "must have at least 2 groups! Found:", length(uniq)));
+  # Shared with proteo — see ov_covariate_setup in /resources/rscripts/omicsverse_meta_tier3.R.
+  setup <- ov_covariate_setup(dataSet$meta.info, primaryVar,
+                              trimws(unlist(strsplit(adjVarsCsv, ","))), dataSet$cont.inx);
+  if (is.null(setup)) {
+    AddErrMsg(paste("Primary factor", primaryVar, "must have at least 2 groups!"));
     return(RegisterData(dataSet, 0));
   }
-  dataSet$cls <- cls; dataSet$fst.cls <- cls;
+  dataSet$cls <- setup$cls; dataSet$fst.cls <- setup$cls;
   dataSet$analysisVar <- primaryVar; dataSet$secondVar <- "NA";
-  if (length(adj) > 0) {
-    af <- meta[, adj, drop = FALSE];
-    for (v in adj) {
-      is.cont <- !is.null(dataSet$cont.inx) && v %in% names(dataSet$cont.inx) &&
-                 isTRUE(dataSet$cont.inx[[v]]);
-      af[[v]] <- if (is.cont) as.numeric(as.character(af[[v]]))
-                 else droplevels(factor(af[[v]]));
-    }
-    dataSet$adj.frame <- af; dataSet$adj.vars <- adj;
+  dataSet$rmidx <- setup$rmidx;
+  if (!is.null(setup$adj.frame)) {
+    dataSet$adj.frame <- setup$adj.frame; dataSet$adj.vars <- setup$adj.vars;
   }
-  return(RegisterData(dataSet, uniq));
+  return(RegisterData(dataSet, setup$levels));
 }
 
 # Build a no-intercept group design, optionally augmented with additive covariate
@@ -150,19 +132,12 @@ SetCovariateVars <- function(dataName = "", primaryVar = "", adjVarsCsv = "") {
 # unchanged — covariate columns are nuisance and receive 0 coefficients in those
 # group contrasts. cov.frame NULL / 0-col => plain ~ 0 + group.
 .ov_group_design <- function(grp, cov.frame = NULL) {
-  grp <- factor(grp);
-  if (!is.null(cov.frame) && ncol(cov.frame) > 0) {
-    df  <- data.frame(.grp = grp, cov.frame, check.names = FALSE);
-    rhs <- paste(c("0", ".grp", colnames(cov.frame)), collapse = " + ");
-    design <- model.matrix(stats::as.formula(paste("~", rhs)), data = df);
-    gc <- match(paste0(".grp", levels(grp)), colnames(design));
-    ok <- !is.na(gc);
-    colnames(design)[gc[ok]] <- levels(grp)[ok];
-  } else {
-    design <- model.matrix(~ 0 + grp);
-    colnames(design) <- levels(grp);
-  }
-  design
+  # Thin delegate. The additive-design logic is shared across tools and lives in
+  # /resources/rscripts/omicsverse_meta_tier3.R as ov_design_matrix(); keeping a second copy
+  # here meant a fix (e.g. sanitising non-syntactic covariate names for makeContrasts) had to
+  # be made twice and silently diverged the moment it was not. The name is kept because
+  # existing call sites in this file use it.
+  ov_design_matrix(grp, cov.frame)
 }
 
 #' Perform Differential Analysis
