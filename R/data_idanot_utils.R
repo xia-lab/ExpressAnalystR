@@ -388,7 +388,43 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
   }
   
   hit.inx <- match(feature.vec, db.map[, col.nm]);
-  
+
+  # Fallback for ids in a namespace the primary table does not carry. KEGG keys
+  # fly and worm genes by locus tag (Dmel_CG10160, CELE_C01B4.6), and a list in
+  # that form matches nothing here: the run then continues with an empty gene
+  # set and reports no enrichment rather than an error. When most of the input
+  # failed to map, retry only the unmatched ids against entrez_locustag.
+  # queryGeneDB returns 0 when the table is absent, so an installation without
+  # it simply keeps the original result.
+  if (length(hit.inx) > 0 && sum(is.na(hit.inx)) > 0.5 * length(hit.inx)) {
+    # Self-contained: the map ships beside the gene-set libraries so a deployment
+    # needs nothing but resources/data. The sqlite table is only a legacy source.
+    lt <- NULL;
+    lib.root <- if (exists("api.lib.path")) api.lib.path else paramSet$lib.path;
+    lt.file  <- paste0(lib.root, org, "/locustag.rds");
+    if (file.exists(lt.file)) {
+      lt <- tryCatch(readRDS(lt.file), error = function(e) NULL);
+    }
+    if (is.null(lt)) {
+      tb <- tryCatch(queryGeneDB("entrez_locustag", org), error = function(e) NULL);
+      if (!is.null(dim(tb)) && all(c("gene_id", "accession") %in% colnames(tb)))
+        lt <- setNames(as.character(tb[, "gene_id"]), tb[, "accession"]);
+    }
+    if (!is.null(lt) && length(lt)) {
+      na.inx <- which(is.na(hit.inx));
+      alt.gene <- unname(lt[feature.vec[na.inx]]);
+      # hit.inx indexes db.map rows, so resolve the recovered entrez ids back to
+      # their row there rather than substituting the id itself.
+      recovered <- match(alt.gene, db.map[, "gene_id"]);
+      n.rec <- sum(!is.na(recovered));
+      if (n.rec > 0) {
+        hit.inx[na.inx] <- recovered;
+        message("[id-map] ", n.rec, " of ", length(na.inx),
+                " unmatched ids resolved via locus tag (", org, ")");
+      }
+    }
+  }
+
   if(outputType == "vec"){
     entrezs <- db.map[hit.inx, "gene_id"];
     
