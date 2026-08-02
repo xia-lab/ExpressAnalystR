@@ -575,8 +575,17 @@ GetSysMessages <- function(){
 setResourceDir <- function(path){
   resource.dir <<- paste0(path, "/");
   paramSet <- readSet(paramSet, "paramSet");
-  
-  paramSet$lib.path <- paste0(resource.dir,"data/");
+
+  # Standalone ExpressAnalyst keeps reference data under its own
+  # <resource.dir>/data. The hosted app shares ONE data dir across all tools,
+  # so there resource.dir (".../<tool>/resources/") is two levels below it.
+  # on.ov marks the hosted environment; derive the path from resource.dir
+  # rather than a relative literal so it does not depend on the R cwd.
+  if (isTRUE(tryCatch(get("on.ov", envir = globalenv()), error = function(e) FALSE))) {
+    paramSet$lib.path <- paste0(dirname(dirname(resource.dir)), "/resources/data/");
+  } else {
+    paramSet$lib.path <- paste0(resource.dir,"data/");
+  }
   print(paramSet$lib.path);
   saveSet(paramSet, "paramSet");
 }
