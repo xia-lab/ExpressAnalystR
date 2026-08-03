@@ -81,6 +81,66 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     }
   }
 
+  # ── Normalization is chosen by what the DATA IS, not by what was requested ──────
+  #   count data            -> TMM        (library-size factors; integers, non-negative)
+  #   raw continuous values -> VSN        (variance-stabilizing; intensities, non-negative)
+  #   already log scale     -> median     (per-sample centring only; may be signed)
+  # A requested count method applied to already-log data is not merely suboptimal: MORlog
+  # aborts on negatives and CPM/voom is meaningless on log ratios, which is how two of the
+  # three shipped meta studies failed outright. The override only fires when the request
+  # disagrees with the data, and it is always reported to the user.
+  if (norm.opt %in% c("logcount", "RLE", "TMM", "MORlog", "vsn")) {
+    m.chk <- suppressWarnings(as.matrix(data)); mode(m.chk) <- "numeric"
+    fin      <- m.chk[is.finite(m.chk)]
+    has.neg  <- any(fin < 0)
+    non.int  <- length(fin) > 0 && mean(abs(fin - round(fin)) > 1e-8) > 0.5
+    small    <- length(fin) > 0 && max(abs(fin)) < 50
+    is.log   <- has.neg || (non.int && small)
+    is.count <- !is.log && !non.int                    # non-negative whole numbers
+    want <- if (is.log) "median" else if (is.count) "TMM" else "vsn"
+
+    if (!identical(want, norm.opt)) {
+      why <- if (is.log) paste0("already on a log scale (",
+                    if (has.neg) "contains negative values" else "small non-integer values", ")")
+             else if (is.count) "raw counts (non-negative whole numbers)"
+             else "raw continuous values (non-negative, non-integer)"
+      picked <- if (is.log) "per-sample median centring"
+                else if (is.count) "TMM" else "VSN"
+      msg <- paste(msg, paste0("Input is ", why, "; '", norm.opt, "' was replaced by ",
+                               picked, "."), collapse = " ")
+      # Publish the decision so it reaches the USER, not just the R log. The workflow
+      # layer attaches this to the Normalization manifest block.
+      assign(".OmicsVerse.norm.autoswitch",
+             paste0("Normalization was chosen from the data rather than the request: this ",
+                    "dataset is ", why, ", so ", picked, " was applied instead of '",
+                    norm.opt, "'.",
+                    if (is.log) paste0(" Samples are put on a common scale and nothing else ",
+                                       "is transformed, so fold-changes stay on the original ",
+                                       "log scale.") else ""),
+             envir = globalenv())
+      norm.opt <- want
+    }
+  }
+
+  # "median" is applied here (no downstream branch handles it): centre each sample on its
+  # own median. This is a SAMPLE-wise shift, not per-feature Z-scaling — Z-scaling would
+  # standardize each FEATURE across samples, after which a "logFC" is in SD units, which
+  # would corrupt cross-study effect-size pooling and mislabel the fold-change axis.
+  if (identical(norm.opt, "median")) {
+    m.num <- suppressWarnings(as.matrix(data)); mode(m.num) <- "numeric"
+    anchor <- apply(m.num, 2, stats::median, na.rm = TRUE)
+    col.min <- suppressWarnings(apply(m.num, 2, min, na.rm = TRUE))
+    # Left-censored / floor-imputed data can put the median ON the sample minimum, where it
+    # carries no information; anchor on the upper quartile there instead.
+    if (any(is.finite(anchor) & is.finite(col.min) & (anchor <= col.min + 1e-8)))
+      anchor <- apply(m.num, 2, stats::quantile, probs = 0.75, na.rm = TRUE)
+    anchor[!is.finite(anchor)] <- 0
+    data <- as.data.frame(sweep(m.num, 2, anchor - stats::median(anchor, na.rm = TRUE), "-"),
+                          check.names = FALSE)
+    islog <- "true"
+    msg <- paste(msg, "Per-sample median scaling.", collapse = " ")
+  }
+
   paramSet$norm.opt   <- norm.opt
   paramSet$var.perc   <- var.thresh
   paramSet$abun.perc  <- count.thresh

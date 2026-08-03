@@ -74,6 +74,11 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
         sigmat <- cbind(unname(meta.avgFC[rownames(sigmat)]), sigmat);
         
       }
+      # meta.mat / meta.resTable.qs are MATRICES, and cbind() on a matrix returns a
+      # matrix, so the `$` assignment below fails with "$ operator is invalid for
+      # atomic vectors". The sibling branch already coerces; do the same here.
+      allmat <- as.data.frame(allmat, stringsAsFactors = FALSE);
+      sigmat <- as.data.frame(sigmat, stringsAsFactors = FALSE);
       allmat$logFC <- unname(meta.avgFC[rownames(allmat)]);
       universe <- rownames(allmat);
     }else{
