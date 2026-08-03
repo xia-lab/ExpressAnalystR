@@ -148,6 +148,11 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     msg <- paste(msg, "Per-sample median scaling.", collapse = " ")
   }
 
+  # Publish the method that will ACTUALLY be applied. A sweep that offers several
+  # candidates over the same matrix needs this to tell a real comparison from one where
+  # two candidates resolved to the same thing.
+  assign(".OmicsVerse.norm.effective", norm.opt, envir = globalenv())
+
   paramSet$norm.opt   <- norm.opt
   paramSet$var.perc   <- var.thresh
   paramSet$abun.perc  <- count.thresh
