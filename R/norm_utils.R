@@ -89,6 +89,11 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
   # aborts on negatives and CPM/voom is meaningless on log ratios, which is how two of the
   # three shipped meta studies failed outright. The override only fires when the request
   # disagrees with the data, and it is always reported to the user.
+  # Stale-flag guard: this global must exist ONLY when THIS run switched. One global env
+  # is kept per user across runs, so leaving it set reports a replacement that did not
+  # happen for the next dataset.
+  suppressWarnings(try(rm(".OmicsVerse.norm.autoswitch", envir = globalenv()), silent = TRUE))
+
   if (norm.opt %in% c("logcount", "RLE", "TMM", "MORlog", "vsn")) {
     m.chk <- suppressWarnings(as.matrix(data)); mode(m.chk) <- "numeric"
     fin      <- m.chk[is.finite(m.chk)]
@@ -96,16 +101,18 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     non.int  <- length(fin) > 0 && mean(abs(fin - round(fin)) > 1e-8) > 0.5
     small    <- length(fin) > 0 && max(abs(fin)) < 50
     is.log   <- has.neg || (non.int && small)
-    is.count <- !is.log && !non.int                    # non-negative whole numbers
-    want <- if (is.log) "median" else if (is.count) "TMM" else "vsn"
+
+    # Override ONLY when the requested method is INVALID for this data, never merely
+    # because another method might suit it better. Rewriting a valid request would change
+    # the numbers a caller gets from the same input and the same UI selection, and would
+    # collapse the normalization sweeps (which deliberately run logcount/TMM/RLE/MORlog
+    # over the SAME matrix) into one method reported four times.
+    want <- if (is.log) "median" else norm.opt
 
     if (!identical(want, norm.opt)) {
-      why <- if (is.log) paste0("already on a log scale (",
+      why <- paste0("already on a log scale (",
                     if (has.neg) "contains negative values" else "small non-integer values", ")")
-             else if (is.count) "raw counts (non-negative whole numbers)"
-             else "raw continuous values (non-negative, non-integer)"
-      picked <- if (is.log) "per-sample median centring"
-                else if (is.count) "TMM" else "VSN"
+      picked <- "per-sample median centring"
       msg <- paste(msg, paste0("Input is ", why, "; '", norm.opt, "' was replaced by ",
                                picked, "."), collapse = " ")
       # Publish the decision so it reaches the USER, not just the R log. The workflow
