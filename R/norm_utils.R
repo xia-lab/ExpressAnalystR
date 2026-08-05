@@ -258,8 +258,44 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   } else {
     signal <- rowMeans(data, na.rm = TRUE)
   }
-  rm.inx <- signal < count.thresh
-  msg <- paste(msg, "Filtered ", sum(rm.inx), " features with low abundance using", countOpt, "method.", collapse = " ")
+  # Abundance filter. For count data a feature is kept when it reaches the CPM cutoff in at
+  # least as many samples as the SMALLEST group holds, rather than on its mean across all
+  # samples. A mean is blind to group structure: a feature silent in one group and expressed
+  # in the other has a modest mean and is dropped, though it is exactly what a group
+  # comparison looks for. Requiring the smallest group's worth of samples keeps that feature
+  # while still discarding one that is high in a single sample only.
+  #
+  # edgeR::filterByExpr expresses the same idea but derives its cutoff as
+  # min.count/median(lib.size)*1e6, which assumes sequencing depth in the tens of millions.
+  # On a library of ~74k reads that becomes ~135 CPM and discards over 90% of features, so
+  # the cutoff is taken from count.thresh instead and does not move with depth.
+  cpm.keep <- NULL
+  if (!(dataSet$type %in% c("array", "prot"))) {
+    grp <- dataSet$cls
+    if (is.null(grp) || length(grp) != ncol(data)) {
+      grp <- tryCatch(dataSet$meta.info[colnames(data), 1], error = function(e) NULL)
+    }
+    n.min <- if (!is.null(grp) && length(grp) == ncol(data)) {
+      gt <- table(droplevels(factor(grp[!is.na(grp)])))
+      if (length(gt) > 1) max(2L, min(as.integer(gt))) else 2L
+    } else 2L
+    n.min <- min(n.min, ncol(data))
+    lib.sizes2 <- colSums(data, na.rm = TRUE)
+    lib.sizes2[!is.finite(lib.sizes2) | lib.sizes2 <= 0] <- NA
+    cpm.mat <- t(t(data) / lib.sizes2) * 1e6
+    cpm.keep <- rowSums(cpm.mat >= count.thresh, na.rm = TRUE) >= n.min
+    if (sum(cpm.keep, na.rm = TRUE) < 2) cpm.keep <- NULL
+  }
+
+  if (!is.null(cpm.keep)) {
+    rm.inx <- !cpm.keep
+    msg <- paste(msg, "Filtered ", sum(rm.inx), " features below", count.thresh,
+                 "CPM in at least the smallest group.", collapse = " ")
+  } else {
+    rm.inx <- signal < count.thresh
+    msg <- paste(msg, "Filtered ", sum(rm.inx), " features with low abundance using", countOpt, "method.", collapse = " ")
+  }
+  rm.inx[is.na(rm.inx)] <- TRUE
 
   if(var.thresh > 0){
   data <- data[!rm.inx,];
