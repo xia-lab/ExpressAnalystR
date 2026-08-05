@@ -297,13 +297,28 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   }
   rm.inx[is.na(rm.inx)] <- TRUE
 
-  if(var.thresh > 0){
   data <- data[!rm.inx,];
+
+  # CONSTANT features come out ALWAYS, whatever the variance percentile is set to.
+  # A feature with the same value in every sample has zero variance: scaling divides by it,
+  # correlation is undefined on it, and a linear fit has nothing to estimate, so it breaks
+  # steps far downstream of here. Dropping it used to be a side effect of the percentile cut
+  # (good.inx <- IQR > 0, inside the var.thresh > 0 branch), which meant switching the cut off
+  # silently switched constant removal off with it -- the one filter that is not a matter of
+  # taste. Tested on distinct non-NA values rather than on IQR, since a feature can have a
+  # zero IQR while still varying in the tails.
+  const.inx <- apply(data, 1, function(x) { u <- unique(x[!is.na(x)]); length(u) <= 1L })
+  const.inx[is.na(const.inx)] <- TRUE
+  if(any(const.inx)){
+    data <- data[!const.inx, , drop = FALSE];
+    msg <- paste(msg, "Removed", sum(const.inx), "constant features.", collapse = " ")
+  }
+
+  if(var.thresh > 0){
   filter.val <- apply(data, 1, IQR, na.rm=T);
   nm <- "Interquantile Range";
   filter.val <- -filter.val
   rk <- rank(filter.val, ties.method='random');
-  # remove constant values
   good.inx <- -filter.val > 0;
   kp.pct <- (100 - var.thresh)/100;
   remain <- rk < nrow(data)*kp.pct;
