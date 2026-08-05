@@ -525,16 +525,26 @@ GetMetaSummary <- function(dataName = "") {
   na.vec <- na.check(meta)
   
   ## -- build result vector -------------------------------------------------
+  # The caller indexes all nine positions, so the vector must always have nine. c() DROPS a
+  # zero-length element, and several of these can be NULL when meta.info is not a proper data
+  # frame: ncol() on a non-matrix is NULL, and names(x)[1] on an unnamed object is NULL too.
+  # Two silent drops shifted every later field left and the caller read past the end.
+  .one <- function(x, default = "NA") {
+    if (is.null(x) || length(x) == 0L) return(default)
+    x <- as.character(x)[1]
+    if (is.na(x)) default else x
+  }
+  .col1 <- tryCatch(meta[, 1], error = function(e) NULL)
   res <- c(
-    ncol(meta),            # total metadata columns
-    disc.len,              # # discrete cols
-    disc.vec,              # names of discrete cols
-    cont.len,              # # continuous cols   (== 0 if cont.inx NULL)
-    cont.vec,              # names of continuous cols
-    names(meta)[1],        # first column name
-    length(unique(meta[, 1])),
-    paste(unique(meta[, 1]), collapse = ", "),
-    na.vec
+    .one(if (is.null(dim(meta))) length(meta) else ncol(meta), "0"),  # total metadata columns
+    .one(disc.len, "0"),   # # discrete cols
+    .one(disc.vec, ""),    # names of discrete cols
+    .one(cont.len, "0"),   # # continuous cols   (== 0 if cont.inx NULL)
+    .one(cont.vec, ""),    # names of continuous cols
+    .one(names(meta)[1], "NA"),                                       # first column name
+    .one(length(unique(.col1)), "0"),
+    .one(paste(unique(.col1), collapse = ", "), ""),
+    .one(na.vec, "None")
   )
   
   ## -- save & return -------------------------------------------------------
