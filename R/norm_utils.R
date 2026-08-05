@@ -270,7 +270,13 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   # On a library of ~74k reads that becomes ~135 CPM and discards over 90% of features, so
   # the cutoff is taken from count.thresh instead and does not move with depth.
   cpm.keep <- NULL
-  if (!(dataSet$type %in% c("array", "prot"))) {
+  # dataSet$type can be NULL or empty. `NULL %in% x` is logical(0) and `if (logical(0))` is an
+  # error ("argument is of length zero"), which would abort normalization rather than pick a
+  # branch, so the test is reduced to a single TRUE/FALSE first. An unknown type takes the
+  # count path, whose own fallback restores the previous behaviour if the rule keeps nothing.
+  .dtype <- tryCatch(as.character(dataSet$type)[1], error = function(e) NA_character_)
+  if (length(.dtype) != 1L) .dtype <- NA_character_
+  if (!isTRUE(.dtype %in% c("array", "prot"))) {
     grp <- dataSet$cls
     if (is.null(grp) || length(grp) != ncol(data)) {
       grp <- tryCatch(dataSet$meta.info[colnames(data), 1], error = function(e) NULL)
