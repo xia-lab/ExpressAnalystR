@@ -556,35 +556,6 @@ PerformSetOperation_DataEnr <- function(nms, operation, refNm){
 # the exists() guards in leaf isolation blocks will fall through.
 # =============================================================================
 
-#' Execute function+args in RSclient child process
-#' @param func Function to run in forked Rserve child
-#' @param args List of arguments passed via do.call
-#' @param timeout_sec Hard timeout before child is killed
-#' @return Result of do.call(func, args)
-# Reusable RSclient connection pool. When opened, repeated run_func_via_rsclient
-# calls share ONE child Rserve session, so heavy packages (fgsea, ggplot2, Cairo)
-# attach ONCE for the whole batch instead of reloading on every call. The
-# multi-library functional generator opens it around its per-library GSEA/ORA loop
-# and closes it after. Outside a pool, behaviour is unchanged: a fresh isolated
-# session per call.
-.ov_rsc_pool <- new.env(parent = emptyenv())
-ov_rsclient_pool_open <- function() {
-  ov_rsclient_pool_close()
-  conn <- tryCatch(RSclient::RS.connect(host = "localhost", port = 6311),
-                   error = function(e) NULL)
-  if (is.null(conn)) return(invisible(FALSE))
-  .ov_rsc_pool$conn <- conn
-  .ov_rsc_pool$injected <- FALSE
-  invisible(TRUE)
-}
-ov_rsclient_pool_close <- function() {
-  if (!is.null(.ov_rsc_pool$conn)) {
-    try(RSclient::RS.close(.ov_rsc_pool$conn), silent = TRUE)
-    .ov_rsc_pool$conn <- NULL
-  }
-  .ov_rsc_pool$injected <- FALSE
-  invisible(NULL)
-}
 
 # Backward-compatible alias: external/community callers of the old name still resolve.
 run_func_via_rc_microservice <- function(...) run_func_via_microservice(...)
@@ -662,79 +633,6 @@ rsclient_isolated_exec <- function(func_body, input_data, packages = character(0
   return(list(success = FALSE, message = msg))
 }
 
-# Preserved for reference / backward compatibility. No longer called (all call sites use
-# run_func_via_microservice above); its nested-RSclient path crashes the worker on self-host.
-run_func_via_rsclient <- function(func, args = list(), timeout_sec = 60) {
-  # Self-host: a NESTED RSclient connection (an Rserve session opening a
-  # connection back to Rserve on 6311) reliably crashes the spawned worker with
-  # "Fatal error: unable to initialize the JIT", which leaves the caller looping.
-  # The subprocess buys nothing here, so run the function in-process. `func` is a
-  # self-contained closure that exchanges data through its bridge files via the
-  # globally-defined ov_qs_* helpers, so it behaves identically here or in a worker.
-  if (isTRUE(tryCatch(get("on.ov", envir = globalenv()), error = function(e) FALSE))) {
-    return(run_func_via_microservice(func, args, timeout_sec))
-  }
-  # Reuse the pooled connection when one is open and still alive, so child
-  # packages stay attached across calls; otherwise open a fresh isolated session
-  # (default, unchanged behaviour) and close it on exit.
-  conn <- NULL
-  if (!is.null(.ov_rsc_pool$conn)) {
-    alive <- tryCatch({ RSclient::RS.eval(.ov_rsc_pool$conn, quote(TRUE)); TRUE },
-                      error = function(e) FALSE)
-    if (alive) conn <- .ov_rsc_pool$conn else ov_rsclient_pool_close()
-  }
-  pooled <- !is.null(conn)
-  if (!pooled) {
-    conn <- RSclient::RS.connect(host = "localhost", port = 6311)
-    on.exit(try(RSclient::RS.close(conn), silent = TRUE))
-  }
-  # Inject the qs wrapper helpers into the subprocess R session so callers
-  # writing ov_qs_read(f) / ov_qs_save(obj, f) inside their subprocess func
-  # body work transparently — a fresh session does not inherit master-session
-  # helpers. On a pooled connection this only needs to happen once.
-  if (!pooled || !isTRUE(.ov_rsc_pool$injected)) {
-  RSclient::RS.eval(conn, quote({
-    ov_qs_read <- function(file, ...) {
-      if (file.exists(file)) {
-        r <- try(qs2::qs_read(file, ...), silent = TRUE)
-        if (!inherits(r, "try-error")) return(r)
-        return(qs::qread(file, ...))
-      }
-      if (endsWith(tolower(file), ".qs")) {
-        v2 <- paste0(substr(file, 1, nchar(file) - 3L), ".qs2")
-        if (file.exists(v2)) { r <- try(qs2::qs_read(v2, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v2, ...)) }
-      } else if (endsWith(tolower(file), ".qs2")) {
-        v1 <- paste0(substr(file, 1, nchar(file) - 4L), ".qs")
-        if (file.exists(v1)) { r <- try(qs2::qs_read(v1, ...), silent = TRUE); if (!inherits(r, "try-error")) return(r); return(qs::qread(v1, ...)) }
-      }
-      stop("ov_qs_read: neither .qs2 nor .qs found for: ", file, call. = FALSE)
-    }
-    ov_qs_save <- function(obj, file, ...) {
-      .args <- list(...)
-      for (.k in c("preset", "nthreads", "check_hash")) .args[[.k]] <- NULL
-      do.call(qs2::qs_save, c(list(object = obj, file = file), .args))
-      invisible(file)
-    }
-    ov_qs_exists <- function(file) {
-      if (file.exists(file)) return(TRUE)
-      if (endsWith(tolower(file), ".qs"))  return(file.exists(paste0(substr(file, 1, nchar(file) - 3L), ".qs2")))
-      if (endsWith(tolower(file), ".qs2")) return(file.exists(paste0(substr(file, 1, nchar(file) - 4L), ".qs")))
-      FALSE
-    }
-  }))
-    if (pooled) .ov_rsc_pool$injected <- TRUE
-  }
-  RSclient::RS.assign(conn, ".exec_wd", getwd())
-  RSclient::RS.assign(conn, ".exec_func", func)
-  RSclient::RS.assign(conn, ".exec_args", args)
-  RSclient::RS.assign(conn, ".exec_timeout", timeout_sec)
-  RSclient::RS.eval(conn, quote({
-    setwd(.exec_wd)
-    setTimeLimit(elapsed = .exec_timeout, transient = TRUE)
-    on.exit(setTimeLimit(elapsed = Inf))
-    do.call(.exec_func, .exec_args)
-  }))
-}
 
 #' Execute heavy package function in isolated RSclient fork
 #' @param func_body Function(input_data) to run in child
