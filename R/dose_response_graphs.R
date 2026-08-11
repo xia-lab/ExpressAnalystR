@@ -245,7 +245,7 @@ PlotGeneBMD <- function(gene.id, gene.symbol, scale){
     saveSet(imgSet, "imgSet");
 }
 
-PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bmd, bmdu, scale){
+PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bmd, bmdu, scale, imgNm = NA, dpi = 96, format = "png", width = NA){
   paramSet <- readSet(paramSet, "paramSet");
   dataSet <- readDataset(paramSet$dataName);
   require(ggplot2)
@@ -358,8 +358,19 @@ if (scale == "log2") {
 }
 
   
-  imgName <- paste("Gene_", gene.symbol, "_", model.nm, "_", scale,".png", sep="");
-  Cairo(file = imgName, unit="in", dpi=96, width=3.9, height=4.4, type="png", bg="white");
+  # imgNm/dpi/format/width let graphDialog re-render this curve at a chosen resolution:
+  # graphBn_action substitutes 72->dpi + png->format + width=NA->size in the REGISTERED
+  # command (which passes imgNm=the graphics-slot base "<key>_<N>_"), so the high-res file
+  # lands at "<imgNm>dpi<dpi>.<format>" exactly where getCurrentNm(key)+"dpiX.fmt" points.
+  # Default (imgNm=NA, dpi=96, png) preserves the legacy Gene_<sym>_<model>_<scale>.png name
+  # that ModelFitView + WfComputeGeneDRCurve's thumbnail lookup expect.
+  imgName <- if (is.na(imgNm) || !nzchar(imgNm))
+               paste("Gene_", gene.symbol, "_", model.nm, "_", scale, ".png", sep="")
+             else
+               sprintf("%sdpi%s.%s", imgNm, dpi, format)
+  Cairo(file = imgName, unit="in", dpi=dpi,
+        width = if (is.na(width)) 3.9 else as.numeric(width), height=4.4,
+        type=format, bg="white");
   tryCatch(print(p), error = function(err) {
     warning(paste("PlotGeneDRCurve error:", err$message))
   })
