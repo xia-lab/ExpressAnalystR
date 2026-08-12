@@ -251,7 +251,12 @@ PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bm
   require(ggplot2)
   require(scales)
 
+  # drcfit.obj is dropped from the SAVED dataSet (too large), so a loaded/pinned
+  # project has drcfit.obj$dose = NULL and this curve would fail ("differing number
+  # of rows: 0, N" -> the dashboard's on-demand fit shows "unavailable"). The per-
+  # sample dose vector survives in omicdata$dose; fall back to it.
   exposure <- dataSet$drcfit.obj$dose
+  if(is.null(exposure)) exposure <- dataSet$omicdata$dose
   labels <- unique(exposure)
 
   if(scale != "natural"){
@@ -260,9 +265,12 @@ PlotGeneDRCurve <- function(gene.id, gene.symbol, model.nm, b, c, d, e, bmdl, bm
 
   df <- data.frame(Dose = exposure, Expression = dataSet$data.norm[gene.id,])
 
-  # Look up SDres for this gene to draw CI ribbon on nonlinear models
-  fit.row <- dataSet$drcfit.obj$fitres.filt[dataSet$drcfit.obj$fitres.filt$gene.id == gene.id, ]
-  SDres <- if(nrow(fit.row) > 0) as.numeric(fit.row$SDres[1]) else NA
+  # Look up SDres for this gene to draw CI ribbon on nonlinear models. Absent when
+  # drcfit.obj was dropped from a saved project (see dose fallback above) — then the
+  # ribbon is simply omitted rather than failing the whole curve.
+  fit.res <- dataSet$drcfit.obj$fitres.filt
+  fit.row <- if(!is.null(fit.res)) fit.res[fit.res$gene.id == gene.id, ] else NULL
+  SDres <- if(!is.null(fit.row) && nrow(fit.row) > 0) as.numeric(fit.row$SDres[1]) else NA
 
   p <- ggplot(data=df, aes(x=Dose, y=Expression)) + geom_point() + ggtitle(gene.symbol) +
        theme_bw() +
