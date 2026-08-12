@@ -195,7 +195,8 @@ SplitIgraphByModule <- function(g, keepXTalk = FALSE) {
       subG[[m]] <- induced_subgraph(g, vids = genes.m)
     } else {
       # keep *only* edges whose BOTH endpoints are in module m
-      eKeep <- E(g)[inc(V(g)[module == m])]
+      # .inc(): inc() is defunct as of igraph 2.1.0
+      eKeep <- E(g)[.inc(V(g)[module == m])]
       eKeep <- eKeep[ which(ends(g, eKeep)[,1] %in% genes.m$name &
                               ends(g, eKeep)[,2] %in% genes.m$name) ]
       subG[[m]] <- subgraph_from_edges(g, eKeep)
