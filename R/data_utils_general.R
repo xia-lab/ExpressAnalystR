@@ -131,7 +131,26 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
     paramSet <<- paramSet;
   }else{
     paramSet$sqlite.path <- sqlite.path;
-    paramSet$lib.path <- paste0(path, dataPath);
+    # Reference-data (geneset .rds: kegg/reactome/go_*/motif ...) lives in the SHARED,
+    # consolidated <app>/resources/data. lib.path used to be RELATIVE — paste0("../../",
+    # "../../resources/data/") = "../../../../resources/data/" — which only resolves when the
+    # run cwd sits at <app>/<tool>/resources/users/<user>. On OmicsVerse run dirs live in a
+    # SEPARATE storage volume (OMICS_LOCAL_STORAGE_DIR / PROJECT_PATH), so R's physical ".."
+    # walks out of the app entirely and every enrichment read failed with "cannot open the
+    # connection" (Rserve error 127) — the enrichment network, ORA, GSEA, ridgeline. Derive
+    # the ABSOLUTE shared data dir from the loader's own path (.rscripts.dir, captured at
+    # source() time in _script_loader.R and symlink-safe); fall back to the relative path only
+    # when that anchor is unavailable.
+    shared.data <- tryCatch({
+      if (exists(".rscripts.dir") && length(.rscripts.dir) == 1 && !is.na(.rscripts.dir)) {
+        file.path(dirname(dirname(dirname(.rscripts.dir))), "resources", "data")
+      } else NA_character_
+    }, error = function(e) NA_character_);
+    if (!is.na(shared.data) && dir.exists(file.path(shared.data, "libs"))) {
+      paramSet$lib.path <- paste0(shared.data, "/");
+    } else {
+      paramSet$lib.path <- paste0(path, dataPath);
+    }
   }
   print(paste("sqlitePath:", sqlite.path));
 
@@ -581,10 +600,20 @@ setResourceDir <- function(path){
   # so there resource.dir (".../<tool>/resources/") is two levels below it.
   # on.ov marks the hosted environment; derive the path from resource.dir
   # rather than a relative literal so it does not depend on the R cwd.
-  if (isTRUE(tryCatch(get("on.ov", envir = globalenv()), error = function(e) FALSE))) {
-    paramSet$lib.path <- paste0(dirname(dirname(resource.dir)), "/resources/data/");
+  shared.path     <- paste0(dirname(dirname(resource.dir)), "/resources/data/");
+  standalone.path <- paste0(resource.dir, "data/");
+  # Prefer the SHARED data dir (OmicsVerse consolidated every tool's reference data there,
+  # emptying the per-tool <tool>/resources/data). Trust the on.ov marker, but don't DEPEND on
+  # it: it is set per-connection and, if setResourceDir runs before that voidEval lands, the
+  # else branch used to pick the now-empty per-tool dir — so lib.path pointed at an empty
+  # <tool>/resources/data and every enrichment read (e.g. mmu/kegg.rds) failed with
+  # "cannot open the connection" (error 127), breaking volcano/ridgeline for meta-analysis.
+  # Fall back to the standalone dir only when the shared one genuinely has no libs.
+  on.ov.set <- isTRUE(tryCatch(get("on.ov", envir = globalenv()), error = function(e) FALSE));
+  if (on.ov.set || dir.exists(paste0(shared.path, "libs"))) {
+    paramSet$lib.path <- shared.path;
   } else {
-    paramSet$lib.path <- paste0(resource.dir,"data/");
+    paramSet$lib.path <- standalone.path;
   }
   print(paramSet$lib.path);
   saveSet(paramSet, "paramSet");

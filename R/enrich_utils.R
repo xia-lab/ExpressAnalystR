@@ -287,7 +287,25 @@
     download.file(my.path, destfile = nmdb, method="libcurl", mode = "wb");
     my.path <- nmdb;
   }
-  
+
+  # lib.path can be stale/wrong across redeploys and after the data-dir consolidation (it
+  # pointed at an emptied <tool>/resources/data), so readRDS below failed with "cannot open
+  # the connection" (Rserve error 127) and broke every enrichment read — volcano overlay,
+  # ridgeline, GSEA. If the .rds isn't where lib.path says, locate the CONSOLIDATED shared
+  # reference data by walking up from the run dir to the first ancestor holding
+  # resources/data/libs, and read the gene set from there instead.
+  if (isTRUE(paramSet$on.public.web) && !file.exists(my.path)) {
+    d <- getwd();
+    for (i in 1:8) {
+      cand <- file.path(d, "resources", "data");
+      if (dir.exists(file.path(cand, "libs"))) {
+        alt <- paste0(cand, "/", folderNm, "/", fun.type, ".rds");
+        if (file.exists(alt)) { my.path <- alt; break; }
+      }
+      d <- dirname(d);
+    }
+  }
+
   my.lib <- readRDS(my.path);
   
   if(substr(fun.type, 0, 2)=="go"){  
