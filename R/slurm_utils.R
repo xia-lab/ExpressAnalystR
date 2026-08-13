@@ -621,7 +621,29 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
     databasePath = "/home/peng/expressanalyst_test/database/kallisto";
     isPengLocal = TRUE;
   }
-  
+
+  # The ladder above knows only the glassfish server and two developer laptops, so any
+  # other host (notably Docker, whose userDir matches none of them) falls through to a
+  # developer's /home/peng tree and emits a script pointing at binaries that do not
+  # exist. Resolve through the shared PATH- / OMICS_LIB_DIR-aware ladders whenever the
+  # ladder's guess is not on disk. Same resolvers SubmitJobKlsPro uses.
+  if(!file.exists(fastpPath) && exists(".ai_resolve_seq_bin")){
+    fp = tryCatch(.ai_resolve_seq_bin("fastp"), error = function(e) "");
+    if(nzchar(fp)) fastpPath = fp;
+  }
+  if(!file.exists(kallistoPath) && exists(".ai_resolve_seq_bin")){
+    kl = tryCatch(.ai_resolve_seq_bin("kallisto"), error = function(e) "");
+    if(nzchar(kl)) kallistoPath = kl;
+  }
+  if(!dir.exists(databasePath) && exists(".ov_resolve_seqlib_dir")){
+    kd = tryCatch(.ov_resolve_seqlib_dir("kallisto_database"), error = function(e) NA_character_);
+    if(!is.na(kd)) databasePath = kd;
+  }
+  # Prefer a version-locked kallisto shipped beside the index tree, if present
+  # (mirrors SubmitJobKlsPro) — a PATH kallisto 0.50.1 rejects older bundled indices.
+  klPaired = file.path(dirname(databasePath), "kallisto_source", "kallisto");
+  if(file.exists(klPaired)) kallistoPath = klPaired;
+
   fastpOutputR1 = file.path(userDir, "tmp_clean_R1.fastq.gz");
   if(readEnds == "pe"){
     fastpOutputR2 = file.path(userDir, "tmp_clean_R2.fastq.gz");
@@ -865,27 +887,40 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
   return(1);
 }
 
-SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscriptDir, deplexerExecutable, barcodeRead, barcodeStart, barcodeLength, maxMismatch, trimLeft, sampleIdFile, threads, maxMemory, runKallisto=FALSE, kallistoDatabase="NA", kallistoAvgFragLen=200, kallistoStdFragLen=30, kallistoMinScore=25, databasePath="/data/glassfish/seq_software/kallisto_database", kallistoPath="/data/glassfish/seq_software/kallisto_source/kallisto"){
-  # Validate Kallisto paths early - handle NULL, missing, empty string, or "/" cases
-  cat(sprintf("[DEBUG] Initial kallistoPath='%s', databasePath='%s'\n",
-              ifelse(missing(kallistoPath) || is.null(kallistoPath), "NULL/MISSING", as.character(kallistoPath)),
-              ifelse(missing(databasePath) || is.null(databasePath), "NULL/MISSING", as.character(databasePath))))
-
-  if(missing(kallistoPath) || is.null(kallistoPath) || length(kallistoPath) == 0 || nchar(trimws(kallistoPath)) == 0 || kallistoPath == "/"){
-    cat("[DEBUG] Validation FAILED for kallistoPath, using default\n")
-    kallistoPath <- "/data/glassfish/seq_software/kallisto_source/kallisto"
-  } else {
-    cat("[DEBUG] Validation PASSED for kallistoPath\n")
+SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscriptDir, deplexerExecutable, barcodeRead, barcodeStart, barcodeLength, maxMismatch, trimLeft, sampleIdFile, threads, maxMemory, runKallisto=FALSE, kallistoDatabase="NA", kallistoAvgFragLen=200, kallistoStdFragLen=30, kallistoMinScore=25, databasePath="", kallistoPath=""){
+  # Kallisto binary + transcriptome-index root. The caller's value wins WHEN IT EXISTS
+  # on this host; otherwise resolve through the shared ladders the rest of the stack
+  # uses (.ai_resolve_seq_bin / .ov_resolve_seqlib_dir: PATH- and OMICS_LIB_DIR-aware),
+  # and only then fall back to the glassfish server layout. Those two /data/glassfish/...
+  # paths used to be BOTH the argument defaults and hardcoded re-assignments inside the
+  # kallisto branch below; neither exists in the Docker image (kallisto is on PATH,
+  # indices live under <OMICS_LIB_DIR>/kallisto_database), so every Docker
+  # DePlexer+Kallisto run died at the quant step.
+  .usable <- function(x){
+    !is.null(x) && length(x) == 1 && !is.na(x) &&
+      nzchar(trimws(as.character(x))) && !identical(trimws(as.character(x)), "/")
   }
 
-  if(missing(databasePath) || is.null(databasePath) || length(databasePath) == 0 || nchar(trimws(databasePath)) == 0 || databasePath == "/"){
-    cat("[DEBUG] Validation FAILED for databasePath, using default\n")
-    databasePath <- "/data/glassfish/seq_software/kallisto_database"
-  } else {
-    cat("[DEBUG] Validation PASSED for databasePath\n")
+  callerKallistoBin <- .usable(kallistoPath) && file.exists(kallistoPath)
+  if(!callerKallistoBin){
+    resolved <- if(exists(".ai_resolve_seq_bin")) tryCatch(.ai_resolve_seq_bin("kallisto"), error = function(e) "") else ""
+    kallistoPath <- if(nzchar(resolved)) resolved else "/data/glassfish/seq_software/kallisto_source/kallisto"
   }
 
-  cat(sprintf("[DEBUG] Final kallistoPath='%s', databasePath='%s'\n", kallistoPath, databasePath))
+  if(!(.usable(databasePath) && dir.exists(databasePath))){
+    resolved <- if(exists(".ov_resolve_seqlib_dir")) tryCatch(.ov_resolve_seqlib_dir("kallisto_database"), error = function(e) NA_character_) else NA_character_
+    databasePath <- if(!is.na(resolved)) resolved else "/data/glassfish/seq_software/kallisto_database"
+  }
+
+  # When we picked the binary ourselves, prefer the version-locked kallisto shipped
+  # beside the index tree if there is one (mirrors SubmitJobKlsPro): a PATH kallisto
+  # 0.50.1 rejects older bundled indices with "incompatible indices".
+  if(!callerKallistoBin){
+    kallistoPaired <- file.path(dirname(databasePath), "kallisto_source", "kallisto")
+    if(file.exists(kallistoPaired)) kallistoPath <- kallistoPaired
+  }
+
+  cat(sprintf("[DePlexer] resolved kallistoPath='%s', databasePath='%s'\n", kallistoPath, databasePath))
 
   isSlurm <- FALSE
   if(grepl("glassfish", userDir)){
@@ -906,8 +941,16 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
       deplexerExecutable <- "/home/peng/software/deplexer/deplexer"
       isSlurm <- FALSE
     }
+    # The ladder above knows only the glassfish server and two developer laptops; in
+    # the Docker image deplexer is /usr/local/bin/deplexer. Override with the shared
+    # PATH-aware resolver when the ladder's guess is not on disk (isSlurm stays as the
+    # ladder set it — that flag is about the scheduler, not the binary).
+    if(!file.exists(deplexerExecutable)){
+      resolved <- if(exists(".ai_resolve_seq_bin")) tryCatch(.ai_resolve_seq_bin("deplexer"), error = function(e) "") else ""
+      if(nzchar(resolved)) deplexerExecutable <- resolved
+    }
   }
-  
+
   if(readEnds != "pe"){
     stop("DePlexer requires paired-end reads (readEnds == 'pe').")
   }
@@ -1052,36 +1095,52 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
   # Add Kallisto quantification if enabled
   str_kallisto <- ""
   if(runKallisto && kallistoDatabase != "NA"){
-    if(readEnds == "pe"){
-      # Hardcode paths to ensure they're set correctly
-      kpath <- "/data/glassfish/seq_software/kallisto_source/kallisto"
-      dbpath <- "/data/glassfish/seq_software/kallisto_database"
+    kallistoIndex <- file.path(databasePath, kallistoDatabase, "index/transcripts.idx")
 
+    # REPORT, DO NOT ABORT. The per-sample chain below is "&&"-joined with no `set -e`,
+    # so a missing binary or index fails once per sample in silence and the job only
+    # dies much later in run_process_kallisto.R with "no *_kallisto_quant.tsv found".
+    # Name the cause up front and count per-sample failures so the log says plainly what
+    # happened -- but do NOT exit. Aborting here would change a long-standing behaviour on
+    # the production servers this package also feeds: a run where a few samples fail
+    # currently still aggregates the ones that succeeded, and turning that into a hard
+    # failure is a pipeline-policy decision, not part of a path-resolution fix.
+    str_kallisto_preflight <- paste(
+      sprintf("if [ ! -x \"%s\" ]; then echo \"ERROR: kallisto binary not found or not executable: %s - every sample will fail\"; fi;", kallistoPath, kallistoPath),
+      sprintf("if [ ! -f \"%s\" ]; then echo \"ERROR: kallisto index not found: %s - every sample will fail\"; fi;", kallistoIndex, kallistoIndex),
+      "kls_fail=0;",
+      sep = " "
+    )
+    str_kallisto_epilogue <- paste(
+      "if [ ${kls_fail} -gt 0 ]; then echo \"WARNING: kallisto quantification failed for ${kls_fail} sample(s); the count table covers only the samples that succeeded\"; fi;",
+      "echo [DePlexer+Kallisto] $(date) completed_all_kallisto_quantifications;",
+      sep = " "
+    )
+
+    if(readEnds == "pe"){
       str_kallisto <- paste(
         "echo [DePlexer+Kallisto] $(date) starting_kallisto_quantification;",
+        str_kallisto_preflight,
         "for deplexer_dir in ${out_root}/*_deplexer_out; do",
         "[ -d \"${deplexer_dir}\" ] || continue;",
         "sample_base=$(basename \"${deplexer_dir}\" _deplexer_out);",
         "echo [DePlexer+Kallisto] $(date) processing_demultiplexed_pool=${sample_base};",
-        sprintf("for r1 in ${deplexer_dir}/*.R1.fastq.gz; do [ -f \"${r1}\" ] || continue; r2=\"${r1%%.R1.fastq.gz}.R2.fastq.gz\"; [ -f \"${r2}\" ] || continue; sample_id=$(basename \"${r1}\" .R1.fastq.gz); echo [DePlexer+Kallisto] $(date) quantifying_sample=${sample_id}; %s quant -i %s -o \"${out_root}/${sample_id}_kallisto\" -b 100 -t 4 \"${r1}\" \"${r2}\" && mv \"${out_root}/${sample_id}_kallisto/abundance.tsv\" \"${out_root}/${sample_id}_kallisto_quant.tsv\" && mv \"${out_root}/${sample_id}_kallisto/run_info.json\" \"${out_root}/${sample_id}_kallisto_log.json\" && rm -rf \"${out_root}/${sample_id}_kallisto\" && echo [DePlexer+Kallisto] $(date) completed_sample=${sample_id}; done;", kpath, file.path(dbpath, kallistoDatabase, "index/transcripts.idx")),
+        sprintf("for r1 in ${deplexer_dir}/*.R1.fastq.gz; do [ -f \"${r1}\" ] || continue; r2=\"${r1%%.R1.fastq.gz}.R2.fastq.gz\"; [ -f \"${r2}\" ] || continue; sample_id=$(basename \"${r1}\" .R1.fastq.gz); echo [DePlexer+Kallisto] $(date) quantifying_sample=${sample_id}; %s quant -i %s -o \"${out_root}/${sample_id}_kallisto\" -b 100 -t 4 \"${r1}\" \"${r2}\" && mv \"${out_root}/${sample_id}_kallisto/abundance.tsv\" \"${out_root}/${sample_id}_kallisto_quant.tsv\" && mv \"${out_root}/${sample_id}_kallisto/run_info.json\" \"${out_root}/${sample_id}_kallisto_log.json\" && rm -rf \"${out_root}/${sample_id}_kallisto\" && echo [DePlexer+Kallisto] $(date) completed_sample=${sample_id} || { echo \"ERROR: kallisto quantification failed for sample ${sample_id}\"; kls_fail=$((kls_fail+1)); }; done;", kallistoPath, kallistoIndex),
         "done;",
-        "echo [DePlexer+Kallisto] $(date) completed_all_kallisto_quantifications;",
+        str_kallisto_epilogue,
         sep = " "
       )
     } else {
-      # Hardcode paths to ensure they're set correctly
-      kpath <- "/data/glassfish/seq_software/kallisto_source/kallisto"
-      dbpath <- "/data/glassfish/seq_software/kallisto_database"
-
       str_kallisto <- paste(
         "echo [DePlexer+Kallisto] $(date) starting_kallisto_quantification;",
+        str_kallisto_preflight,
         "for deplexer_dir in ${out_root}/*_deplexer_out; do",
         "[ -d \"${deplexer_dir}\" ] || continue;",
         "sample_base=$(basename \"${deplexer_dir}\" _deplexer_out);",
         "echo [DePlexer+Kallisto] $(date) processing_demultiplexed_pool=${sample_base};",
-        sprintf("for r1 in ${deplexer_dir}/*.R1.fastq.gz; do [ -f \"${r1}\" ] || continue; sample_id=$(basename \"${r1}\" .R1.fastq.gz); echo [DePlexer+Kallisto] $(date) quantifying_sample=${sample_id}; %s quant -i %s -o \"${out_root}/${sample_id}_kallisto\" --single -l %s -s %s -b 100 -t 4 \"${r1}\" && mv \"${out_root}/${sample_id}_kallisto/abundance.tsv\" \"${out_root}/${sample_id}_kallisto_quant.tsv\" && mv \"${out_root}/${sample_id}_kallisto/run_info.json\" \"${out_root}/${sample_id}_kallisto_log.json\" && rm -rf \"${out_root}/${sample_id}_kallisto\" && echo [DePlexer+Kallisto] $(date) completed_sample=${sample_id}; done;", kpath, file.path(dbpath, kallistoDatabase, "index/transcripts.idx"), kallistoAvgFragLen, kallistoStdFragLen),
+        sprintf("for r1 in ${deplexer_dir}/*.R1.fastq.gz; do [ -f \"${r1}\" ] || continue; sample_id=$(basename \"${r1}\" .R1.fastq.gz); echo [DePlexer+Kallisto] $(date) quantifying_sample=${sample_id}; %s quant -i %s -o \"${out_root}/${sample_id}_kallisto\" --single -l %s -s %s -b 100 -t 4 \"${r1}\" && mv \"${out_root}/${sample_id}_kallisto/abundance.tsv\" \"${out_root}/${sample_id}_kallisto_quant.tsv\" && mv \"${out_root}/${sample_id}_kallisto/run_info.json\" \"${out_root}/${sample_id}_kallisto_log.json\" && rm -rf \"${out_root}/${sample_id}_kallisto\" && echo [DePlexer+Kallisto] $(date) completed_sample=${sample_id} || { echo \"ERROR: kallisto quantification failed for sample ${sample_id}\"; kls_fail=$((kls_fail+1)); }; done;", kallistoPath, kallistoIndex, kallistoAvgFragLen, kallistoStdFragLen),
         "done;",
-        "echo [DePlexer+Kallisto] $(date) completed_all_kallisto_quantifications;",
+        str_kallisto_epilogue,
         sep = " "
       )
     }
