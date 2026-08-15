@@ -473,6 +473,7 @@ ReadMetaData <- function(metafilename){
     data.smpl.nms <- colnames(dataSet$data.norm)
     nm.hits <- data.smpl.nms %in% smpl_nms;
     if(!all(nm.hits)){
+      mis.nms <- data.smpl.nms[!nm.hits];
       msgSet$current.msg = paste0("Some sample names including ",paste(mis.nms, collapse="; ") ," in your data are not in the metadata file!")
       saveSet(msgSet, "msgSet");
       return(NULL);
@@ -579,8 +580,6 @@ ReadMetaData <- function(metafilename){
     }
   }
   dat <- try(data.table::fread(fileName, header=TRUE, check.names=FALSE, data.table=FALSE));
-  rm.inx <- apply(dat,2,function(x){all(is.na(x))});
-  dat <- dat[,!rm.inx];
   if(class(dat) == "try-error"){
     #try to use "tr" to remove double return characters
     trFileName <- paste("tr -d \'\\r\' <", fileName);
@@ -600,6 +599,10 @@ ReadMetaData <- function(metafilename){
     saveSet(msgSet, "msgSet");
     return(NULL);
   }
+
+  # drop all-NA columns (only once the object is known to be a table)
+  rm.inx <- apply(dat, 2, function(x){all(is.na(x))});
+  dat <- dat[, !rm.inx];
   
   
   # need to remove potential empty columns
