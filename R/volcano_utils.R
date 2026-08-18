@@ -117,7 +117,14 @@ Volcano.Anal <- function(dataName="", fileNm="name", paired=FALSE, fcthresh=0, t
          paramSet$fc.thresh <- 0; 
        }
 
-      data <- ov_qs_read("allMeta.mat.qs")    
+      data <- ov_qs_read("allMeta.mat.qs")
+      # Vote counting yields a single integer "VoteCounts" column — no per-gene
+      # fold change or p-value — so a volcano cannot be drawn. Bail with a clear
+      # message instead of erroring on data[,2] ("subscript out of bounds").
+      if (isTRUE(paramSet$meta.method == "votecount") || is.null(dim(data)) || ncol(data) < 2) {
+        AddErrMsg("Volcano plot is not available for the Vote counting method (it produces vote scores, not fold changes and p-values). Re-run the meta-analysis with Combine p-values, Combine effect sizes, or Direct merging to view a volcano.");
+        return(-2);
+      }
       p.value <- data[, 2]
       data <- cbind(unname(analSet$meta.avgFC[rownames(data)]), data);
       fcthresh <- paramSet$fc.thresh;

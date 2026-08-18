@@ -605,6 +605,26 @@ GetMetaDataStatus <- function(dataName){
   return(res);
 }
 
+# Per-dataset processing state, read from the persisted R dataSet object.
+# Java's getDataSets() rebuilds OmicsModel objects from R when its in-memory list
+# is empty (session-bean recreation, project restore, example switch); those
+# rebuilt objects default every processing flag to FALSE, so the meta Integrity
+# Check saw allDone=false and blocked with "specify or confirm group comparison".
+# The R dataSet is the source of truth — expose it so the reconstruction can
+# restore annotated / normalized / compared instead of guessing.
+# Returns c(annotated, normalized, compared) as 0/1 integers.
+GetDataProcStatus <- function(dataName){
+  ds <- readDataset(dataName);
+  if (is.null(ds)) return(as.integer(c(0, 0, 0)));
+  # The boolean ds$annotated flag is unreliable (not always set), so key off the
+  # annotated matrix / resolved id type. Normalization is marked by norm.opt being
+  # set (data.norm alone exists straight after read, so it can't distinguish).
+  annotated  <- !is.null(ds$data.annotated) || (!is.null(ds$id.type) && nzchar(ds$id.type));
+  normalized <- !is.null(ds$norm.opt) || (!is.null(ds$data.filtered) && !is.null(ds$data.norm));
+  compared   <- !is.null(ds$comp.res) || (!is.null(ds$analSet) && !is.null(ds$analSet$cov$sig.mat));
+  return(as.integer(c(annotated, normalized, compared)));
+}
+
 
 GetMetaTypes <- function(colNm="NA"){
   paramSet <- readSet(paramSet, "paramSet");
