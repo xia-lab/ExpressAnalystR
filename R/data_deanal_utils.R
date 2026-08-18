@@ -62,9 +62,9 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
     cls <- meta[, meta0];
 
     # Validate that we have at least 2 levels for analysis
-    unique_levels <- levels(cls)[levels(cls)!="NA"]
-    if(length(unique_levels) < 2){
-      AddErrMsg(paste("Metadata column", meta0, "must have at least 2 groups for analysis! Found:", length(unique_levels)));
+    primary_levels <- levels(cls)[levels(cls)!="NA"]
+    if(length(primary_levels) < 2){
+      AddErrMsg(paste("Metadata column", meta0, "must have at least 2 groups for analysis! Found:", length(primary_levels)));
       # Save dataSet with safe defaults before returning error
       RegisterData(dataSet, 0);
       return(0);
@@ -85,7 +85,13 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
     dataSet$secondVar <- meta1
     dataSet$cls <- cls; # record main cls;
     dataSet$block <- block;
-    return(RegisterData(dataSet, unique_levels));
+    # The comparison menus must match the factor actually used by the DE model.
+    # With a non-blocking secondary factor, cls contains the primary_secondary
+    # interaction levels; with a blocking factor (or no secondary factor), it
+    # contains only the primary levels. Returning primary_levels unconditionally
+    # left every downstream comparison menu unchanged when meta1 was selected.
+    comparison_levels <- levels(cls)[levels(cls)!="NA"]
+    return(RegisterData(dataSet, comparison_levels));
   }
 }
 

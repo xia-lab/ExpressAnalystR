@@ -247,12 +247,24 @@ UpdateMultifacPlot <-function(dataName="",imgName, gene.id, boxmeta,format="png"
   require(ggplot2);
   require(see);
   require(lattice);
+  # This function calls Cairo() directly below. PlotSelectedGene loaded the
+  # package, but this multifactor branch did not, so the first loading-plot
+  # feature click in a session failed with Rserve status 127 and no image file.
+  require(Cairo);
   
   paramSet <- readSet(paramSet, "paramSet");
   analSet <- readSet(analSet, "analSet");
   dataSet <- readDataset(dataName);
   anal.type <- paramSet$anal.type;
   imgName <- paste(imgName,"dpi",dpi,".",format,sep="");
+  if(is.null(dataSet$meta.info) || !(boxmeta %in% colnames(dataSet$meta.info))){
+    message("[UpdateMultifacPlot] metadata column '", boxmeta, "' not found; skipping plot.");
+    return(0);
+  }
+  if(is.null(dataSet$data.norm) || !(gene.id %in% rownames(dataSet$data.norm))){
+    message("[UpdateMultifacPlot] gene.id '", gene.id, "' not found in data.norm rownames; skipping plot.");
+    return(0);
+  }
   meta <- dataSet$meta.info[dataSet$meta.info[,boxmeta]!="NA",boxmeta,drop=F];
   cls <- droplevels(meta[,boxmeta]);
   data.norm <- dataSet$data.norm[,colnames(dataSet$data.norm) %in% rownames(meta)];
@@ -354,7 +366,6 @@ PlotSelectedGeneRaw <- function(gene.id="",imgName="", format="png", dpi=default
   invisible(print(p))
   invisible(dev.off())
 }
-
 
 
 
