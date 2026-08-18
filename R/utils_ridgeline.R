@@ -204,19 +204,14 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
     }
   }
   
-  # Ridge density + jittered points should show the FULL pathway membership
-  # (every measured member gene's fold change) with the DE-significant members
-  # HIGHLIGHTED, mirroring the GSEA ridgeline. ORA's `sigmat` is the significant
-  # subset used as the enrichment INPUT; for the PLOT use all genes' fold changes
-  # (comp.res) so non-significant members aren't dropped by the na.omit below.
-  # Only onedata has a separate sig.mat; gene-list / meta flows plot their set.
+  # Ridge dots = the genes that make up each pathway's "Hits" count, so the
+  # dots-per-ridge match the result table. For ORA `sigmat` is the DE-significant
+  # set (the enrichment INPUT, = table "Hits"); for GSEA `sigmat` is already the
+  # full ranked list (comp.res), which is the correct distribution there. In both
+  # cases the DE-significant members are highlighted via `df$sig` below.
   sig.entrez <- if (anal.type == "onedata" && !is.null(dataSet$sig.mat))
                   rownames(dataSet$sig.mat) else rownames(sigmat)
-  if (anal.type == "onedata" && ridgeType == "ora" && !is.null(dataSet$comp.res)) {
-    plotmat <- as.data.frame(dataSet$comp.res); plotmat$entrez <- rownames(plotmat);
-  } else {
-    plotmat <- sigmat;
-  }
+  plotmat <- sigmat;
 
   # prepare data for plotting
   degs.plot <- data.frame(entrez = plotmat$entrez, log2FC = plotmat[,inx]);

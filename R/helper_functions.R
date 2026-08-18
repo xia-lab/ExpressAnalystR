@@ -493,9 +493,16 @@ GetCovSigColNames<-function(dataName){
 
 GetCovDENums <- function(dataName){
     dataSet <- readDataset(dataName);
+    # A dataset whose per-dataset DE hasn't run yet (the meta-analysis example /
+    # quick-load flow) has no cov$sig.mat or comp.res. nrow(NULL) is NULL, so the
+    # original c(deNum, nonDeNum) collapsed to an EMPTY vector and the Java caller
+    # crashed with "Index 0 out of bounds for length 0", blocking the metadata
+    # dataset table from loading. Default missing counts to 0.
     deNum <- nrow(dataSet$analSet$cov$sig.mat);
-    nonDeNum <- nrow(dataSet$comp.res) - deNum;
-    return(c(deNum, nonDeNum));
+    total <- nrow(dataSet$comp.res);
+    if (is.null(deNum)) deNum <- 0L;
+    if (is.null(total)) total <- 0L;
+    return(c(deNum, total - deNum));
 }
 
 

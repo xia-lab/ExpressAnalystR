@@ -269,11 +269,19 @@ PerformMetaDeAnal <- function(paramSet){
       dataSet$name <- dataName;
       group <- factor(inmex.meta$cls.lbl[sel.inx]); # note regenerate factor to drop levels 
       dataSet$cls <- group;
-      #res.limma <- PerformLimma(data, group);
-      
+
+      # Compute the per-dataset limma fit if it was not precomputed upstream.
+      # The meta merge reads dataSet$fit.obj; example / quick-load meta flows skip
+      # the per-dataset DE step, so fit.obj is absent and GetLimmaResTable() below
+      # errors with "fit must be an MArrayLM object". Derive it here from the merged
+      # per-study subset (data + group), matching the pooled PerformLimma call.
+      if (is.null(dataSet$fit.obj) || !methods::is(dataSet$fit.obj, "MArrayLM")) {
+        dataSet$fit.obj <- PerformLimma(data, factor(as.character(group)))$fit.obj;
+      }
+
       # save the limma fit object for meta-analysis (such as "dataSet1.fit.obj")
       ov_qs_save(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep="."));
-      
+
       res.all <- GetLimmaResTable(dataSet$fit.obj);
       ov_qs_save(res.all, "meta.resTable.qs");
       res.mat <- cbind(logFC=res.all$logFC, Pval = res.all$adj.P.Val);
@@ -313,8 +321,13 @@ PerformMetaDeAnal <- function(paramSet){
       #  res.all <- dataSet$comp.res
       #}else{
       # save dataSet object for meta-analysis
-      #res.limma <- PerformLimma(data, group);
-      ov_qs_save(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep=".")); 
+      # Compute the per-dataset limma fit if it was not precomputed upstream
+      # (example / quick-load meta flows skip per-dataset DE) — otherwise
+      # GetLimmaResTable() errors with "fit must be an MArrayLM object".
+      if (is.null(dataSet$fit.obj) || !methods::is(dataSet$fit.obj, "MArrayLM")) {
+        dataSet$fit.obj <- PerformLimma(data, factor(as.character(group)))$fit.obj;
+      }
+      ov_qs_save(dataSet$fit.obj, file=paste(dataName, "fit.obj", sep="."));
       res.all <- GetLimmaResTable(dataSet$fit.obj);
       #}
       ov_qs_save(res.all, "meta.resTable.qs");
