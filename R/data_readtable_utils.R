@@ -144,10 +144,22 @@ ReadTabExpressData <- function(fileName, metafileName="",metaContain="true",oneD
   # normally summarizes to unique gene level — is skipped or fails.
   if (anyDuplicated(rownames(data.proc))) {
     n.dup <- sum(duplicated(rownames(data.proc)));
-    res <- RemoveDuplicates(data.proc, "mean", quiet=TRUE, paramSet, msgSet);
-    data.proc <- res[[1]]; msgSet <- res[[2]];
-    msgSet$current.msg <- paste0(msgSet$current.msg,
-      "; ", n.dup, " duplicate feature ID(s) collapsed (mean) — check input for Excel date-mangled gene symbols (e.g. 01-Mar).");
+    if (exists("ov_merge_duplicate_features")) {
+      dres <- ov_merge_duplicate_features(data.proc);
+      if (!is.null(dres$data)) {
+        data.proc <- dres$data;
+        msgSet$current.msg <- paste0(msgSet$current.msg, "; ", dres$msg);
+      } else {
+        msgSet$current.msg <- paste0(msgSet$current.msg, "; ", dres$msg);
+        AddErrMsg(dres$msg);
+        return(0);
+      }
+    } else {
+      res <- RemoveDuplicates(data.proc, "mean", quiet=TRUE, paramSet, msgSet);
+      data.proc <- res[[1]]; msgSet <- res[[2]];
+      msgSet$current.msg <- paste0(msgSet$current.msg,
+        "; ", n.dup, " duplicate feature ID(s) collapsed (mean) — check input for Excel date-mangled gene symbols (e.g. 01-Mar).");
+    }
   }
 
   # save processed data for download user option
