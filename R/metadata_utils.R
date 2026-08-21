@@ -319,7 +319,7 @@ DeleteSample <- function(dataName="",samplNm){
   if(dataName != "NA"){
     dataSet <- readDataset(dataName);
     dataSet$meta.info <- dataSet$meta.info[rownames(dataSet$meta.info)!=samplNm,,drop=F]
-    dataSet$data.norm <- dataSet$data.norm[,colnames(dataSet$data.norm!=samplNm)]
+    dataSet$data.norm <- dataSet$data.norm[,colnames(dataSet$data.norm)!=samplNm]
     RegisterData(dataSet);
   }else{
     paramSet <- readSet(paramSet, "paramSet")  
@@ -338,6 +338,179 @@ DeleteSample <- function(dataName="",samplNm){
   }
   
   return(1);
+}
+
+GetUploadedSampleNames <- function(dataName="", type="kept"){
+  if(dataName == "NA"){
+    paramSet <- readSet(paramSet, "paramSet");
+    if(type == "all" && !is.null(paramSet$dataSet$meta.info.full)){
+      return(rownames(paramSet$dataSet$meta.info.full));
+    }
+    return(rownames(paramSet$dataSet$meta.info));
+  }
+  dataSet <- readDataset(dataName);
+  if(type == "all" && !is.null(dataSet$meta.info.full)){
+    return(rownames(dataSet$meta.info.full));
+  }
+  return(rownames(dataSet$meta.info));
+}
+
+#'Update the sample set for one dataset
+#'@description Keeps only the samples named in smpl.nm.vec. Surviving rows keep
+#'their (possibly edited) metadata; rows added back are restored from the copy
+#'taken on first use, together with their data columns, so an exclusion is always
+#'reversible. Applies to the expression matrix and the sample metadata together,
+#'which is what keeps the two in step.
+#'@export
+UpdateUploadedSampleItems <- function(dataName=""){
+  if(!exists("smpl.nm.vec")){
+    current.msg <<- "Cannot find the sample names to keep!";
+    return(0);
+  }
+  if(dataName == "NA"){
+    return(.UpdateMetaSampleSet(smpl.nm.vec));
+  }
+  dataSet <- readDataset(dataName);
+
+  if(is.null(dataSet$meta.info.full)){
+    dataSet$meta.info.full <- dataSet$meta.info;
+    dataSet$data.norm.full <- dataSet$data.norm;
+  }
+
+  full.meta <- dataSet$meta.info.full;
+  keep <- intersect(rownames(full.meta), smpl.nm.vec);
+  if(length(keep) < 3){
+    current.msg <<- "At least three samples must remain for analysis.";
+    return(0);
+  }
+
+  cur <- dataSet$meta.info;
+  kept.cur <- cur[intersect(rownames(cur), keep), , drop=FALSE];
+  add.back <- setdiff(keep, rownames(cur));
+  if(length(add.back) > 0){
+    common.cols <- intersect(colnames(cur), colnames(full.meta));
+    kept.cur <- rbind(kept.cur[, common.cols, drop=FALSE],
+                      full.meta[add.back, common.cols, drop=FALSE]);
+  }
+  ord <- rownames(full.meta)[rownames(full.meta) %in% rownames(kept.cur)];
+  dataSet$meta.info <- kept.cur[ord, , drop=FALSE];
+
+  full.data <- dataSet$data.norm.full;
+  dataSet$data.norm <- full.data[, colnames(full.data) %in% ord, drop=FALSE];
+
+  excluded <- setdiff(rownames(full.meta), keep);
+  current.msg <<- paste0(length(ord), " samples kept; ", length(excluded), " excluded.");
+  RegisterData(dataSet);
+  return(1);
+}
+
+# Meta-analysis has no single dataset to edit: the sample set spans every uploaded
+# study plus the merged matrix. Keep all four representations in step -- the combined
+# metadata on paramSet, each study's own meta.info + data.norm, and the merged
+# inmex_meta matrix, whose cls.lbl and data.lbl are per-COLUMN vectors and so have to
+# be subset alongside the data (DeleteSample subset only the data, which left the two
+# labels one element longer than the matrix after every removal).
+.UpdateMetaSampleSet <- function(keep.vec){
+  paramSet <- readSet(paramSet, "paramSet");
+  if(is.null(paramSet$dataSet$meta.info)){
+    current.msg <<- "No combined metadata is available for editing.";
+    return(0);
+  }
+  if(is.null(paramSet$dataSet$meta.info.full)){
+    paramSet$dataSet$meta.info.full <- paramSet$dataSet$meta.info;
+  }
+  full.meta <- paramSet$dataSet$meta.info.full;
+  keep <- intersect(rownames(full.meta), keep.vec);
+  if(length(keep) < 3){
+    current.msg <<- "At least three samples must remain for analysis.";
+    return(0);
+  }
+  ord <- rownames(full.meta)[rownames(full.meta) %in% keep];
+
+  cur <- paramSet$dataSet$meta.info;
+  kept.cur <- cur[intersect(rownames(cur), keep), , drop=FALSE];
+  add.back <- setdiff(keep, rownames(cur));
+  if(length(add.back) > 0){
+    common.cols <- intersect(colnames(cur), colnames(full.meta));
+    kept.cur <- rbind(kept.cur[, common.cols, drop=FALSE],
+                      full.meta[add.back, common.cols, drop=FALSE]);
+  }
+  paramSet$dataSet$meta.info <- kept.cur[ord, , drop=FALSE];
+
+  for(dataName in unique(as.character(full.meta$Dataset))){
+    dataSet <- readDataset(dataName);
+    if(is.null(dataSet)){
+      next;
+    }
+    if(is.null(dataSet$meta.info.full)){
+      dataSet$meta.info.full <- dataSet$meta.info;
+      dataSet$data.norm.full <- dataSet$data.norm;
+    }
+    d.full.meta <- dataSet$meta.info.full;
+    d.keep <- rownames(d.full.meta)[rownames(d.full.meta) %in% ord];
+    if(length(d.keep) == 0){
+      next;
+    }
+    d.cur <- dataSet$meta.info;
+    d.kept <- d.cur[intersect(rownames(d.cur), d.keep), , drop=FALSE];
+    d.add <- setdiff(d.keep, rownames(d.cur));
+    if(length(d.add) > 0){
+      d.cols <- intersect(colnames(d.cur), colnames(d.full.meta));
+      d.kept <- rbind(d.kept[, d.cols, drop=FALSE],
+                      d.full.meta[d.add, d.cols, drop=FALSE]);
+    }
+    dataSet$meta.info <- d.kept[d.keep, , drop=FALSE];
+    d.full.data <- dataSet$data.norm.full;
+    dataSet$data.norm <- d.full.data[, colnames(d.full.data) %in% d.keep, drop=FALSE];
+    RegisterData(dataSet);
+  }
+
+  .SubsetMergedMetaMatrix("inmex_meta.qs", "inmex_meta_full.qs", ord);
+  .SubsetMergedMetaMatrix("inmex.meta.orig.qs", "inmex.meta.orig_full.qs", ord);
+
+  saveSet(paramSet, "paramSet");
+  current.msg <<- paste0(length(ord), " samples kept; ",
+                         length(setdiff(rownames(full.meta), keep)), " excluded.");
+  return(1);
+}
+
+# Survivors keep whatever the live matrix holds (it may carry a batch correction the
+# original copy does not); only added-back columns come from the pristine snapshot.
+.SubsetMergedMetaMatrix <- function(live.file, full.file, keep.nms){
+  if(!file.exists(live.file)){
+    return(invisible(FALSE));
+  }
+  if(!file.exists(full.file)){
+    ov_qs_save(ov_qs_read(live.file), full.file);
+  }
+  live <- ov_qs_read(live.file);
+  full <- ov_qs_read(full.file);
+  if(is.null(live$data) || is.null(full$data)){
+    return(invisible(FALSE));
+  }
+  ord <- colnames(full$data)[colnames(full$data) %in% keep.nms];
+  add.back <- setdiff(ord, colnames(live$data));
+  mat <- live$data[, ord[ord %in% colnames(live$data)], drop=FALSE];
+  if(length(add.back) > 0){
+    feats <- intersect(rownames(mat), rownames(full$data));
+    mat <- cbind(mat[feats, , drop=FALSE], full$data[feats, add.back, drop=FALSE]);
+  }
+  mat <- mat[, ord[ord %in% colnames(mat)], drop=FALSE];
+  # Index the ORIGINAL vectors positionally rather than rebuilding them from
+  # characters: cls.lbl is a factor, and re-factor()ing re-derives its levels
+  # alphabetically, which silently changes the reference group and flips the sign
+  # of every logFC downstream. Subsetting keeps the level order; droplevels only
+  # removes a group the user has excluded entirely.
+  idx <- match(colnames(mat), colnames(full$data));
+  live$data <- mat;
+  if(!is.null(full$cls.lbl)){
+    live$cls.lbl <- droplevels(full$cls.lbl[idx]);
+  }
+  if(!is.null(full$data.lbl)){
+    live$data.lbl <- full$data.lbl[idx];
+  }
+  ov_qs_save(live, live.file);
+  invisible(TRUE);
 }
 
 DeleteMetaCol <- function(dataName="",metaCol){
