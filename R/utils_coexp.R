@@ -547,6 +547,19 @@ PlotCEMiTreatmentHeatmap <- function(factorName,
     textMat <- paste0(formatC(corMat, 2), "\n(",
                       formatC(pMat , 1, format = "e"), ")")
 
+    ## ── 4b · save the statistics shown in the heatmap  ------------
+    # Long-format table of the eigengene-group correlations and their
+    # p-values, with BH adjustment across all module x group tests.
+    statsTbl <- data.frame(
+      Module      = rep(rownames(corMat), times = ncol(corMat)),
+      Group       = rep(colnames(corMat), each  = nrow(corMat)),
+      Correlation = round(as.vector(corMat), 4),
+      P_value     = signif(as.vector(pMat), 4),
+      FDR         = signif(stats::p.adjust(as.vector(pMat), method = "BH"), 4),
+      stringsAsFactors = FALSE)
+    statsTbl <- statsTbl[order(statsTbl$P_value), , drop = FALSE]
+    utils::write.csv(statsTbl, "cem_module_trait_stats.csv", row.names = FALSE)
+
     ## ── 5 · device  (min 8 × 6 in)  -------------------------------
     colfun <- colorRampPalette(c("royalblue4", "white", "tomato"))
 
