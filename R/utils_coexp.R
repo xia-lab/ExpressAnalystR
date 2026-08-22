@@ -376,7 +376,11 @@ PlotCEMiDendro <- function(mode      = c("sample", "module"),
 
     ids   <- colnames(ME)
     pal   <- setNames(rainbow(length(ids)), ids)
-    idVec <- setNames(ids, ids)
+    # The colour vector must hold COLOURS keyed by leaf name. Passing the ids
+    # as their own values handed strings like "MEM2" to plotDendroAndColors,
+    # which rejects them as invalid colour names, so the module dendrogram
+    # never rendered.
+    idVec <- pal
 
     file <- sprintf("%s_module_dendro_dpi%d.%s", imgName, dpi, format)
     plotDendroColoured(hc, idVec, "modules", file, pal)

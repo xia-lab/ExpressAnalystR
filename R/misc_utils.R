@@ -1393,7 +1393,11 @@ BuildCEMiNet <- function(dataName,
                          filter      = TRUE,
                          min_ngen    = 30,
                          cor_method  = "pearson",
-                         verbose     = TRUE) {
+                         verbose     = TRUE,
+                         force_beta  = NULL) {  # passed through to cemitool():
+                                                # TRUE keeps the best available
+                                                # soft-threshold power when none
+                                                # reaches scale-free topology
 
   ## Call the implementation (loaded at session init)
   res <- my.build.cemi.net(
@@ -1401,7 +1405,8 @@ BuildCEMiNet <- function(dataName,
     filter     = filter,
     min_ngen   = min_ngen,
     cor_method = cor_method,
-    verbose    = verbose
+    verbose    = verbose,
+    force_beta = force_beta
   )
   return(res);
 }
