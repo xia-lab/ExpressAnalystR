@@ -61,7 +61,7 @@ my.perform.gsea<- function(dataName, file.nm, fun.type, netNm, mType, selectedFa
   }else{
     if(paramSet$selDataNm == "meta_default"){
       inmex <- ov_qs_read("inmex_meta.qs");
-      sampleNms <- colnames(inmex$plot_data);
+      sampleNms <- colnames(inmex$plot.data);
       colnums <- dim(inmex$plot.data)[2]
       inx  <- rep(T, colnums)
       if(is.null(analSet$meta.mat.all) || nrow(analSet$meta.mat.all) == 0){
