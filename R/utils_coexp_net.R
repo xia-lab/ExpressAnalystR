@@ -60,7 +60,15 @@ BuildIgraphFromCEM <- function(thresh    = 0.05,
   
   g       <- graph_from_data_frame(edge.df, directed = FALSE)
   E(g)$weight <- edge.df$value
-  
+  # adj is a SYMMETRIC matrix, so melt(adj) emits BOTH (i,j) and (j,i) as separate
+  # rows for every pair -- graph_from_data_frame(..., directed = FALSE) does not
+  # dedupe that itself, so every edge above threshold was drawn TWICE (a parallel
+  # multi-edge), visible as a doubled/lens-shaped line between every connected pair.
+  # Collapse the parallel pair into one edge; their weights are identical modulo
+  # floating point, so "mean" is a no-op on the value while being robust to it.
+  g <- igraph::simplify(g, remove.multiple = TRUE, remove.loops = TRUE,
+                        edge.attr.comb = list(weight = "mean"))
+
   
   
   ## ── 4 · add vertex-level annotations ----------------------------
