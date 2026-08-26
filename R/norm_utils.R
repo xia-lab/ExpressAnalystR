@@ -322,7 +322,7 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
 
   if(var.thresh > 0){
   filter.val <- apply(data, 1, IQR, na.rm=T);
-  nm <- "Interquantile Range";
+  nm <- "Interquartile Range";
   filter.val <- -filter.val
   rk <- rank(filter.val, ties.method='random');
   good.inx <- -filter.val > 0;
