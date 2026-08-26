@@ -51,7 +51,12 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     data.proc <- ov_qs_read("data.raw.qs");
   }
   data.anot <- data.proc;
-  
+
+  # Entrez ID aligned to rownames(data.proc), captured before any duplicate
+  # collapse so the annotated download can keep one row per original (e.g.
+  # Ensembl) feature. NULL when no annotation is performed.
+  annot.entrez.vec <- NULL;
+
   if (toupper(org) != 'NA' & toupper(idType) != 'NA'){   # NA check is case-insensitive (na/NA/Na all = unresolved)
     feature.vec <- rownames(data.proc);
     
@@ -67,6 +72,9 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
       ov_qs_save(anot.id, "annotation.qs");
     }
     anot.id <- unname(anot.id);
+    # anot.id here is aligned to feature.vec == rownames(data.proc); keep a copy
+    # for the annotated download before the gene-level collapse below.
+    annot.entrez.vec <- anot.id;
     print(head(anot.id));
     if(idType %in% c("s2f", "generic", "ko")){
       symbol.map <- .doGeneIDMapping(anot.id , idType, paramSet, "matrix");
@@ -186,7 +194,7 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   }
 
   data.anot <- sanitizeSmallNumbers(data.anot);
-  fast.write(sanitizeSmallNumbers(data.anot), file="data_annotated.csv");
+  .write.annotated.download(data.proc, annot.entrez.vec, dataSet, file="data_annotated.csv");
   .save.annotated.data(data.anot);
 
   saveSet(paramSet, "paramSet");
@@ -211,6 +219,65 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
 .annot.min.matched <- 2000L;
 .annot.usable <- function(matched, total) {
   matched >= total * 0.5 || matched >= .annot.min.matched;
+}
+
+# Write the user-facing annotated data download (data_annotated.csv).
+#
+# Unlike the internal gene-level matrix (which collapses several original IDs
+# onto a single Entrez ID), this keeps one row per original feature. So when
+# several Ensembl IDs map to the same Entrez ID they appear as separate
+# duplicate-Entrez rows (ensembl_id1 -> entrez, ensembl_id2 -> entrez). The
+# first data row (i.e. the second row of the file) carries the sample class
+# labels, one per sample column.
+.write.annotated.download <- function(data.proc, entrez.vec, dataSet, file="data_annotated.csv"){
+  tryCatch({
+    orig.ids <- rownames(data.proc);
+    samples  <- colnames(data.proc);
+
+    entrez.col <- rep("", length(orig.ids));
+    if(!is.null(entrez.vec) && length(entrez.vec) == length(orig.ids)){
+      entrez.col <- ifelse(is.na(entrez.vec), "", as.character(entrez.vec));
+    }
+
+    # Map matched Entrez IDs to gene symbols (best effort; leave blank on failure)
+    symbol.col <- rep("", length(orig.ids));
+    nz <- nzchar(entrez.col);
+    if(any(nz)){
+      mapped <- try(doEntrez2SymbolMapping(entrez.col[nz]), silent=TRUE);
+      if(!inherits(mapped, "try-error") && length(mapped) == sum(nz)){
+        mapped[is.na(mapped)] <- "";
+        symbol.col[nz] <- mapped;
+      }
+    }
+
+    expr <- as.data.frame(sanitizeSmallNumbers(data.proc), check.names=FALSE, stringsAsFactors=FALSE);
+    expr[] <- lapply(expr, as.character);
+
+    body <- data.frame(EnsemblID  = as.character(orig.ids),
+                       EntrezID   = entrez.col,
+                       GeneSymbol = symbol.col,
+                       check.names = FALSE, stringsAsFactors = FALSE);
+    body <- cbind(body, expr);
+
+    # Sample class labels (first metadata factor), aligned to the sample columns.
+    cls.vec <- rep("", length(samples));
+    if(!is.null(dataSet$cls) && !is.null(dataSet$meta.info)){
+      cls.named <- as.character(dataSet$cls);
+      names(cls.named) <- rownames(dataSet$meta.info);
+      m <- cls.named[samples];
+      m[is.na(m)] <- "";
+      cls.vec <- unname(m);
+    }
+    class.row <- c("Class", "", "", cls.vec);
+    class.row <- setNames(as.list(class.row), colnames(body));
+    class.row <- as.data.frame(class.row, check.names=FALSE, stringsAsFactors=FALSE);
+
+    out <- rbind(class.row, body);
+    write.csv(out, file=file, row.names=FALSE);
+  }, error = function(e){
+    warning("annotated download write failed, falling back to plain matrix: ", e$message);
+    fast.write(sanitizeSmallNumbers(data.proc), file=file);
+  });
 }
 
 

@@ -155,6 +155,35 @@ PreparePODJSON <- function(fileNm, doseScale, xMin=-Inf, xMax=Inf, geneDB, org){
   return(1);
 }
 
+# Return the pathway with the LOWEST BMD among pathways that are both
+# significant (adjusted p-value < sig.lvl) and have at least min.hits observed
+# genes. Reads the enrichment table produced by PreparePODJSON
+# (imgSet$enrTables[["curvefit"]]$table: columns Name, pathBMD, pval, adj.pval,
+# perc.path, num.hits). Returns a length-2 character vector c(name, bmd); both
+# elements are "NA" when no pathway qualifies or enrichment has not been run.
+GetLowestSigPathwayBMD <- function(sig.lvl = 0.05, min.hits = 3){
+  na.res <- c("NA", "NA");
+  imgSet <- tryCatch(readSet(imgSet, "imgSet"), error = function(e) NULL);
+  if(is.null(imgSet) || is.null(imgSet$enrTables[["curvefit"]]$table)){
+    return(na.res);
+  }
+  tbl <- imgSet$enrTables[["curvefit"]]$table;
+  if(is.null(tbl) || nrow(tbl) == 0 ||
+     !all(c("Name","pathBMD","adj.pval","num.hits") %in% colnames(tbl))){
+    return(na.res);
+  }
+  bmd  <- suppressWarnings(as.numeric(as.character(tbl$pathBMD)));
+  adjp <- suppressWarnings(as.numeric(as.character(tbl$adj.pval)));
+  hits <- suppressWarnings(as.numeric(as.character(tbl$num.hits)));
+  keep <- which(is.finite(bmd) & is.finite(adjp) & is.finite(hits) &
+                adjp < sig.lvl & hits >= min.hits);
+  if(length(keep) == 0){
+    return(na.res);
+  }
+  i <- keep[which.min(bmd[keep])];
+  return(c(as.character(tbl$Name[i]), as.character(bmd[i])));
+}
+
 PlotGeneBMD <- function(gene.id, gene.symbol, scale){
   paramSet <- readSet(paramSet, "paramSet");
   dataSet <- readDataset(paramSet$dataName);
