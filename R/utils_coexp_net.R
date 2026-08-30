@@ -329,24 +329,36 @@ BuildNodeTable <- function(g,
 }
 
 
+# The net.stats table is created when a network is decomposed into modules
+# (DecomposeGraph / UpdateSubnetStats). Before that point there is no network
+# to describe, so the getters below return empty values instead of raising
+# "object 'net.stats' not found" on a session where no network has been built.
+.get.net.stats <- function(){
+  if(exists("net.stats", envir = .GlobalEnv, inherits = FALSE)){
+    get("net.stats", envir = .GlobalEnv);
+  }else{
+    data.frame(Node=numeric(0), Edge=numeric(0), Query=numeric(0));
+  }
+}
+
 GetNetsName <- function(){
-  rownames(net.stats);
+  rownames(.get.net.stats());
 }
 
 GetNetsNameString <- function(){
-  paste(rownames(net.stats), collapse="||");
+  paste(rownames(.get.net.stats()), collapse="||");
 }
 
 GetNetsEdgeNum <- function(){
-  as.numeric(net.stats$Edge);
+  as.numeric(.get.net.stats()$Edge);
 }
 
 GetNetsNodeNum <- function(){
-  as.numeric(net.stats$Node);
+  as.numeric(.get.net.stats()$Node);
 }
 
 GetNetsQueryNum <- function(){
-  as.numeric(net.stats$Query);
+  as.numeric(.get.net.stats()$Query);
 }
 
 
