@@ -78,6 +78,12 @@ SetSelectedMetaInfo <- function(dataName="", meta0, meta1, block1){
         block <- meta[, meta1];
       }else{ # two factor
         cls <- interaction(meta[, c(meta0, meta1)], sep = "_", lex.order = TRUE);
+        cls <- droplevels(cls); # drop empty factor combinations (no samples)
+        # Expose the COMBINED levels (e.g. female_WT, female_cKO, ...) to the UI so
+        # subgroup contrasts like "female_cKO vs. female_WT" can be selected directly.
+        # These names match the design columns built by SetupDesignMatrix (~ 0 + cls),
+        # so the "custom"/"nested" contrast paths in prepareContrast apply unchanged.
+        unique_levels <- levels(cls)[levels(cls)!="NA"];
       }
       dataSet$sec.cls <- meta[, meta1]; # for pca coloring
     }
