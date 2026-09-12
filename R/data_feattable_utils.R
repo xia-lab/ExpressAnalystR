@@ -69,19 +69,36 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   use.omnibus <- identical(dataSet$comp.type, "default") &&
                  !is.null(dataSet$comp.res.omnibus)
   has.list <- !is.null(dataSet$comp.res.list) && length(dataSet$comp.res.list) >= inx;
+  # active.comp.nm is the pointer wf_plots.R's .ov_active_comp_nm() / .ov_primary_comp_name()
+  # read to decide which pairwise contrast a directional view (volcano, heatmap, ridgeline)
+  # draws and titles. ProteoAnalystR's twin function (GetSigfeatures) already sets it in both
+  # the omnibus and non-omnibus branches below; this file never did, so every one of those
+  # readers fell back to comp.res.list[[1]] — the FIRST pairwise contrast in raw factor-level
+  # order — regardless of which pair .ov_resolve_primary_comp_inx() (and thus `inx` here)
+  # actually resolved for the user's requested comparison. The DE fit itself was already
+  # correct (comp.res.list holds every pairwise contrast, correctly computed); only the
+  # "this is the one to show" pointer was missing. Live: requesting "T2D vs ND" on a 3-level
+  # factor correctly resolved inx to that pair, but every downstream figure/table showed
+  # "T3D-T2D" (array index 1) instead, because this pointer was never written.
   if (dataSet$de.method=="deseq2"){
     if (use.omnibus) {
+      if (has.list) dataSet$active.comp.nm <- names(dataSet$comp.res.list)[inx];
       dataSet$comp.res <- dataSet$comp.res.omnibus; resTable <- dataSet$comp.res;
-    } else if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
+    } else if (has.list) {
+      dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res;
+      dataSet$active.comp.nm <- names(dataSet$comp.res.list)[inx];
+    }
     hit.inx <- which(colnames(resTable) == "baseMean");
    } else if (dataSet$de.method=="limma" || dataSet$de.method=="wtt" ){
     hit.inx <- match("AveExpr", colnames(resTable));
     if (use.omnibus) {
+      if (has.list) dataSet$active.comp.nm <- names(dataSet$comp.res.list)[inx];
       dataSet$comp.res <- dataSet$comp.res.omnibus
       resTable <- dataSet$comp.res
       hit.inx <- match("AveExpr", colnames(resTable))
     } else if (has.list) {
       dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res;
+      dataSet$active.comp.nm <- names(dataSet$comp.res.list)[inx];
     }
 
     if (is.na(hit.inx) && dataSet$de.method == "wtt") {
@@ -95,8 +112,12 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
     }
   } else {
     if (use.omnibus) {
+      if (has.list) dataSet$active.comp.nm <- names(dataSet$comp.res.list)[inx];
       dataSet$comp.res <- dataSet$comp.res.omnibus; resTable <- dataSet$comp.res;
-    } else if (has.list) { dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res; }
+    } else if (has.list) {
+      dataSet$comp.res <- dataSet$comp.res.list[[inx]]; resTable <- dataSet$comp.res;
+      dataSet$active.comp.nm <- names(dataSet$comp.res.list)[inx];
+    }
     hit.inx <- which(colnames(resTable) == "logCPM");
   }
 
