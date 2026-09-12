@@ -239,8 +239,17 @@ if (has.list) {
   
   logFC <- unname(logfc.mat[,1]);
   geneList <- paste(gene, logFC, collapse="\n");
-  up <- nrow(resTable[which(logfc.mat[,paramSet$selectedFactorInx]> fc.lvl),])
-  down <- nrow(resTable[which(logfc.mat[,paramSet$selectedFactorInx]< -fc.lvl),])
+  # paramSet$selectedFactorInx is a PERSISTED global (last written by whichever caller
+  # resolved a "comparison of interest" index, e.g. PerformDeMethodWinner) — it points into
+  # comp.res.list, not into logfc.mat, which only ever has as many columns as maxFC.inx
+  # allows (always 1 for an omnibus/multi-group result, see the use.omnibus branch above).
+  # Indexing logfc.mat with the raw global crashed ("undefined columns selected") the first
+  # time a picked comparison actually resolved to anything other than column 1 — this was
+  # always latent, just never exercised before every caller of this "second GetSigGenes
+  # call" path happened to leave selectedFactorInx at its default of 1.
+  updown.inx <- min(max(1, paramSet$selectedFactorInx), ncol(logfc.mat));
+  up <- nrow(resTable[which(logfc.mat[,updown.inx]> fc.lvl),])
+  down <- nrow(resTable[which(logfc.mat[,updown.inx]< -fc.lvl),])
   saveSet(msgSet, "msgSet");
   
   data.norm <- dataSet$data.norm
