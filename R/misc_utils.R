@@ -1054,6 +1054,19 @@ readSet <- function(obj = NULL, set = "") {
   if (ov_qs_exists(file_path)) {
     obj <- ov_qs_read(file_path)
   } else {
+    # Every caller follows the same convention: X <- readSet(X, "X"), passing its own
+    # same-named global as the "already have it in memory" fallback. R arguments are lazy,
+    # so `obj` is not really a value yet here — it is a promise to look `X` up in the
+    # CALLER's environment, and merely asking is.null(obj) forces that lookup. When the
+    # global does not exist either (a code path that never ran in this session — set.qs was
+    # never written — or state that did not survive a project reload, which restores via
+    # Rload.RData rather than by re-running Init.Data()), forcing it throws "object 'X' not
+    # found" right here, before this function gets to answer the question at all — live,
+    # 14 Sep 2026: "[Enrichment Heatmap] object 'imgSet' not found" on a gene-list session
+    # that had never run an enrichment heatmap. Force it defensively instead: a missing
+    # default is exactly the case the warning below already documents and handles: it must
+    # never depend on every one of this function's ~15 call sites re-guarding it for itself.
+    obj <- tryCatch(obj, error = function(e) NULL)
     if (is.null(obj)) {
       warning(sprintf("readSet: File '%s' not found and no default object supplied.", file_path))
       return(invisible(NULL))
