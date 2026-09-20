@@ -56,11 +56,14 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     feature.vec <- rownames(data.proc);
     
     anot.id <- .doAnnotation(feature.vec, idType, paramSet);
-    # Save named vector (feature → entrez) only when ≥50% of IDs matched.
-    # Below 50% is treated as annotation failure: original IDs are used for
-    # stats; functional analysis is cancelled by the orchestrator.
+    # Save named vector (feature → entrez) when the annotation is USABLE: at least half of
+    # the IDs matched, OR at least .annot.min.matched genes did. The percentage alone refused a
+    # healthy whole-genome Ensembl table (58,336 features, 34.8% = 20,300 genes matched: the
+    # unmatched rows are non-coding genes and pseudogenes, which have no Entrez ID) and every
+    # functional step was skipped (omicsassist.ai, 20 Sep 2026). Below both, the original IDs
+    # are used for stats and functional analysis is cancelled by the orchestrator.
     hit.check <- !is.na(anot.id);
-    if (sum(hit.check) / length(anot.id) >= 0.5) {
+    if (.annot.usable(sum(hit.check), length(anot.id))) {
       ov_qs_save(anot.id, "annotation.qs");
     }
     anot.id <- unname(anot.id);
@@ -77,9 +80,8 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     hit.inx <- !is.na(anot.id);
     matched.len <- sum(hit.inx);
     perct <- round(matched.len/length(feature.vec),3)*100;
-    thresh <- 0.5 # < 50% match = annotation failure; use original IDs
-    if (matched.len < length(feature.vec)*thresh){
-      current.msg <- paste('Only ', perct, '% ID were matched. You may want to choose another ID type or use default.', sep="");
+    if (!.annot.usable(matched.len, length(feature.vec))){
+      current.msg <- paste('Only ', perct, '% ID were matched (', matched.len, ' of ', length(feature.vec), '). You may want to choose another ID type or use default.', sep="");
       # Even when annotation is poor, raw rownames may already contain
       # duplicates (e.g. probes mapping to the same gene symbol in the input
       # file). Without dedup, limma::topTable downstream errors when assigning
@@ -97,6 +99,11 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
     } else {
       current.msg <- paste("ID annotation: ", "Total [", length(anot.id), 
                            "] Matched [", matched.len, "] Unmatched [", sum(!hit.inx),"]", collapse="\n");    
+      if (matched.len < length(feature.vec) * 0.5) {
+        current.msg <- paste(current.msg, "Fewer than half of the IDs matched, which is expected for a",
+                             "whole-genome Ensembl table (non-coding genes and pseudogenes have no Entrez ID);",
+                             "functional analysis runs on the matched genes. Check Organism and ID type if that looks low.");
+      }
       
       if (lvlOpt != 'NA' | idType == "entrez"){
         # do actual summarization to gene level
@@ -190,11 +197,20 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   # function) is persisted; otherwise downstream readDataset() calls return
   # the pre-annotation dataSet whose `annotated` field is NULL, and
   # `if (dataSet$annotated)` / `... || dataSet$annotated` throw on length-zero.
-  if (matched.len < length(feature.vec) * 0.5) {
+  if (!.annot.usable(matched.len, length(feature.vec))) {
     RegisterData(dataSet, matched.len);
     return(0);
   }
   return(RegisterData(dataSet, matched.len));
+}
+
+# The one rule for "the annotation is usable" (20 Sep 2026): at least half of the IDs matched,
+# or at least this many genes did — enough for enrichment whatever the fraction, since a
+# whole-genome Ensembl table cannot reach 50% (Entrez covers the protein-coding minority).
+# Used by the annotation.qs save, the message and the return value above, so they agree.
+.annot.min.matched <- 2000L;
+.annot.usable <- function(matched, total) {
+  matched >= total * 0.5 || matched >= .annot.min.matched;
 }
 
 
