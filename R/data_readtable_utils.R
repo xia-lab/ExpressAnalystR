@@ -838,7 +838,7 @@ ReadMetaData <- function(metafilename){
   # but the cbind that actually removed them only ran when a continuous column happened to exist.
   # With no continuous column they were announced and kept; with one they were removed and then
   # vanished from colnames(meta.info), so a covariate assigned to such a column was dropped by
-  # ov_covariate_setup's intersect() with nothing reported. Drop always, re-order only when there
+  # SetCovariateVars' intersect() with nothing reported. Drop always, re-order only when there
   # is something to re-order.
   if(length(rmcol) > 0){
     meta.info <- meta.info[, -rmcol, drop=FALSE];

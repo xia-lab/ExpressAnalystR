@@ -890,7 +890,7 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
 SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscriptDir, deplexerExecutable, barcodeRead, barcodeStart, barcodeLength, maxMismatch, trimLeft, sampleIdFile, threads, maxMemory, runKallisto=FALSE, kallistoDatabase="NA", kallistoAvgFragLen=200, kallistoStdFragLen=30, kallistoMinScore=25, databasePath="", kallistoPath=""){
   # Kallisto binary + transcriptome-index root. The caller's value wins WHEN IT EXISTS
   # on this host; otherwise resolve through the shared ladders the rest of the stack
-  # uses (.ai_resolve_seq_bin / .ov_resolve_seqlib_dir: PATH- and OMICS_LIB_DIR-aware),
+  # uses (PATH- and OMICS_LIB_DIR-aware resolvers, when the host defines them),
   # and only then fall back to the glassfish server layout. Those two /data/glassfish/...
   # paths used to be BOTH the argument defaults and hardcoded re-assignments inside the
   # kallisto branch below; neither exists in the Docker image (kallisto is on PATH,
