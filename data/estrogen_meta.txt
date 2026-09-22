@@ -1,4 +1,4 @@
-#NAME	ER	TIME
+Sample	ER	TIME
 low10-1.cel	absent	10
 low10-2.cel	absent	10
 high10-1.cel	present	10

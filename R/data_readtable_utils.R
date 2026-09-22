@@ -419,16 +419,11 @@ ReadMetaData <- function(metafilename){
     saveSet(msgSet, "msgSet");
     return(NULL);
   }
-  # look for #NAME, store in a list
-  sam.inx <- grep("^#NAME", colnames(metadata)[1]);
-  if(length(sam.inx) > 0){
-    smpl_nms<-metadata[,1];
-    smpl_var<-colnames(metadata[-1]);
-  }else{
-    msgSet$current.msg = "Please make sure you have the label #NAME in your sample data file!"
-    saveSet(msgSet, "msgSet");
-    return(NULL);
-  }
+  # The first column is the sample-ID column by position. Do not require a
+  # specific header label (#NAME): whatever the first column is called, treat it
+  # as the sample IDs so differently-labelled files still load.
+  smpl_nms <- metadata[,1];
+  smpl_var <- colnames(metadata[-1]);
   # converting to character matrix as duplicate row names not allowed in data frame.
   metadata <-data.frame(lapply(1:ncol(metadata),function(x){
     metadata[,x]=unlist(ClearFactorStrings(metadata[,x]))
@@ -750,16 +745,10 @@ ReadMetaData <- function(metafilename){
     }
     mydata[mydata == ""] <- NA
     mydata[is.na(mydata)] <- "NA";
-    # look for #NAME, store in a list
-    sam.inx <- grep("^#NAME", colnames(mydata)[1]);
-    if(length(sam.inx) > 0){
-      smpl_nm<-mydata[,1];
-      smpl_var<-colnames(mydata[-1]);
-    }else{
-      msgSet$current.msg <- "Please make sure you have the label #NAME in your sample data file!";
-      saveSet(msgSet, "msgSet");
-      return(NULL);
-    }
+    # First column is the sample-ID column by position (normalized to #NAME above);
+    # do not require a specific header label.
+    smpl_nm  <- mydata[,1];
+    smpl_var <- colnames(mydata[-1]);
 
     empt <- remove_empty_cols(mydata)
     mydata <- empt$cleaned
