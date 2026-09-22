@@ -1308,8 +1308,12 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
       )
 
       traces[[length(traces) + 1]] <- list(
-        x            = df$PC1,
-        y            = df$PC2,
+        # Wrap length-1 coords so jsonlite(auto_unbox=TRUE) keeps them as JSON
+        # arrays. A single-sample group otherwise serializes x/y as a scalar and
+        # the frontend (Array.isArray gate in pca.js) draws no point — axes but
+        # no data. Same guard as qc.pcaplot.outliers.json.
+        x            = if (length(df$PC1) == 1) list(df$PC1) else df$PC1,
+        y            = if (length(df$PC2) == 1) list(df$PC2) else df$PC2,
         type         = "scatter",
         mode         = if (nrow(df) > 20) "markers" else "markers+text",
         name         = paste0(g, " • ", sh),
@@ -1334,8 +1338,11 @@ qc.pcaplot.json <- function(dataSet, x, imgNm) {
       )
 
       traces[[length(traces) + 1]] <- list(
-        x            = df$PC1,
-        y            = df$PC2,
+        # Wrap length-1 coords so jsonlite(auto_unbox=TRUE) keeps them as JSON
+        # arrays (single-sample group would otherwise serialize x/y as a scalar
+        # and render no point). Same guard as qc.pcaplot.outliers.json.
+        x            = if (length(df$PC1) == 1) list(df$PC1) else df$PC1,
+        y            = if (length(df$PC2) == 1) list(df$PC2) else df$PC2,
         type         = "scatter",
         mode         = if (nrow(df) > 20) "markers" else "markers+text",
         name         = g,
