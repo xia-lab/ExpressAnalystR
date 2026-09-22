@@ -422,12 +422,6 @@ NormalizeData <-function (data, norm.opt, colNorm="NA", scaleNorm="NA"){
     require('preprocessCore');
     data <- normalize.quantiles(as.matrix(data), copy=TRUE);
     msg <- paste(msg, "Quantile normalization.", collapse=" ");
-  }else if(norm.opt=="combined"){
-    require(limma);
-    data <- normalizeVSN(data);
-    require('preprocessCore');
-    data <- normalize.quantiles(as.matrix(data), copy=TRUE);
-    msg <- paste(msg, "VSN followed by quantile normalization.", collapse=" ");
   }else if(norm.opt %in% c("logcount", "RLE", "TMM")){
     cnf_method <- c(logcount = "none", RLE = "RLE", TMM = "TMM")[norm.opt]
     bridge_in_nf <- ov_bridge_file("in")

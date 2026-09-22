@@ -9,7 +9,7 @@ ReadMergedExpressTable(dataName)
 \arguments{
 \item{dataName}{File name of data set.}
 
-\item{norm.opt}{Normalization option (log, vsn, quantile, combined, logCount, NA)}
+\item{norm.opt}{Normalization option (log, vsn, quantile, logCount, NA)}
 
 \item{auto.opt}{integer (0,1), Perform auto scaling}
 }

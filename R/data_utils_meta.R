@@ -117,7 +117,7 @@ GlobalCutOff <- list(
 #'Read merged gene expression table
 #'@description Perform normalization on individual dataset in meta-analysis
 #'@param dataName File name of data set.
-#'@param norm.opt Normalization option (log, vsn, quantile, combined, logCount, NA)
+#'@param norm.opt Normalization option (log, vsn, quantile, logCount, NA)
 #'@param auto.opt integer (0,1), Perform auto scaling
 #'@author Jeff Xia \email{jeff.xia@mcgill.ca}
 #'McGill University, Canada
