@@ -1,4 +1,32 @@
 
+# Locate a sequencing binary (fastp, kallisto, deplexer, ...) on this host: first on
+# PATH, then under the shared library directory named by OMICS_LIB_DIR using the
+# server layout (seq_software/<name>_source/<name> or seq_software/<name>/<name>).
+# Returns "" when nothing is found so callers can keep their own default.
+.resolve_seq_bin <- function(name){
+  p <- unname(Sys.which(name));
+  if(nzchar(p)) return(p);
+  lib <- Sys.getenv("OMICS_LIB_DIR", "");
+  if(nzchar(lib)){
+    for(cand in c(file.path(lib, "seq_software", paste0(name, "_source"), name),
+                  file.path(lib, "seq_software", name, name))){
+      if(file.exists(cand)) return(cand);
+    }
+  }
+  "";
+}
+
+# Locate a reference directory (e.g. "kallisto_database") under OMICS_LIB_DIR.
+# Returns NA_character_ when absent so callers can keep their own default.
+.resolve_seqlib_dir <- function(name){
+  lib <- Sys.getenv("OMICS_LIB_DIR", "");
+  if(nzchar(lib)){
+    cand <- file.path(lib, "seq_software", name);
+    if(dir.exists(cand)) return(cand);
+  }
+  NA_character_;
+}
+
 WriteSampleTable <- function(ftpDir, userDir, sampleTable){
   str = gsub("\\[|\\]", "", sampleTable);
   str = gsub("FastqModel\\{|\\}", "", str);
@@ -625,22 +653,22 @@ SubmitJobKls <- function(userDir, email, database, des, readEnds, shellscriptDir
   # The ladder above knows only the glassfish server and two developer laptops, so any
   # other host (notably Docker, whose userDir matches none of them) falls through to a
   # developer's /home/peng tree and emits a script pointing at binaries that do not
-  # exist. Resolve through the shared PATH- / OMICS_LIB_DIR-aware ladders whenever the
-  # ladder's guess is not on disk. Same resolvers SubmitJobKlsPro uses.
-  if(!file.exists(fastpPath) && exists(".ai_resolve_seq_bin")){
-    fp = tryCatch(.ai_resolve_seq_bin("fastp"), error = function(e) "");
+  # exist. Resolve through PATH / OMICS_LIB_DIR whenever the
+  # ladder's guess is not on disk.
+  if(!file.exists(fastpPath)){
+    fp = .resolve_seq_bin("fastp");
     if(nzchar(fp)) fastpPath = fp;
   }
-  if(!file.exists(kallistoPath) && exists(".ai_resolve_seq_bin")){
-    kl = tryCatch(.ai_resolve_seq_bin("kallisto"), error = function(e) "");
+  if(!file.exists(kallistoPath)){
+    kl = .resolve_seq_bin("kallisto");
     if(nzchar(kl)) kallistoPath = kl;
   }
-  if(!dir.exists(databasePath) && exists(".ov_resolve_seqlib_dir")){
-    kd = tryCatch(.ov_resolve_seqlib_dir("kallisto_database"), error = function(e) NA_character_);
+  if(!dir.exists(databasePath)){
+    kd = .resolve_seqlib_dir("kallisto_database");
     if(!is.na(kd)) databasePath = kd;
   }
   # Prefer a version-locked kallisto shipped beside the index tree, if present
-  # (mirrors SubmitJobKlsPro) — a PATH kallisto 0.50.1 rejects older bundled indices.
+  # — a PATH kallisto 0.50.1 rejects older bundled indices.
   klPaired = file.path(dirname(databasePath), "kallisto_source", "kallisto");
   if(file.exists(klPaired)) kallistoPath = klPaired;
 
@@ -903,17 +931,17 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
 
   callerKallistoBin <- .usable(kallistoPath) && file.exists(kallistoPath)
   if(!callerKallistoBin){
-    resolved <- if(exists(".ai_resolve_seq_bin")) tryCatch(.ai_resolve_seq_bin("kallisto"), error = function(e) "") else ""
+    resolved <- .resolve_seq_bin("kallisto")
     kallistoPath <- if(nzchar(resolved)) resolved else "/data/glassfish/seq_software/kallisto_source/kallisto"
   }
 
   if(!(.usable(databasePath) && dir.exists(databasePath))){
-    resolved <- if(exists(".ov_resolve_seqlib_dir")) tryCatch(.ov_resolve_seqlib_dir("kallisto_database"), error = function(e) NA_character_) else NA_character_
+    resolved <- .resolve_seqlib_dir("kallisto_database")
     databasePath <- if(!is.na(resolved)) resolved else "/data/glassfish/seq_software/kallisto_database"
   }
 
   # When we picked the binary ourselves, prefer the version-locked kallisto shipped
-  # beside the index tree if there is one (mirrors SubmitJobKlsPro): a PATH kallisto
+  # beside the index tree if there is one: a PATH kallisto
   # 0.50.1 rejects older bundled indices with "incompatible indices".
   if(!callerKallistoBin){
     kallistoPaired <- file.path(dirname(databasePath), "kallisto_source", "kallisto")
@@ -946,7 +974,7 @@ SubmitJobDeplexer <- function(userDir, email, database, des, readEnds, shellscri
     # PATH-aware resolver when the ladder's guess is not on disk (isSlurm stays as the
     # ladder set it — that flag is about the scheduler, not the binary).
     if(!file.exists(deplexerExecutable)){
-      resolved <- if(exists(".ai_resolve_seq_bin")) tryCatch(.ai_resolve_seq_bin("deplexer"), error = function(e) "") else ""
+      resolved <- .resolve_seq_bin("deplexer")
       if(nzchar(resolved)) deplexerExecutable <- resolved
     }
   }
