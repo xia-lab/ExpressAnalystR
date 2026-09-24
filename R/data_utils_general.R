@@ -22,70 +22,13 @@ Set.Config <-function(anal.mode="web"){
   globalConfig <<- globalConfig;
 }
 
-#'Initialize resources for analysis
-#'@description call this function before performing any analysis
-#'@param onWeb whether the script is running in local or on web
-#'@author Jeff Xia \email{jeff.xia@mcgill.ca}
-#'McGill University, Canada
-#'License: MIT
-#'@export
-#'
-Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
-  default.dpi <<- default.dpi;
-  path = "../../";
-  resource.dir <<- "../../";
-  adj.vec <<- "";
-  .on.public.web <<- onWeb;
-  dataSet <- list(annotated=FALSE);
-  dataSet <<- dataSet;
-  # Also reset the plural dataSets registry so dataset names from a prior
-  # session don't bleed into this one (readDataset() falls through to the
-  # in-memory registry first, and a stale name there causes spurious
-  # "cannot load 'foo.txt'" warnings plus downstream NULL-deref errors in
-  # GetMetaSummary / GetResColType).
-  dataSets <<- list();
-  analSet <<- list(objName="analSet");
-  paramSet <<- list( objName="paramSet");
-
-  msgSet <<- list(objName="msgSet");
-  cmdSet <<- list(objName="cmdSet");
-  imgSet <<- list(objName="imgSet",enrTables=list(),featureList=list());
-  paramSet$on.public.web <- onWeb;
-
-  if(paramSet$on.public.web){
-   anal.mode <- "web";
-   #anal.mode <- "api";
-  }else{
-  anal.mode <- "local";
-  }
-
-  Set.Config(anal.mode);
-  paramSet$partialToBeSaved <- c("Rload.RData", "Rhistory.R", "paramSet.qs", "msgSet.qs", "analSet.qs", "cmdSet.qs");
-
-  Sys.setenv("OMP_NUM_THREADS" = 2); # need to control parallel computing for some packages
-  paramSet$init.lib <- "kegg";
-  paramSet$selectedFactorInx <- 1; #in multi comparison (i.e pairwise, time-series) which contrast is used
-  analSet$net.stats <- as.data.frame(matrix(0, ncol = 3, nrow = 1));
-  msgSet$summaryVec <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "NA"); 
-  analSet$enr.mat <- NULL;
-  paramSet$numOfLists <- 1;
-  paramSet$gseaRankOpt <- "fc";
-  paramSet$data.idType <- "";
-  paramSet$pvalu <- 0.05;
- 
-  paramSet$mdata.all <- list();
-  paramSet$anal.type <- "onedata";
-  paramSet$api.bool <- F;
-  # kept http:// — api.xialab.ca has no valid TLS cert; https would break this. TODO(distribution): durable https host.
-  paramSet$api.base <<- "http://api.xialab.ca" #dose response
-  paramSet$universe.opt <- "uploaded";
-  paramSet$universe.opt.readable <- "Uploaded data";
-  paramSet$fc.thresh <- 0;
-  paramSet$report.format <- "pdf";
-  paramSet$upsetMode <- "NA";
-
-  paramSet$jsonNms <- list()
-
+# Where THIS machine keeps the reference libraries — the SQLite databases and the shared data dir.
+# A fact about the session, not the project: Init.Data records it in a new analysis's paramSet, and
+# Init.Session refreshes it in a resumed one's, whose saved paramSet names the app folder it was
+# saved under (the folder moves with every deploy).
+.machine.lib.paths <- function(onWeb=T, dataPath="data/"){
+  path <- "../../";
+  out <- list();
   #if(file.exists("/data/sqlite/")){
   #  sqlite.path <- "/data/sqlite/";  #vip server
   #}else 
@@ -120,17 +63,16 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
     sqlite.path <- "";
   }
 
-  if(!.on.public.web) {
+  if(!onWeb) {
     # Use detected local sqlite path if available, otherwise fall back to getwd for on-demand download
     if(nzchar(sqlite.path) && dir.exists(sqlite.path)) {
-      paramSet$sqlite.path <- sqlite.path;
+      out$sqlite.path <- sqlite.path;
     } else {
-      paramSet$sqlite.path <- paste0(getwd(), "/");
+      out$sqlite.path <- paste0(getwd(), "/");
     }
-    paramSet$lib.path <- "https://www.expressanalyst.ca/ExpressAnalyst/resources/data/";
-    paramSet <<- paramSet;
+    out$lib.path <- "https://www.expressanalyst.ca/ExpressAnalyst/resources/data/";
   }else{
-    paramSet$sqlite.path <- sqlite.path;
+    out$sqlite.path <- sqlite.path;
     # Reference-data (geneset .rds: kegg/reactome/go_*/motif ...) lives in the SHARED,
     # consolidated <app>/resources/data. lib.path used to be RELATIVE — paste0("../../",
     # "../../resources/data/") = "../../../../resources/data/" — which only resolves when the
@@ -147,12 +89,111 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
       } else NA_character_
     }, error = function(e) NA_character_);
     if (!is.na(shared.data) && dir.exists(file.path(shared.data, "libs"))) {
-      paramSet$lib.path <- paste0(shared.data, "/");
+      out$lib.path <- paste0(shared.data, "/");
     } else {
-      paramSet$lib.path <- paste0(path, dataPath);
+      out$lib.path <- paste0(path, dataPath);
     }
   }
-  print(paste("sqlitePath:", sqlite.path));
+  out;
+}
+
+#'Set up the R session's environment
+#'@description What every connection needs, whichever project it serves: the on-web flag, the
+#'default dpi, the analysis mode, the thread cap, and the graphics/network packages the plotting
+#'code calls unqualified. It creates no analysis state (on a resume it only points the saved
+#'paramSet at this machine's libraries), so it is ALL that a RESUMED project's session runs: that project's paramSet/analSet/msgSet/cmdSet on disk (and its
+#'Rload.RData) are its state, and a resume that ran Init.Data wrote a new analysis's sets over
+#'them. Init.Data runs this first, then creates a new analysis's state.
+#'@param onWeb whether the script is running in local or on web
+#'@param default.dpi default image resolution
+#'@export
+#'
+Init.Session <- function(onWeb=T, default.dpi=72){
+  default.dpi <<- default.dpi;
+  resource.dir <<- "../../";
+  .on.public.web <<- onWeb;
+  if(onWeb){
+   anal.mode <- "web";
+   #anal.mode <- "api";
+  }else{
+  anal.mode <- "local";
+  }
+  Set.Config(anal.mode);
+  Sys.setenv("OMP_NUM_THREADS" = 2); # need to control parallel computing for some packages
+  require('Cairo');
+  CairoFonts("Arial:style=Regular","Arial:style=Bold","Arial:style=Italic","Helvetica","Symbol")
+  require('igraph');
+  # A RESUMED project (its saved paramSet in the working directory): only the library locations are
+  # refreshed — this machine's, not the project's; every other saved setting is left as it was.
+  if (ov_qs_exists("paramSet.qs")) {
+    ps <- ov_qs_read("paramSet.qs");
+    lp <- .machine.lib.paths(onWeb);
+    if (is.list(ps) && !identical(ps[names(lp)], lp)) {
+      for (k in names(lp)) ps[k] <- lp[k];
+      saveSet(ps, "paramSet");
+    }
+  }
+  return(1);
+}
+
+#'Initialize resources for analysis
+#'@description call this function before performing any analysis
+#'@param onWeb whether the script is running in local or on web
+#'@author Jeff Xia \email{jeff.xia@mcgill.ca}
+#'McGill University, Canada
+#'License: MIT
+#'@export
+#'
+Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
+  Init.Session(onWeb, default.dpi);
+  path = "../../";
+  adj.vec <<- "";
+  dataSet <- list(annotated=FALSE);
+  dataSet <<- dataSet;
+  # Also reset the plural dataSets registry so dataset names from a prior
+  # session don't bleed into this one (readDataset() falls through to the
+  # in-memory registry first, and a stale name there causes spurious
+  # "cannot load 'foo.txt'" warnings plus downstream NULL-deref errors in
+  # GetMetaSummary / GetResColType).
+  dataSets <<- list();
+  analSet <<- list(objName="analSet");
+  paramSet <<- list( objName="paramSet");
+
+  msgSet <<- list(objName="msgSet");
+  cmdSet <<- list(objName="cmdSet");
+  imgSet <<- list(objName="imgSet",enrTables=list(),featureList=list());
+  paramSet$on.public.web <- onWeb;
+
+
+  paramSet$partialToBeSaved <- c("Rload.RData", "Rhistory.R", "paramSet.qs", "msgSet.qs", "analSet.qs", "cmdSet.qs");
+
+  paramSet$init.lib <- "kegg";
+  paramSet$selectedFactorInx <- 1; #in multi comparison (i.e pairwise, time-series) which contrast is used
+  analSet$net.stats <- as.data.frame(matrix(0, ncol = 3, nrow = 1));
+  msgSet$summaryVec <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "NA"); 
+  analSet$enr.mat <- NULL;
+  paramSet$numOfLists <- 1;
+  paramSet$gseaRankOpt <- "fc";
+  paramSet$data.idType <- "";
+  paramSet$pvalu <- 0.05;
+ 
+  paramSet$mdata.all <- list();
+  paramSet$anal.type <- "onedata";
+  paramSet$api.bool <- F;
+  # kept http:// — api.xialab.ca has no valid TLS cert; https would break this. TODO(distribution): durable https host.
+  paramSet$api.base <<- "http://api.xialab.ca" #dose response
+  paramSet$universe.opt <- "uploaded";
+  paramSet$universe.opt.readable <- "Uploaded data";
+  paramSet$fc.thresh <- 0;
+  paramSet$report.format <- "pdf";
+  paramSet$upsetMode <- "NA";
+
+  paramSet$jsonNms <- list()
+
+  lp <- .machine.lib.paths(onWeb, dataPath);
+  for (k in names(lp)) paramSet[k] <- lp[k];
+  if(!.on.public.web) paramSet <<- paramSet;
+  print(paste("sqlitePath:", lp$sqlite.path));
 
 
   paramSet$data.org <- "hsa";
@@ -161,9 +202,6 @@ Init.Data <-function(onWeb=T, dataPath="data/", default.dpi=72){
   msgSet$msg.list <- list(); #numbered list, each element: function name, line number, time stamp, severity
 
   # preload some general package
-  require('Cairo');
-  CairoFonts("Arial:style=Regular","Arial:style=Bold","Arial:style=Italic","Helvetica","Symbol")
-  require('igraph');
   print("called expressanalyst init!");
 
   saveSet(paramSet, "paramSet");
