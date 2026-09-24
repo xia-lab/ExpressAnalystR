@@ -66,8 +66,12 @@ BuildIgraphFromCEM <- function(thresh    = 0.05,
   # multi-edge), visible as a doubled/lens-shaped line between every connected pair.
   # Collapse the parallel pair into one edge; their weights are identical modulo
   # floating point, so "mean" is a no-op on the value while being robust to it.
+  # The unnamed "ignore" is the rule for every OTHER edge attribute (the melt's `value`,
+  # a copy of weight): without it igraph 2.3 keeps `value` as a NULL attribute, and that
+  # malformed graph throws "subscript out of bounds" on any edge-sequence index -- which
+  # left every co-expression network view unrendered.
   g <- igraph::simplify(g, remove.multiple = TRUE, remove.loops = TRUE,
-                        edge.attr.comb = list(weight = "mean"))
+                        edge.attr.comb = list(weight = "mean", "ignore"))
 
   
   
