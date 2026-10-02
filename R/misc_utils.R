@@ -35,6 +35,14 @@ ov_qs_exists <- function(file) {
   FALSE
 }
 
+# Package helpers referenced across the R sources (e.g. helper_functions.R,
+# norm_utils.R) as the canonical qs save/read. They were historically expected
+# in a 00_qs_compat.R that was never added; define them here, in a file that is
+# loaded for every module, as thin aliases over ov_qs_save/ov_qs_read so there is
+# a single qs2->qs fallback implementation.
+.expressanalyst_qsave <- function(obj, file, ...) ov_qs_save(obj, file, ...)
+.expressanalyst_qread <- function(file, ...) ov_qs_read(file, ...)
+
 SetLibPath <- function(path){
   api.lib.path <<- path;
 }
