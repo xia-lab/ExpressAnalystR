@@ -255,6 +255,7 @@ queryGeneDB <- function(table.nm, data.org){
   }else{
     require('RSQLite');
     db.path <- paste(paramSet$sqlite.path, data.org, "_genes.sqlite", sep="")
+    if (exists("ov_require_ref_sqlite", mode = "function")) ov_require_ref_sqlite(db.path);
 
     if(!PrepareSqliteDB(db.path, paramSet$on.public.web)){
       AddErrMsg("Sqlite database is missing, please check your internet connection!");
