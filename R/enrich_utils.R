@@ -68,9 +68,11 @@
   #if(!is.null(dataSet$data.anot)){
    if(file.exists("data.anot.qs")){
     current.geneset <- lapply(current.geneset, function(x){x[x %in% current.universe]})
-    inds <- lapply(current.geneset, length) > 0
-    current.geneset <- current.geneset[inds]
   }
+  # A pathway of fewer than two (measured) members is not tested: one gene cannot be "enriched". Filtered by size
+  # alone, before any test, so the family the p-values are adjusted over never depends on the hits (the same family
+  # as the KEGG pathway-maps table).
+  current.geneset <- current.geneset[lengths(current.geneset) >= 2]
 
   # Bail out cleanly if no pathways survived filtering — otherwise set.size below
   # becomes NULL and phyper fires "Non-numeric argument to mathematical function".
