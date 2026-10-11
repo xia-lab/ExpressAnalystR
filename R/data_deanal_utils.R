@@ -244,7 +244,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
   run_func_via_microservice(
-    func = function(wd, bridge_in, bridge_out) {
+    func = function(wd, bridge_in, bridge_out, workers = 1) {
       setwd(wd)
       require(DESeq2)
       input <- ov_qs_read(bridge_in)
@@ -338,7 +338,16 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
                                     colData   = colData,
                                     design    = design)
       set.seed(123)
-      dds <- DESeq(dds, betaPrior = FALSE)
+      # Gene-wise fits are split across forked workers when ea.deseq.workers > 1
+      # (set by DeJobBean on dev); results are identical to the serial fit.
+      par_args <- list()
+      n_workers <- as.integer(workers)
+      if (n_workers > 1 && .Platform$OS.type == "unix" &&
+          requireNamespace("BiocParallel", quietly = TRUE)) {
+        par_args <- list(parallel = TRUE,
+                         BPPARAM = BiocParallel::MulticoreParam(n_workers))
+      }
+      dds <- do.call(DESeq, c(list(dds, betaPrior = FALSE), par_args))
       ov_qs_save(dds, "deseq.res.obj.rds")
 
       # ---- Extract contrast results ----
@@ -383,7 +392,9 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       omni.res <- NULL
       if (length(contrast_list) > 1) {
         reduced.fml <- if ("block" %in% colnames(colData)) ~ block else ~ 1
-        dds.lrt <- tryCatch(DESeq(dds, test = "LRT", reduced = reduced.fml),
+        # Full DESeq() rather than nbinomLRT(): it redoes outlier replacement for
+        # the LRT fit (n >= 7 per group), which nbinomLRT() alone would skip.
+        dds.lrt <- tryCatch(do.call(DESeq, c(list(dds, test = "LRT", reduced = reduced.fml), par_args)),
                             error = function(e) NULL)
         if (!is.null(dds.lrt)) {
           ro <- results(dds.lrt, independentFiltering = FALSE, cooksCutoff = Inf)
@@ -399,8 +410,9 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
 
       ov_qs_save(list(contrasts = results_list, omnibus = omni.res), bridge_out, preset = "fast")
     },
-    args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out),
-    timeout_sec = 300
+    args = list(wd = getwd(), bridge_in = bridge_in, bridge_out = bridge_out,
+                workers = getOption("ea.deseq.workers", 1)),
+    timeout_sec = getOption("ea.deseq.timeout", 300)  # raised by DeJobBean on dev
   )
 
   bundle <- if (file.exists(bridge_out)) ov_qs_read(bridge_out) else NULL
