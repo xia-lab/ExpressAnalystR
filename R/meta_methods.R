@@ -874,7 +874,8 @@ combinePvals <- function(pvalonesided,nrep,BHth=0.05, method) {
     rpvalpvalc2 <- 1-pchisq(fsum2, df=(ncol(data)*2));
     
     # report the min of two direction calculation
-    rpvalpvalc <- pmin(rpvalpvalc1, rpvalpvalc2);
+    # both directions were tested, so double the smaller p (otherwise the type I error is 2x nominal)
+    rpvalpvalc <- pmin(1, 2 * pmin(rpvalpvalc1, rpvalpvalc2));
     
     # adding direction information
     statpvalc <- pmax(fsum1, fsum2);
@@ -952,7 +953,11 @@ f.Q <- function(dadj, varadj){
 }
 
 effectsize <- function(tstat,ntilde,m){
-  cm=gamma(m/2)/(sqrt(m/2)*gamma((m-1)/2))
+  # m = degrees of freedom of the moderated t (df.prior + df.residual: the moderated effect size of
+  # Marot et al. 2009, metaMA). Computed via lgamma and capped: gamma() overflowed for m > ~343
+  # (large studies, or limma's df.prior = Inf), which made every effect size NaN.
+  m <- pmin(m, 1e6)
+  cm=exp(lgamma(m/2) - lgamma((m-1)/2))/sqrt(m/2)
   d=tstat/sqrt(ntilde)
   dprime=cm*d
   terme1=m/((m-2)*ntilde)
