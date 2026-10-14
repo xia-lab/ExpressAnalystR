@@ -740,23 +740,45 @@ GetMetaResultColNames<-function(type="averageFc"){
   analSet <- readSet(analSet, "analSet");
 
   if(type == "averageFc"){
+    agree.nms <- if(.metaHasAgreement(analSet)) c("Agree", "Discordant") else character(0);
     if("AverageFc" %in% colnames(analSet$meta.mat)){
-      c(colnames(analSet$meta.mat));
+      c(agree.nms, colnames(analSet$meta.mat));
     }else{
-      c("AverageFc", colnames(analSet$meta.mat));
+      c(agree.nms, "AverageFc", colnames(analSet$meta.mat));
     }
   }else{
   mdata.all <- paramSet$mdata.all;
   sel.nms <- names(mdata.all)[mdata.all==1];
+  agree.nms <- if(.metaHasAgreement(analSet)) c("Agree", "Discordant") else character(0);
+  n.meta <- ncol(analSet$meta.mat.all) + length(agree.nms);
 
   # note, max 9 data columns can be displayed
-  if(length(sel.nms) + ncol(analSet$meta.mat.all) > 9){
-    max.col <- 9 - ncol(analSet$meta.mat.all);
+  if(length(sel.nms) + n.meta > 9){
+    max.col <- 9 - n.meta;
     sel.nms <- sel.nms[1:max.col];
   }
   
-  c(substring(sel.nms, 0, nchar(sel.nms)-4), colnames(analSet$meta.mat));
+  # the names of the matrix GetMetaResultMatrix returns: its combined columns are meta.mat.all's (AverageFc included),
+  # not meta.mat's - naming them from meta.mat shifted every combined value one column to the left
+  c(substring(sel.nms, 0, nchar(sel.nms)-4), agree.nms, colnames(analSet$meta.mat.all));
   }
+}
+
+# Direction agreement for a p-value combination: for each feature, the number of studies whose fold change has the
+# sign of the combined statistic (CombinedTstat is negative when the lower tail, i.e. a negative fold change, won),
+# and whether any study points the other way (1 = discordant).
+.metaDirectionAgreement <- function(fc.mat, stat, ids = names(stat)){
+  idx <- if(is.null(ids)) seq_len(nrow(fc.mat)) else match(ids, rownames(fc.mat));
+  s <- sign(as.matrix(fc.mat)[idx, , drop = FALSE]);
+  d <- sign(as.numeric(stat));
+  agree <- rowSums(s == d, na.rm = TRUE);
+  discordant <- as.integer(rowSums(s == -d & d != 0, na.rm = TRUE) > 0);
+  agree[is.na(idx)] <- NA; discordant[is.na(idx)] <- NA;   # a feature with no per-study fold change is left blank
+  cbind(Agree = agree, Discordant = discordant);
+}
+
+.metaHasAgreement <- function(analSet){
+  !is.null(analSet$meta.mat.all) && "CombinedTstat" %in% colnames(analSet$meta.mat.all) && !is.null(analSet$fc.mat);
 }
 
 # single.type return logFC or p value for individual data analysis
@@ -773,15 +795,23 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
     dat.mat <- analSet$pval.mat;
   }
 
+  # direction agreement across studies (p-value combination only), placed before the combined columns so the
+  # combined p-value stays the last column
+  agree <- NULL;
+  if(.metaHasAgreement(analSet)){
+    agree <- .metaDirectionAgreement(analSet$fc.mat, analSet$meta.mat.all[, "CombinedTstat"], rownames(analSet$meta.mat.all));
+  }
+  n.meta <- ncol(analSet$meta.mat.all) + if(is.null(agree)) 0 else ncol(agree);
+
   # note, max 9 data columns can be displayed
-  if(ncol(dat.mat) + ncol(analSet$meta.mat.all) > 9){
-    max.col <- 9 - ncol(analSet$meta.mat.all);
+  if(ncol(dat.mat) + n.meta > 9){
+    max.col <- 9 - n.meta;
     dat.mat <- dat.mat[,1:max.col];
   }
   if(single.type == "averageFc"){
-  meta.mat2 <- analSet$meta.mat.all;
+  meta.mat2 <- cbind(agree, analSet$meta.mat.all);
   }else{
-  meta.mat2 <- cbind(dat.mat, analSet$meta.mat.all);
+  meta.mat2 <- cbind(dat.mat, agree, analSet$meta.mat.all);
   }
   # display at most 1000 genes
   if(nrow(meta.mat2) > 1000){
