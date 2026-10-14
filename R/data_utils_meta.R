@@ -289,7 +289,9 @@ SetupMetaStats <- function(BHth=0.05, paramSet, analSet){
     analSet$meta.mat.all <- cbind(weightedAvgFC_df, analSet$meta.mat.all);
   }
 
-  dat.mat <- cbind(fc.mat, pval.mat, meta.mat);
+  # direction agreement across studies for a p-value combination, before the combined columns
+  agree <- if("CombinedTstat" %in% colnames(meta.mat)) .metaDirectionAgreement(fc.mat, meta.mat[, "CombinedTstat"], rownames(meta.mat)) else NULL;
+  dat.mat <- cbind(fc.mat, pval.mat, agree, meta.mat);
   dat.mat <- signif(dat.mat, 5);
   # save the result
   if(inmex.meta$id.type == "entrez"){ # row name gene symbols
