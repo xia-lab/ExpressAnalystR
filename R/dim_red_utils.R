@@ -98,6 +98,7 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
 
     pos.xyz <- mypos;
     pos.xyz <- unitAutoScale(pos.xyz);
+    pos.xyz <- .fitEllipsoidsInUnit(pos.xyz, facA);
     rownames(pos.xyz) = pca3d$score$name;
     ov_qs_save(pos.xyz, "score_pos_xyz.qs");
 
@@ -262,6 +263,11 @@ SaveClusterJSON <- function(dataName="", fileNm, clustOpt, opt){
   pos.xyz <- data.frame(x=pca$x[,1], y=pca$x[,2], z=pca$x[,3]);
   pos.xyz <- as.data.frame(pos.xyz);
   pos.xyz <- unitAutoScale(pos.xyz);
+  # The viewer's default ellipsoids group by the first metadata column (its "Select metadata" box).
+  ell.grp <- if (!is.null(dataSet$meta.info) && ncol(dataSet$meta.info) > 0)
+               as.character(dataSet$meta.info[match(colnames(dataSet$data.norm), rownames(dataSet$meta.info)), 1])
+             else as.character(dataSet$fst.cls);
+  pos.xyz <- .fitEllipsoidsInUnit(pos.xyz, ell.grp);
   rownames(pos.xyz) = colnames(dataSet$data.norm);
   ov_qs_save(pos.xyz, "score_pos_xyz.qs");
   
@@ -536,6 +542,29 @@ ComputeEncasingBatch <- function(filenm, type, groups_json, level = 0.95, omics 
     sink(filenm); cat("[]"); sink()
   })
   return(filenm)
+}
+
+# The 3D view draws scores x1000 inside a +/-1000 box and the ellipsoids from these same coordinates, so a
+# small or elongated group's 95% ellipsoid ran far outside the box (user, 16 Oct 2026; the MetaboAnalyst fix,
+# 55f3c7e, widens its axes the same way). Shrink so every group's ellipsoid fits in [-1, 1] too. Its axis-aligned
+# extent is centre +/- t*sqrt(diag(cov)), t at the viewer's default 0.95 in 3D; groups under 4 samples get no
+# ellipsoid in the viewer and are skipped. Ellipsoids are computed from the saved coordinates, so they stay matched.
+.fitEllipsoidsInUnit <- function(pos.xyz, grp, level = 0.95) {
+  tryCatch({
+    xyz <- as.matrix(pos.xyz[, 1:3, drop = FALSE]);
+    if (is.null(grp) || length(grp) != nrow(xyz)) return(pos.xyz);
+    grp[is.na(grp)] <- "NA";
+    t.val <- sqrt(qchisq(level, 3));
+    ext <- unlist(lapply(split(seq_len(nrow(xyz)), grp), function(idx) {
+      if (length(idx) < 4) return(NULL);
+      S <- cov(xyz[idx, , drop = FALSE]);
+      if (any(!is.finite(S))) return(NULL);
+      abs(colMeans(xyz[idx, , drop = FALSE])) + t.val * sqrt(pmax(diag(S), 0));
+    }));
+    m <- max(c(abs(xyz), ext), na.rm = TRUE);
+    if (is.finite(m) && m > 1) pos.xyz <- pos.xyz / m;
+    pos.xyz
+  }, error = function(e) { message("[fitEllipsoidsInUnit] ", conditionMessage(e)); pos.xyz });
 }
 
 unitAutoScale <- function(df){
