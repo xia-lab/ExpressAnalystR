@@ -288,6 +288,7 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
   data.list <- list();
   gene.list <- list();
   pval.list <- list();
+  padj.list <- list();
   col.list <- list();
   
   for(i in 1:length(levels(df$name))){
@@ -295,6 +296,7 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
     data.list[[ nm ]] <- as.vector(unlist(df[which(df$name == nm), "value"]));
     gene.list[[ nm ]] <- as.vector(unlist(df[which(df$name == nm), "symbol"]));
     pval.list[[ nm ]] <- unname(unlist(res[which(res$name == nm), "pval"]));
+    padj.list[[ nm ]] <- unname(unlist(res[which(res$name == nm), "adj.pval"]));
   }
   
   minFc <- min(df$value);
@@ -357,6 +359,15 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
                    maxPval = max(res.sig$pval),
                    bandwidth=ridge_bw,
                    pathwayPvals = pval.list, 
+                   pathwayPadj = padj.list,
+                   minPadj = min(as.numeric(res.sig$adj.pval)),
+                   maxPadj = max(as.numeric(res.sig$adj.pval)),
+                   # For the page's summary: how many of ALL tested pathways pass adj. p < 0.05, and what was tested against.
+                   nSigAdj = sum(as.numeric(resTable$padj) < 0.05, na.rm = TRUE),
+                   nTested = nrow(resTable),
+                   universe = if (ridgeType == "ora") {
+                                if (exists(".ov_ora_universe")) .ov_ora_universe else NULL
+                              } else list(kind = "ranked", size = length(rankedVec)),
                    pathwayCols = col.list, 
                    enrRes = enr.res,
                    dat.opt = paramSet$selDataNm,

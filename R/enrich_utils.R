@@ -47,22 +47,29 @@
   
   if(paramSet$universe.opt == "library"){
     current.universe <- unique(unlist(current.geneset));     
+    universe.kind <- "library";
   }else{
     # cut to the universe to uploaded genes
     if(paramSet$anal.type == "onedata"){
       data.anot <- .get.annotated.data();
       current.universe <- rownames(data.anot); 
+      universe.kind <- "data";
     }else if(paramSet$anal.type == "metadata"){
       inmex <- ov_qs_read("inmex_meta.qs");
       current.universe <- rownames(inmex$data); 
+      universe.kind <- "metadata";
     }else{
       if(!is.null(paramSet$backgroundUniverse)){
         current.universe <- paramSet$backgroundUniverse;
+        universe.kind <- "background";
       }else{
         current.universe <- unique(unlist(current.geneset)); 
+        universe.kind <- "library";
       }
     }
   }
+  # The universe this test used, for a page that reports it (the Ridgeline's growl).
+  .ov_ora_universe <<- list(kind = universe.kind, size = length(unique(current.universe)));
   
   # also make sure pathways only contain genes measured in experiment
   #if(!is.null(dataSet$data.anot)){
@@ -89,6 +96,7 @@
 
   # prepare for the result table
   set.size<-length(current.geneset);
+  .ov_ora_universe$tested <<- set.size;   # every gene set the FDR is adjusted over, before the >=3-hit display filter
   res.mat<-matrix(0, nrow=set.size, ncol=5);
   rownames(res.mat)<-names(current.geneset);
   colnames(res.mat)<-c("Total", "Expected", "Hits", "Pval", "FDR");
