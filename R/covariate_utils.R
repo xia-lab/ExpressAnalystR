@@ -288,7 +288,7 @@ AddMsg <- function(msg){
 #'@param version version
 #'@author Jessica Ewald\email{jessica.ewald@mcgill.ca}
 #'McGill University, Canada
-#'License: GPL-3 License
+#'License: MIT
 #'@export
 #'
 PlotMultiFacCmpdSummary <- function(dataName,imgName,name, id, meta, version, format="png", dpi=default.dpi, width=NA){
