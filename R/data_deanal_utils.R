@@ -579,6 +579,18 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
       }
       message("[DE] count matrix reached limma on a linear scale; applied log2-CPM so logFC is log2 fold-change.")
     }
+    # limma-voom on the raw counts when the caller asks for it (option ExpressAnalystR.limma.voom): the counts of the features that reached
+    # data.norm, TMM-scaled, with voom's precision weights. eBayes then takes no trend (the weights carry the mean-variance relationship)
+    # and is robust when robustTrend is set. Off by default, so the existing limma-trend path is unchanged.
+    use.voom <- isTRUE(getOption("ExpressAnalystR.limma.voom", FALSE)) && identical(dataSet$type, "count")
+    if (use.voom) {
+      cnt <- .get.annotated.data()
+      if (length(dataSet$rmidx) > 0) cnt <- cnt[, -dataSet$rmidx, drop = FALSE]
+      cnt <- cnt[intersect(rownames(data.norm), rownames(cnt)), colnames(data.norm), drop = FALSE]
+      y <- edgeR::calcNormFactors(edgeR::DGEList(counts = round(as.matrix(cnt))))
+      data.norm <- limma::voom(y, design, plot = FALSE)
+      message("[DE] limma-voom on ", nrow(cnt), " features x ", ncol(cnt), " samples (TMM-scaled counts)")
+    }
     if (is.null(dataSet$block)) {
       fit <- lmFit(data.norm, design)
     } else {
@@ -599,7 +611,7 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
       return(0);
     }
     fit2 <- contrasts.fit(fit, contrast.matrix);
-    fit2 <- eBayes(fit2, trend=robustTrend, robust=robustTrend);
+    fit2 <- eBayes(fit2, trend = robustTrend && !use.voom, robust = robustTrend);
 
     result.list <- list()
     for (nm in colnames(contrast.matrix)) {
