@@ -313,7 +313,7 @@
     lib.path <- paramSet$lib.path;
   }
 
-  my.path <- paste(lib.path, folderNm, "/", fun.type, ".rds", sep="");
+  my.path <- .get.ea.org.lib.path(lib.path, folderNm, paste0(fun.type, ".rds"));
   if(!paramSet$on.public.web && !file.exists(platform.path)){
     nmdb <- basename(my.path);
     download.file(my.path, destfile = nmdb, method="libcurl", mode = "wb");

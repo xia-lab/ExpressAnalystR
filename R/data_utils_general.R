@@ -22,6 +22,21 @@ Set.Config <-function(anal.mode="web"){
   globalConfig <<- globalConfig;
 }
 
+# An organism's gene-set library file: $OMICS_LIB_DIR/organisms/<org>/<file> when a downloaded library holds it,
+# else <lib.path><org>/<file> exactly as before. A host that fetches each organism's library the first time a run
+# reads it keeps it there; with OMICS_LIB_DIR unset, or without the file there, nothing differs from before.
+# Package-local on purpose: this package must not depend on the host's own scripts.
+.get.ea.org.lib.path <- function(lib.path, org, file){
+  pack <- Sys.getenv("OMICS_LIB_DIR", "");
+  if(nzchar(pack) && length(org) == 1L && length(file) == 1L){
+    ext <- file.path(sub("/+$", "", pack), "organisms", org, file);
+    if(file.exists(ext)){
+      return(ext);
+    }
+  }
+  paste0(lib.path, org, "/", file);
+}
+
 # Where THIS machine keeps the reference libraries — the SQLite databases and the shared data dir.
 # A fact about the session, not the project: Init.Data records it in a new analysis's paramSet, and
 # Init.Session refreshes it in a resumed one's, whose saved paramSet names the app folder it was

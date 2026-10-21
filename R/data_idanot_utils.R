@@ -484,7 +484,7 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
     # needs nothing but resources/data. The sqlite table is only a legacy source.
     lt <- NULL;
     lib.root <- if (exists("api.lib.path")) api.lib.path else paramSet$lib.path;
-    lt.file  <- paste0(lib.root, org, "/locustag.rds");
+    lt.file  <- .get.ea.org.lib.path(lib.root, org, "locustag.rds");
     if (file.exists(lt.file)) {
       lt <- tryCatch(readRDS(lt.file), error = function(e) NULL);
     }
@@ -548,7 +548,7 @@ AnnotateGeneData <- function(dataName, org, lvlOpt, idtype){
   }else{
     lib.path <- paramSet$lib.path;
   }
-  platform.path <- paste(lib.path, org, "/", platform, ".rds", sep="");
+  platform.path <- .get.ea.org.lib.path(lib.path, org, paste0(platform, ".rds"));
 
   if(!paramSet$on.public.web && !file.exists(platform.path)){
     nmdb <- basename(platform.path);
