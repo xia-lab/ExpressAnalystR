@@ -270,6 +270,8 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   # On a library of ~74k reads that becomes ~135 CPM and discards over 90% of features, so
   # the cutoff is taken from count.thresh instead and does not move with depth.
   cpm.keep <- NULL
+  n.min <- NA_integer_
+  n.before <- nrow(data)
   # dataSet$type can be NULL or empty. `NULL %in% x` is logical(0) and `if (logical(0))` is an
   # error ("argument is of length zero"), which would abort normalization rather than pick a
   # branch, so the test is reduced to a single TRUE/FALSE first. An unknown type takes the
@@ -304,6 +306,10 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   rm.inx[is.na(rm.inx)] <- TRUE
 
   data <- data[!rm.inx,];
+  # the abundance filter's numbers, beside filt.msg: features before it, after it, and the samples a feature had to reach the cutoff in
+  # (NA when the cutoff was not applied per sample)
+  filt.counts <<- list(before = n.before, after.abundance = nrow(data), thresh = count.thresh,
+                       min.samples = if (is.null(cpm.keep)) NA_integer_ else as.integer(n.min))
 
   # CONSTANT features come out ALWAYS, whatever the variance percentile is set to.
   # A feature with the same value in every sample has zero variance: scaling divides by it,
