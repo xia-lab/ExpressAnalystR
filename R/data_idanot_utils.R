@@ -614,7 +614,8 @@ doEntrez2SymbolMapping <- function(entrez.vec,data.org="NA", data.idType="NA"){
     data.idType <- paramSet$data.idType;
   }
 
-  if(data.org == "na"){
+  # no organism (none confirmed, or none in the session: data.org NULL, NA or "NA") - there is no table to map with
+  if(is.null(data.org) || length(data.org) == 0 || is.na(data.org[1]) || tolower(data.org[1]) %in% c("na", "")){
     return(entrez.vec); # nothing to do
   }
   tblNm <- getEntrezTableName(data.org, data.idType);

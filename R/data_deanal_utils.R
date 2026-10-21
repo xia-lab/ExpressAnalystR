@@ -239,7 +239,8 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
     block = dataSet$block,
     adj_frame = dataSet$adj.frame,
     anal.type = anal.type,
-    par1 = par1
+    par1 = par1,
+    lfc = as.numeric(getOption("ExpressAnalystR.lfc.threshold", 0))
   ), bridge_in, preset = "fast")
   on.exit(unlink(c(bridge_in, bridge_out)), add = TRUE)
 
@@ -257,6 +258,7 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       anal.type <- input$anal.type
       par1 <- input$par1
       data.anot <- input$data.anot
+      lfc <- if (is.null(input$lfc) || is.na(input$lfc)) 0 else input$lfc
 
       # Helper: prefix numeric-looking group labels
       formatLevel <- function(x) {
@@ -354,8 +356,11 @@ PerformDEAnal<-function (dataName="", anal.type = "default", par1 = NULL, par2 =
       results_list <- list()
       if (length(contrast_list) > 0) {
         for (contrast_name in names(contrast_list)) {
+          # A fold-change threshold is TESTED (H0: |log2FC| <= lfc), not filtered after the test, so the FDR holds for it
+          # (Love et al. 2014). lfc = 0 is the usual test.
           res <- results(dds,
                          contrast            = contrast_list[[contrast_name]],
+                         lfcThreshold        = lfc,
                          independentFiltering = FALSE,
                          cooksCutoff          = Inf)
 
@@ -612,10 +617,15 @@ prepareContrast <-function(dataSet, anal.type = "reference", par1 = NULL, par2 =
     }
     fit2 <- contrasts.fit(fit, contrast.matrix);
     fit2 <- eBayes(fit2, trend = robustTrend && !use.voom, robust = robustTrend);
+    # A fold-change threshold (option ExpressAnalystR.lfc.threshold, log2) is TESTED with treat (H0: |log2FC| <= lfc), so the FDR
+    # holds for it, rather than filtered after the test (McCarthy & Smyth 2009). The omnibus F-test below keeps the eBayes fit.
+    lfc <- as.numeric(getOption("ExpressAnalystR.lfc.threshold", 0))
+    fit.c <- if (isTRUE(lfc > 0)) treat(fit2, lfc = lfc, trend = robustTrend && !use.voom, robust = robustTrend) else fit2
 
     result.list <- list()
     for (nm in colnames(contrast.matrix)) {
-      tbl <- topTable(fit2, coef = nm, number = Inf, adjust.method = "fdr")
+      tbl <- if (isTRUE(lfc > 0)) topTable(fit.c, coef = nm, number = Inf, adjust.method = "fdr", sort.by = "P")
+             else topTable(fit.c, coef = nm, number = Inf, adjust.method = "fdr")
       if (!is.null(tbl$ID)) { rownames(tbl) <- tbl$ID; tbl$ID <- NULL; }
       colnames(tbl)[colnames(tbl) == "FDR"] <- "adj.P.Val"
       result.list[[nm]] <- tbl
