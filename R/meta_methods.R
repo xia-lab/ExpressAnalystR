@@ -422,11 +422,11 @@ PerformMetaEffectSize<- function(method="rem", BHth=0.05){
   
   #remove infinite
   vec <- es.mat[,2];
-  vec[is.infinite(vec)] <- max(vec[-is.infinite(vec)]);
+  vec[is.infinite(vec)] <- max(vec[!is.infinite(vec)]);
   es.mat[,2] <- vec;
 
   vec <- es.mat[,1];
-  vec[is.infinite(vec)] <- max(vec[-is.infinite(vec)]);
+  vec[is.infinite(vec)] <- max(vec[!is.infinite(vec)]);
   es.mat[,1] <- vec;
 
   colnames(es.mat) <- c("CombinedES","Pval");
@@ -809,9 +809,9 @@ GetMetaResultMatrix<-function(single.type="averageFc"){
     dat.mat <- dat.mat[,1:max.col];
   }
   if(single.type == "averageFc"){
-  meta.mat2 <- cbind(agree, analSet$meta.mat.all);
+  meta.mat2 <- do.call(cbind, Filter(Negate(is.null), list(agree, analSet$meta.mat.all))); # R 4.5: cbind() of a data frame with a NULL fails
   }else{
-  meta.mat2 <- cbind(dat.mat, agree, analSet$meta.mat.all);
+  meta.mat2 <- do.call(cbind, Filter(Negate(is.null), list(dat.mat, agree, analSet$meta.mat.all)));
   }
   # display at most 1000 genes
   if(nrow(meta.mat2) > 1000){

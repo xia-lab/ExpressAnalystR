@@ -137,6 +137,11 @@ CovariateScatter.Anal <- function(dataName,
   msgSet$current.msg <<- current.msg;
 
   both.mat <- both.mat[rownames(rest),]
+  # With no covariate the adjusted and unadjusted p-values are the same test, and the page draws a volcano instead (log2 fold change
+  # against the p-value). A fold change exists only for a two-group contrast: an F-test's first column is a coefficient, not a logFC.
+  if(!("F" %in% colnames(rest))){
+    both.mat$logFC <- as.numeric(rest[rownames(both.mat), "logFC"]);
+  }
 
   rest$label <- invert_named_vector(dataSet$enrich_ids)[as.character(rest$ids)];
   dataSet$comp.res <- rest;
@@ -181,6 +186,7 @@ CovariateScatter.Anal <- function(dataName,
   both.list <- apply(both.mat, 2, function(x){unname(as.list(x))})
 
   both.list$thresh <- thresh;
+  both.list$covAdjusted <- isTRUE(adj.bool);   # FALSE: no covariate, the page shows the volcano
   jsonNm <- gsub(paste0(".", imgFormat), ".json", imgName);
   # OPTIMIZED: Use jsonlite::write_json instead of rjson + sink/cat
   jsonlite::write_json(both.list, jsonNm, auto_unbox = TRUE, pretty = FALSE);
