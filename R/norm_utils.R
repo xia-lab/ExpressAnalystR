@@ -293,6 +293,9 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
     cpm.mat <- t(t(data) / lib.sizes2) * 1e6
     cpm.keep <- rowSums(cpm.mat >= count.thresh, na.rm = TRUE) >= n.min
     if (sum(cpm.keep, na.rm = TRUE) < 2) cpm.keep <- NULL
+    # how many features other cutoffs would keep, by the same rule: what a change of the cutoff would do, said before it is tried
+    kept.at <- vapply(c(1, 2, 5, 10, 20, 50, 100), function(t) sum(rowSums(cpm.mat >= t, na.rm = TRUE) >= n.min), numeric(1))
+    names(kept.at) <- c(1, 2, 5, 10, 20, 50, 100)
   }
 
   if (!is.null(cpm.keep)) {
@@ -309,7 +312,8 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   # the abundance filter's numbers, beside filt.msg: features before it, after it, and the samples a feature had to reach the cutoff in
   # (NA when the cutoff was not applied per sample)
   filt.counts <<- list(before = n.before, after.abundance = nrow(data), thresh = count.thresh,
-                       min.samples = if (is.null(cpm.keep)) NA_integer_ else as.integer(n.min))
+                       min.samples = if (is.null(cpm.keep)) NA_integer_ else as.integer(n.min),
+                       kept.at = if (is.null(cpm.keep)) NULL else kept.at)
 
   # CONSTANT features come out ALWAYS, whatever the variance percentile is set to.
   # A feature with the same value in every sample has zero variance: scaling divides by it,
