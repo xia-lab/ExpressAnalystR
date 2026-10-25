@@ -1091,6 +1091,16 @@ sanitizeSmallNumbers <- function(mat, tol=1e-10) {
   return(make.unique(query));
 }
 
+# Offers the data a figure is drawn from to whoever asked to keep it. A consumer that sets
+# options(ov.plot_data_hook = function(img, data, draw, args) ...) receives the figure's stem,
+# the data its Draw<X>() function reads, that function's name and the arguments it takes
+# after the data. Nothing set: nothing happens. Base R only - the package names nothing outside itself.
+.ov_plot_data <- function(img, data, draw, args = list()) {
+  h <- getOption("ov.plot_data_hook")
+  if (is.function(h)) tryCatch(h(img, data, draw, args), error = function(e) NULL)
+  invisible(NULL)
+}
+
 saveSet <- function(obj=NA, set="", output=1){
      if(set == ""){
         set <- obj$objName;

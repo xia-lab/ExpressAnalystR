@@ -16,6 +16,7 @@ qc.boxplot <- function(dat, imgNm, dpi=default.dpi, format="png", interactive=F)
   dpi <- as.numeric(dpi)
   require('ggplot2')
   require('lattice');
+  stem <- imgNm;
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
   imgNm <- paste0(fileNm, format, sep="");  subgene <- 10000;
 
@@ -39,6 +40,34 @@ qc.boxplot <- function(dat, imgNm, dpi=default.dpi, format="png", interactive=F)
   } else {
     Mss <- Mss
   }
+
+  # what the box plot reads: the plotted subset and the sample labels
+  pd <- list(mat = Mss, labels = colnames(dat));
+
+  if(interactive){
+    return(DrawDataBox(pd, stem, dpi, format, interactive=TRUE));
+  }else{
+  imgSet <- readSet(imgSet, "imgSet");
+  if(grepl("norm", imgNm)){
+    imgSet$qc_norm_boxplot <- imgNm;
+  }else{
+    imgSet$qc_boxplot <- imgNm;
+  }
+    saveSet(imgSet, "imgSet");
+  .ov_plot_data(stem, pd, "DrawDataBox", list(dpi = dpi, format = format));
+  DrawDataBox(pd, stem, dpi, format);
+  return("NA")
+  }
+}
+
+# Draws the box plot from pd = list(mat = <genes x samples matrix actually plotted>, labels = <sample labels>)
+DrawDataBox <- function(pd, imgNm, dpi=150, format="png", interactive=FALSE){
+  dpi <- as.numeric(dpi)
+  require('ggplot2')
+  fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
+  imgNm <- paste0(fileNm, format, sep="");
+  Mss <- pd$mat;
+
   # OPTIMIZED: Direct data.frame construction to eliminate 3 intermediate copies
   df <- data.frame(
     values = as.numeric(Mss),
@@ -56,15 +85,12 @@ qc.boxplot <- function(dat, imgNm, dpi=default.dpi, format="png", interactive=F)
   bp <- ggplot(df, aes(sample_id, values)) +
     ylab("Values") + 
     xlab("Samples") + 
-    scale_x_discrete(labels=colnames(dat)) + 
+    scale_x_discrete(labels=pd$labels) + 
     ylim(xlower, xupper) + 
     stat_boxplot(geom = "errorbar", color="black") + 
     geom_boxplot(outlier.size=0.5, outlier.alpha=0.4) +
     theme_bw()
   bp <- bp + coord_flip();
-
-
-    str <- "NA"
 
   if(interactive){
     library(plotly);
@@ -78,22 +104,14 @@ qc.boxplot <- function(dat, imgNm, dpi=default.dpi, format="png", interactive=F)
     # Use responsive sizing with percentage-based width
     ggp_build <- layout(ggplotly(bp), autosize = TRUE, margin = m)
     return(ggp_build);
-  }else{
-  imgSet <- readSet(imgSet, "imgSet");
-  if(grepl("norm", imgNm)){
-    imgSet$qc_norm_boxplot <- imgNm;
-  }else{
-    imgSet$qc_boxplot <- imgNm;
   }
-    saveSet(imgSet, "imgSet");
   if(dpi == 72){
   dpi <- dpi *1.34
   }
   Cairo(file=imgNm, width=600*dpi/72, height=height*dpi/72, unit="px",dpi=dpi, type=format, bg="white");
   print(bp);
   dev.off();
-  return("NA")
-  }
+  invisible(imgNm)
 }
 
 
@@ -106,6 +124,7 @@ PlotDataDensity <- function(fileName, imgNm, dpi,format){
 qc.density<- function(dataSet, imgNm="abc", dpi=default.dpi, format, interactive){
   require("ggplot2")
   dat <- dataSet$data.norm
+  stem <- imgNm;
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
   imgNm <- paste0(fileNm, format, sep="");
   dpi <- as.numeric(dpi)
@@ -119,6 +138,32 @@ qc.density<- function(dataSet, imgNm="abc", dpi=default.dpi, format, interactive
     dataSet$data.norm <- dat
     dataSet$meta.info <- dataSet$meta.info[sel.inx, , drop=FALSE]
   }
+
+  # what the density plot reads: the plotted samples and their metadata
+  pd <- list(mat = dataSet$data.norm, meta = dataSet$meta.info);
+
+  if(interactive){
+    return(DrawDataDensity(pd, stem, dpi, format, interactive=TRUE));
+  }else{
+    .ov_plot_data(stem, pd, "DrawDataDensity", list(dpi = dpi, format = format));
+    res <- DrawDataDensity(pd, stem, dpi, format);
+    if(identical(res, 0)){
+      return(0);
+    }
+    imgSet <- readSet(imgSet, "imgSet");
+    imgSet$qc.density_norm <- imgNm;
+    saveSet(imgSet, "imgSet");
+    return("NA")
+  }
+}
+
+# Draws the density plot from pd = list(mat = <genes x samples matrix plotted>, meta = <sample metadata>)
+DrawDataDensity <- function(pd, imgNm, dpi=150, format="png", interactive=FALSE){
+  require("ggplot2")
+  fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
+  imgNm <- paste0(fileNm, format, sep="");
+  dpi <- as.numeric(dpi)
+  dataSet <- list(data.norm = pd$mat, meta.info = pd$meta)
 
   ######check.names=F is important for names not following conventions (i.e. with -, starts with number)
   df <- data.frame(dataSet$data.norm, stringsAsFactors = FALSE, check.names = FALSE)
@@ -213,16 +258,13 @@ qc.density<- function(dataSet, imgNm="abc", dpi=default.dpi, format, interactive
     ggp_build <- layout(ggplotly(g), autosize = TRUE, margin = m)
     return(ggp_build);
   }else{
-    imgSet <- readSet(imgSet, "imgSet");
-    imgSet$qc.density_norm <- imgNm;
-    saveSet(imgSet, "imgSet");
   if(dpi == 72){
   dpi <- dpi *1.34
   }
     Cairo(file=imgNm, width=width, height=height, type=format, bg="white", dpi=dpi, unit="in");
     print(g)
     dev.off();
-    return("NA")
+    invisible(imgNm)
   }
 }
 
@@ -232,6 +274,7 @@ PlotLibSizeView<-function(fileName, imgNm,dpi=default.dpi, format="png"){
   require("ggplot2");
 
   dataSet <- readDataset(fileName);
+  stem <- imgNm;
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
   imgNm <- paste0(fileNm, format, sep="");
   dpi <- as.numeric(dpi);
@@ -241,8 +284,36 @@ PlotLibSizeView<-function(fileName, imgNm,dpi=default.dpi, format="png"){
   
   smpl.sums <- colSums(data_bef);
   
-  names(smpl.sums) <- sampleNms <- colnames(data_bef);
-  df <- data.frame(count=smpl.sums,ind=colnames(data_bef))
+  names(smpl.sums) <- colnames(data_bef);
+
+  # what the plot reads: the total count of each sample and the sample metadata
+  pd <- list(sums = smpl.sums, meta = dataSet$meta.info);
+  .ov_plot_data(stem, pd, "DrawLibSizeView", list(dpi = dpi, format = format));
+  res <- DrawLibSizeView(pd, stem, dpi, format);
+  if(identical(res, 0)){
+    return(0);
+  }
+  str <- "NA"
+
+  imgSet <- readSet(imgSet, "imgSet");
+  imgSet$libsize <- imgNm;
+    saveSet(imgSet, "imgSet");
+
+  return(str);
+}
+
+# Draws the library size plot from pd = list(sums = <named total per sample>, meta = <sample metadata>)
+DrawLibSizeView <- function(pd, imgNm, dpi=150, format="png"){
+  library("ggrepel");
+  require("ggplot2");
+
+  fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
+  imgNm <- paste0(fileNm, format, sep="");
+  dpi <- as.numeric(dpi);
+  smpl.sums <- pd$sums;
+  sampleNms <- names(smpl.sums);
+  dataSet <- list(meta.info = pd$meta);
+  df <- data.frame(count=smpl.sums,ind=sampleNms)
   
   if(length(dataSet$meta.info) == 2){
     Factor1 <- as.vector(dataSet$meta.info[,1])
@@ -370,13 +441,7 @@ PlotLibSizeView<-function(fileName, imgNm,dpi=default.dpi, format="png"){
   Cairo(file=imgNm, width=width, height=height, type=format, bg="white", unit="in", dpi=dpi);
   print(g);
   dev.off();
-  str <- "NA"
-
-  imgSet <- readSet(imgSet, "imgSet");
-  imgSet$libsize <- imgNm;
-    saveSet(imgSet, "imgSet");
-
-  return(str);
+  invisible(imgNm)
 }
 
 PlotDataMeanStd <- function(fileName, imgName, dpi,format){
@@ -392,15 +457,17 @@ PlotDataMeanStd <- function(fileName, imgName, dpi,format){
 
 qc.meanstd <- function(dat, imgNm,dpi=default.dpi, format="png"){
   dpi <- as.numeric(dpi)
+  stem <- imgNm;
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
   imgNm <- paste0(fileNm, format, sep="");
   #print(format)
-  if(dpi == 72){
-  dpi <- dpi *1.34
+
+  # what the plot reads: the mean and sd of every gene and the running median of the sd
+  pd <- .meanSdStats(dat, ranks=FALSE);
+  if(!is.null(pd)){
+    .ov_plot_data(stem, pd, "DrawDataMeanStd", list(dpi = dpi, format = format));
   }
-  Cairo(file=imgNm, width=8, height=6, type=format, bg="white", dpi=dpi, unit="in");
-  plot <- meanSdPlot(dat, ranks=FALSE) 
-  dev.off();
+  DrawDataMeanStd(pd, stem, dpi, format);
   str <- "NA"
   
   imgSet <- readSet(imgSet, "imgSet");
@@ -408,6 +475,57 @@ qc.meanstd <- function(dat, imgNm,dpi=default.dpi, format="png"){
     saveSet(imgSet, "imgSet");
 
   return(str);
+}
+
+# Draws the mean-sd plot from pd = list(quantile = , sd = , px = <gene means>, py = <gene sds>), see .meanSdStats()
+DrawDataMeanStd <- function(pd, imgNm, dpi=150, format="png"){
+  dpi <- as.numeric(dpi)
+  fileNm <- paste(imgNm, "dpi", dpi, ".", sep="");
+  imgNm <- paste0(fileNm, format, sep="");
+  if(dpi == 72){
+  dpi <- dpi *1.34
+  }
+  Cairo(file=imgNm, width=8, height=6, type=format, bg="white", dpi=dpi, unit="in");
+  if(!is.null(pd)){
+    fmt = function() function(x) format(round(x, 0), nsmall = 0L, scientific = FALSE)
+    gg = ggplot(data.frame(px = pd$px, py = pd$py),
+                aes_string(x = "px", y = "py")) + 
+      xlab("mean") + ylab("sd") +
+      geom_hex(bins = 50) +
+      scale_fill_gradient(name = "count", trans = "log", labels = fmt()) + 
+      geom_line(aes_string(x = "x", y = "y"),
+                data = data.frame(x = pd$quantile, y = pd$sd), color = "red") +
+      theme_bw();
+    print(gg)
+  }
+  dev.off();
+  invisible(imgNm)
+}
+
+# The numbers meanSdPlot() draws: gene means (px) and sds (py), and the running median of the sd.
+.meanSdStats <- function(x, ranks = TRUE) {
+  n <- nrow(x)
+  if (n == 0L) {
+    warning("In 'meanSdPlot': input matrix 'x' has 0 rows. There is nothing to be done.")
+    return(NULL)
+  }
+  
+  px   = rowMeans(x, na.rm = TRUE)
+  py   = sqrt(rowV(x, mean = px, na.rm = TRUE))
+  rpx  = rank(px, na.last = FALSE, ties.method = "random")
+  
+  ## run median with centers at dm, 2*dm, 3*dm,... and width 2*dm
+  dm        = 0.025
+  midpoints = seq(dm, 1-dm, by = dm)
+  within    = function(x, x1, x2) { (x >= x1) & (x <= x2) }
+  mediwind  = function(mp) median(py[within(rpx/n, mp - 2*dm, mp + 2*dm)], na.rm = TRUE)
+  rq.sds    = sapply(midpoints, mediwind)
+  
+  if(ranks) {
+    list(rank = midpoints*n, sd = rq.sds, px = rpx, py = py)
+  } else {
+    list(quantile = quantile(px, probs = midpoints, na.rm = TRUE), sd = rq.sds, px = px, py = py)
+  }
 }
 
 meanSdPlot <- function(x, ranks = TRUE, xlab = ifelse(ranks, "rank(mean)", "mean"),
@@ -424,22 +542,7 @@ meanSdPlot <- function(x, ranks = TRUE, xlab = ifelse(ranks, "rank(mean)", "mean
     warning("In 'meanSdPlot': 'pch' is ignored.")
   }
   
-  px   = rowMeans(x, na.rm = TRUE)
-  py   = sqrt(rowV(x, mean = px, na.rm = TRUE))
-  rpx  = rank(px, na.last = FALSE, ties.method = "random")
-  
-  ## run median with centers at dm, 2*dm, 3*dm,... and width 2*dm
-  dm        = 0.025
-  midpoints = seq(dm, 1-dm, by = dm)
-  within    = function(x, x1, x2) { (x >= x1) & (x <= x2) }
-  mediwind  = function(mp) median(py[within(rpx/n, mp - 2*dm, mp + 2*dm)], na.rm = TRUE)
-  rq.sds    = sapply(midpoints, mediwind)
-  
-  res = if(ranks) {
-    list(rank = midpoints*n, sd = rq.sds, px = rpx, py = py)
-  } else {
-    list(quantile = quantile(px, probs = midpoints, na.rm = TRUE), sd = rq.sds, px = px, py = py)
-  }
+  res = .meanSdStats(x, ranks)
   
   fmt = function() function(x) format(round(x, 0), nsmall = 0L, scientific = FALSE)
   
@@ -499,6 +602,7 @@ PlotDataPCA <- function(fileName, imgName, dpi, format){
 
 qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interactive=FALSE) {
   dpi <- as.numeric(dpi)
+  stem <- imgNm
   fileNm <- paste(imgNm, "dpi", dpi, ".", sep="")
   imgNm <- paste0(fileNm, format, sep="")
 
@@ -507,11 +611,6 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
   require('reshape')
   require('see')
   require('ggrepel')
-  
-  get_divergent_palette <- function(n) {
-    n <- max(1, n)
-    grDevices::hcl.colors(n, "Dark 3")
-  }
 
   # Force garbage collection before PCA to free memory
   gc(verbose = FALSE, full = TRUE)
@@ -603,145 +702,10 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
     dataSet$meta.info <- dataSet$meta.info[valid_rows, , drop = FALSE]
   }
 
-  # Increase xlim and ylim for text label
-  xlim <- GetExtendRange(pca.res$PC1)
-  ylim <- GetExtendRange(pca.res$PC2)
-  
-  if (length(dataSet$meta.info) == 2) {
-    # OPTIMIZED: Get column names once
-    meta_colnames <- colnames(dataSet$meta.info)
-    Factor1 <- as.vector(dataSet$meta.info[, 1])
-    factorNm1 <- meta_colnames[1]
-    pca.res[, factorNm1] <- Factor1
-    Factor2 <- as.vector(dataSet$meta.info[, 2])
-    factorNm2 <- meta_colnames[2]
-    pca.res[, factorNm2] <- Factor2
-    pca.rest <- reshape::melt(pca.res, measure.vars = c(factorNm1, factorNm2))
-    colnames(pca.rest)[4] <- "Conditions"
-    pca.rest$names <- rep(rownames(pca.res), times = 2)
-
-    # Remove rows with NA or non-finite values before aggregation
-    pca.rest.clean <- pca.rest[is.finite(pca.rest$PC1) & is.finite(pca.rest$PC2) & !is.na(pca.rest$Conditions), ]
-
-    if (nrow(pca.rest.clean) == 0) {
-      # Use original data without centroid/outlier detection
-      pca.rest.clean <- pca.rest
-      pca.rest.clean$outlier <- FALSE
-    } else {
-      # Calculate group centroids
-      centroids <- aggregate(. ~ Conditions, data = pca.rest.clean[, c("PC1", "PC2", "Conditions")], mean)
-
-      # Save names column before merge (merge will reorder/modify data)
-      names_col <- pca.rest.clean$names
-
-      # Merge centroids back to the pca.rest dataframe
-      pca.rest.clean <- merge(pca.rest.clean, centroids, by = "Conditions", suffixes = c("", "_centroid"))
-
-      # CRITICAL: Restore rownames using the names column after merge
-      # The merge operation changes row order and drops rownames
-      rownames(pca.rest.clean) <- paste0(pca.rest.clean$names, "_", seq_len(nrow(pca.rest.clean)))
-
-      # Calculate the distance to the centroid
-      pca.rest.clean$distance <- sqrt((pca.rest.clean$PC1 - pca.rest.clean$PC1_centroid)^2 + (pca.rest.clean$PC2 - pca.rest.clean$PC2_centroid)^2)
-      # Identify outliers based on variance threshold (20% here)
-      threshold <- 0.2 * mean(pca.rest.clean$distance, na.rm = TRUE)
-      pca.rest.clean$outlier <- pca.rest.clean$distance > threshold
-    }
-
-    # Use cleaned data for plotting
-    pca.rest <- pca.rest.clean
-    
-    p1_df <- pca.rest[pca.rest$variable == factorNm1, , drop = FALSE]
-    p2_df <- pca.rest[pca.rest$variable == factorNm2, , drop = FALSE]
-    pal1 <- get_divergent_palette(length(unique(p1_df$Conditions)))
-    pal2 <- get_divergent_palette(length(unique(p2_df$Conditions)))
-    
-    p1 <- ggplot(p1_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
-      geom_point(size = 3, alpha = 0.6) +
-      xlim(xlim) +
-      ylim(ylim) +
-      xlab(xlabel) +
-      ylab(ylabel) +
-      theme_bw() +
-      scale_color_manual(values = pal1) +
-      guides(color = guide_legend(title = factorNm1)) +
-      theme(
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14),
-        legend.text = element_text(size = 12),
-        legend.title = element_text(size = 14),
-        legend.position = "bottom"
-      )
-
-    p2 <- ggplot(p2_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
-      geom_point(size = 3, alpha = 0.6) +
-      xlim(xlim) +
-      ylim(ylim) +
-      xlab(xlabel) +
-      ylab(ylabel) +
-      theme_bw() +
-      scale_color_manual(values = pal2) +
-      guides(color = guide_legend(title = factorNm2)) +
-      theme(
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14),
-        legend.text = element_text(size = 12),
-        legend.title = element_text(size = 14),
-        legend.position = "bottom"
-      )
-    
-    if (requireNamespace("patchwork", quietly = TRUE)) {
-      pcafig <- patchwork::wrap_plots(p1, p2, ncol = 2)
-    } else if (requireNamespace("cowplot", quietly = TRUE)) {
-      pcafig <- cowplot::plot_grid(p1, p2, ncol = 2)
-    } else {
-      AddErrMsg("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side PCA plots with separate legends."); return(0);
-    }
-    width <- 12
-    height <- 6
-  } else {
-    Factor <- dataSet$meta.info[, 1]
-    pca.res$Conditions <- Factor
-    pca.res$names <- rownames(pca.res)
-
-    # Save original rownames before merge (merge drops rownames!)
-    original_sample_names <- rownames(pca.res)
-
-    # Calculate group centroids
-    centroids <- aggregate(. ~ Conditions, data = pca.res[, c("PC1", "PC2", "Conditions")], mean)
-    # Merge centroids back to the pca.res dataframe
-    pca.res <- merge(pca.res, centroids, by = "Conditions", suffixes = c("", "_centroid"))
-
-    # CRITICAL: Restore original rownames after merge (they were lost!)
-    rownames(pca.res) <- pca.res$names
-
-    # Calculate the distance to the centroid
-    pca.res$distance <- sqrt((pca.res$PC1 - pca.res$PC1_centroid)^2 + (pca.res$PC2 - pca.res$PC2_centroid)^2)
-    # Identify outliers based on variance threshold (20% here)
-    threshold <- 0.2 * mean(pca.res$distance, na.rm = TRUE)
-    pca.res$outlier <- pca.res$distance > threshold
-    
-      pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions)) +
-        geom_point(size = 3, alpha = 0.6) +
-        xlim(xlim) +
-        ylim(ylim) +
-        xlab(xlabel) +
-        ylab(ylabel) +
-        theme_bw() +
-        theme(
-          axis.text = element_text(size = 12),
-          axis.title = element_text(size = 14),
-          plot.title = element_text(size = 16, face = "bold"),
-          legend.text = element_text(size = 12),
-          legend.title = element_text(size = 14)
-        )
-    
-    width <- 8
-    height <- 6
-    pal <- get_divergent_palette(length(unique(pca.res$Conditions)))
-    pcafig <- pcafig + scale_fill_manual(values = pal) + scale_color_manual(values = pal)
-  }
-  
+  # what the plot reads: the scores of the first two components, the metadata of the samples
+  # that remain, and the axis labels. The group centroids and outliers follow from them.
+  pd <- list(pc = pca.res, meta = dataSet$meta.info, xlabel = xlabel, ylabel = ylabel)
+  pca.res <- .qc_pca_frames(pd$pc, pd$meta)$pca.res
 
   # Print the outliers
   outliers <- pca.res[pca.res$outlier, "names"]
@@ -809,16 +773,10 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
   saveSet(paramSet, "paramSet");
   
   if (interactive) {
-    library(plotly)
-    m <- list(l=50, r=50, b=20, t=20, pad=0.5)
-    w <- if (length(dataSet$meta.info)==2) 1000 else 800
-    ggp_build <- layout( ggplotly(pcafig), autosize=FALSE, width=w, height=600, margin=m )
+    DrawDataPCA(pd, stem, dpi, format, interactive=TRUE)
 
     invisible(dataSet)  # Return modified dataSet even in interactive mode
   } else {
-  if(dpi == 72){
-  dpi <- dpi *1.34
-  }
   imgSet <- readSet(imgSet, "imgSet")
   if (grepl("norm", imgNm)) {
     imgSet$qc_norm_pca <- imgNm
@@ -826,15 +784,203 @@ qc.pcaplot <- function(dataSet, x, imgNm, dpi=default.dpi, format="png", interac
     imgSet$qc_pca <- imgNm
   }
   saveSet(imgSet, "imgSet")
-    Cairo(file = imgNm, width=width, height=height, type=format, bg="white", unit="in", dpi=dpi)
-    if (length(dataSet$meta.info) == 2) {
-      print(pcafig)
-    } else {
-      print(pcafig)
+    .ov_plot_data(stem, pd, "DrawDataPCA", list(dpi = dpi, format = format))
+    res <- DrawDataPCA(pd, stem, dpi, format)
+    if (identical(res, 0)) {
+      return(0)
     }
-    dev.off()
     invisible(dataSet)  # Return modified dataSet with filtered metadata
   }
+}
+
+# The sample frames the PCA plot draws, from pc (PC1 and PC2 of each sample) and meta (the samples' metadata, same order):
+# with two metadata columns one frame per column (pca.rest), with one a frame with the group centroids,
+# the distance to them and the outliers (> 20% above the mean distance).
+.qc_pca_frames <- function(pca.res, meta) {
+  if (length(meta) == 2) {
+    # OPTIMIZED: Get column names once
+    meta_colnames <- colnames(meta)
+    Factor1 <- as.vector(meta[, 1])
+    factorNm1 <- meta_colnames[1]
+    pca.res[, factorNm1] <- Factor1
+    Factor2 <- as.vector(meta[, 2])
+    factorNm2 <- meta_colnames[2]
+    pca.res[, factorNm2] <- Factor2
+    pca.rest <- reshape::melt(pca.res, measure.vars = c(factorNm1, factorNm2))
+    colnames(pca.rest)[4] <- "Conditions"
+    pca.rest$names <- rep(rownames(pca.res), times = 2)
+
+    # Remove rows with NA or non-finite values before aggregation
+    pca.rest.clean <- pca.rest[is.finite(pca.rest$PC1) & is.finite(pca.rest$PC2) & !is.na(pca.rest$Conditions), ]
+
+    if (nrow(pca.rest.clean) == 0) {
+      # Use original data without centroid/outlier detection
+      pca.rest.clean <- pca.rest
+      pca.rest.clean$outlier <- FALSE
+    } else {
+      # Calculate group centroids
+      centroids <- aggregate(. ~ Conditions, data = pca.rest.clean[, c("PC1", "PC2", "Conditions")], mean)
+
+      # Save names column before merge (merge will reorder/modify data)
+      names_col <- pca.rest.clean$names
+
+      # Merge centroids back to the pca.rest dataframe
+      pca.rest.clean <- merge(pca.rest.clean, centroids, by = "Conditions", suffixes = c("", "_centroid"))
+
+      # CRITICAL: Restore rownames using the names column after merge
+      # The merge operation changes row order and drops rownames
+      rownames(pca.rest.clean) <- paste0(pca.rest.clean$names, "_", seq_len(nrow(pca.rest.clean)))
+
+      # Calculate the distance to the centroid
+      pca.rest.clean$distance <- sqrt((pca.rest.clean$PC1 - pca.rest.clean$PC1_centroid)^2 + (pca.rest.clean$PC2 - pca.rest.clean$PC2_centroid)^2)
+      # Identify outliers based on variance threshold (20% here)
+      threshold <- 0.2 * mean(pca.rest.clean$distance, na.rm = TRUE)
+      pca.rest.clean$outlier <- pca.rest.clean$distance > threshold
+    }
+
+    # Use cleaned data for plotting
+    pca.rest <- pca.rest.clean
+    return(list(pca.res = pca.res, pca.rest = pca.rest, factorNm1 = factorNm1, factorNm2 = factorNm2))
+  }
+  Factor <- meta[, 1]
+  pca.res$Conditions <- Factor
+  pca.res$names <- rownames(pca.res)
+
+  # Save original rownames before merge (merge drops rownames!)
+  original_sample_names <- rownames(pca.res)
+
+  # Calculate group centroids
+  centroids <- aggregate(. ~ Conditions, data = pca.res[, c("PC1", "PC2", "Conditions")], mean)
+  # Merge centroids back to the pca.res dataframe
+  pca.res <- merge(pca.res, centroids, by = "Conditions", suffixes = c("", "_centroid"))
+
+  # CRITICAL: Restore original rownames after merge (they were lost!)
+  rownames(pca.res) <- pca.res$names
+
+  # Calculate the distance to the centroid
+  pca.res$distance <- sqrt((pca.res$PC1 - pca.res$PC1_centroid)^2 + (pca.res$PC2 - pca.res$PC2_centroid)^2)
+  # Identify outliers based on variance threshold (20% here)
+  threshold <- 0.2 * mean(pca.res$distance, na.rm = TRUE)
+  pca.res$outlier <- pca.res$distance > threshold
+  list(pca.res = pca.res)
+}
+
+# Draws the sample PCA plot from pd = list(pc = <PC1, PC2 per sample>, meta = <sample metadata>, xlabel = , ylabel = )
+DrawDataPCA <- function(pd, imgNm, dpi=150, format="png", interactive=FALSE) {
+  dpi <- as.numeric(dpi)
+  fileNm <- paste(imgNm, "dpi", dpi, ".", sep="")
+  imgNm <- paste0(fileNm, format, sep="")
+
+  require('lattice')
+  require('ggplot2')
+  require('reshape')
+  require('see')
+  require('ggrepel')
+  
+  get_divergent_palette <- function(n) {
+    n <- max(1, n)
+    grDevices::hcl.colors(n, "Dark 3")
+  }
+
+  xlabel <- pd$xlabel
+  ylabel <- pd$ylabel
+  meta.info <- pd$meta
+  frames <- .qc_pca_frames(pd$pc, meta.info)
+  pca.res <- frames$pca.res
+
+  # Increase xlim and ylim for text label
+  xlim <- GetExtendRange(pd$pc$PC1)
+  ylim <- GetExtendRange(pd$pc$PC2)
+  
+  if (length(meta.info) == 2) {
+    factorNm1 <- frames$factorNm1
+    factorNm2 <- frames$factorNm2
+    pca.rest <- frames$pca.rest
+    
+    p1_df <- pca.rest[pca.rest$variable == factorNm1, , drop = FALSE]
+    p2_df <- pca.rest[pca.rest$variable == factorNm2, , drop = FALSE]
+    pal1 <- get_divergent_palette(length(unique(p1_df$Conditions)))
+    pal2 <- get_divergent_palette(length(unique(p2_df$Conditions)))
+    
+    p1 <- ggplot(p1_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
+      geom_point(size = 3, alpha = 0.6) +
+      xlim(xlim) +
+      ylim(ylim) +
+      xlab(xlabel) +
+      ylab(ylabel) +
+      theme_bw() +
+      scale_color_manual(values = pal1) +
+      guides(color = guide_legend(title = factorNm1)) +
+      theme(
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        legend.position = "bottom"
+      )
+
+    p2 <- ggplot(p2_df, aes(x = PC1, y = PC2, color = Conditions, label = names)) +
+      geom_point(size = 3, alpha = 0.6) +
+      xlim(xlim) +
+      ylim(ylim) +
+      xlab(xlabel) +
+      ylab(ylabel) +
+      theme_bw() +
+      scale_color_manual(values = pal2) +
+      guides(color = guide_legend(title = factorNm2)) +
+      theme(
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        legend.position = "bottom"
+      )
+    
+    if (requireNamespace("patchwork", quietly = TRUE)) {
+      pcafig <- patchwork::wrap_plots(p1, p2, ncol = 2)
+    } else if (requireNamespace("cowplot", quietly = TRUE)) {
+      pcafig <- cowplot::plot_grid(p1, p2, ncol = 2)
+    } else {
+      AddErrMsg("Missing dependency: install 'patchwork' or 'cowplot' for side-by-side PCA plots with separate legends."); return(0);
+    }
+    width <- 12
+    height <- 6
+  } else {
+      pcafig <- ggplot(pca.res, aes(x = PC1, y = PC2, color = Conditions)) +
+        geom_point(size = 3, alpha = 0.6) +
+        xlim(xlim) +
+        ylim(ylim) +
+        xlab(xlabel) +
+        ylab(ylabel) +
+        theme_bw() +
+        theme(
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 14),
+          plot.title = element_text(size = 16, face = "bold"),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14)
+        )
+    
+    width <- 8
+    height <- 6
+    pal <- get_divergent_palette(length(unique(pca.res$Conditions)))
+    pcafig <- pcafig + scale_fill_manual(values = pal) + scale_color_manual(values = pal)
+  }
+
+  if (interactive) {
+    library(plotly)
+    m <- list(l=50, r=50, b=20, t=20, pad=0.5)
+    w <- if (length(meta.info)==2) 1000 else 800
+    ggp_build <- layout( ggplotly(pcafig), autosize=FALSE, width=w, height=600, margin=m )
+    return(ggp_build)
+  }
+  if(dpi == 72){
+  dpi <- dpi *1.34
+  }
+  Cairo(file = imgNm, width=width, height=height, type=format, bg="white", unit="in", dpi=dpi)
+  print(pcafig)
+  dev.off()
+  invisible(imgNm)
 }
 
 GetPcaOutliers <- function(){
