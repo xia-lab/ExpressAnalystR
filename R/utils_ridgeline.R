@@ -247,36 +247,14 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
   means <- means[order(means$x, decreasing = FALSE), ];
   df$name <- factor(df$name, levels = means$Group.1);
   
-  # make the plot
-  rp <- ggplot(df, aes(x = value, y = name, fill = adj.pval)) +
-    geom_density_ridges(
-      aes(point_color = sig),
-      jittered_points = TRUE, point_shape = "|", point_size = 5,
-      alpha = 0.6,                       # semi-transparent ridges
-      color = "white",
-      scale = 1.5, rel_min_height = .02, size = 0.25,
-      position = position_points_jitter(height = 0)) +
-    scale_discrete_manual(aesthetics = "point_color",
-                          values = c(`FALSE` = "#B0B0B0", `TRUE` = "#CB181D"),
-                          name = "DE significant", labels = c(`FALSE` = "no", `TRUE` = "yes")) +
-    geom_vline(xintercept = 0, color = "red") +
-    scale_y_discrete(expand = c(0, 0), name = "Gene Set",
-                     labels = function(x) ifelse(nchar(x) > 45L,
-                                                 paste0(substr(x, 1L, 42L), "..."), x)) +
-    scale_x_continuous(expand = c(0, 0), name = "log2FC") +
-    scale_fill_gradient("adj. pval",
-                        low = high.col, high = low.col) + 
-    coord_cartesian(clip = "off") +
-    theme_ridges(center = TRUE) +
-    theme(legend.position = "right",
-          text = element_text(size=12, color = "black"),
-          axis.title = element_text(size=12, face = "bold"),
-          axis.text.x = element_text(color = "black"),
-          axis.text.y = element_text(size=12,color = "black"))
-  
-  Cairo::Cairo(file=imageName, width=10, height=8, type=format, bg="white", dpi=dpi, unit="in");
-  suppressMessages(print(rp));
-  dev.off();
+  # What the figure is drawn from: the ridge rows (value, gene set, adj. p, DE-significant), the colours,
+  # and the random-number state the jittered points are laid out with, so a redraw from the saved data
+  # lays them out the same way. DrawRidgeline reads only this.
+  if(!exists(".Random.seed", envir = globalenv(), inherits = FALSE)) runif(1);
+  pd <- list(df = df[, c("name", "value", "adj.pval", "sig")], high.col = high.col, low.col = low.col,
+             seed = get(".Random.seed", envir = globalenv(), inherits = FALSE));
+  .ov_plot_data(imgNm, pd, "DrawRidgeline", list(dpi = dpi, format = format));
+  rp <- DrawRidgeline(pd, imgNm, dpi, format);
   
   ##interative ridge json data
   ridge_bw <- rp$layers[[1]]$computed_stat_params$bandwidth;
@@ -398,4 +376,53 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
     saveSet(imgSet, "imgSet");
   
   return(totalSigPws)
+}
+
+
+# Draws the ridgeline figure from pd = list(df = <name (factor, in plotting order), value, adj.pval, sig>,
+# high.col, low.col, seed). Returns the ggplot object, invisibly (its layer carries the bandwidth).
+DrawRidgeline <- function(pd, imgNm = "abc", dpi = 150, format = "png"){
+  imageName <- paste0(imgNm, "dpi" , dpi, ".", format);
+  suppressPackageStartupMessages({
+    require("ggplot2");
+    require("ggridges");
+  })
+  df <- pd$df;
+  high.col <- pd$high.col;
+  low.col <- pd$low.col;
+  if(!is.null(pd$seed)){
+    old.seed <- get0(".Random.seed", envir = globalenv(), inherits = FALSE);
+    assign(".Random.seed", pd$seed, envir = globalenv());
+    on.exit(if(is.null(old.seed)) rm(".Random.seed", envir = globalenv()) else assign(".Random.seed", old.seed, envir = globalenv()), add = TRUE);
+  }
+  rp <- ggplot(df, aes(x = value, y = name, fill = adj.pval)) +
+    geom_density_ridges(
+      aes(point_color = sig),
+      jittered_points = TRUE, point_shape = "|", point_size = 5,
+      alpha = 0.6,                       # semi-transparent ridges
+      color = "white",
+      scale = 1.5, rel_min_height = .02, size = 0.25,
+      position = position_points_jitter(height = 0)) +
+    scale_discrete_manual(aesthetics = "point_color",
+                          values = c(`FALSE` = "#B0B0B0", `TRUE` = "#CB181D"),
+                          name = "DE significant", labels = c(`FALSE` = "no", `TRUE` = "yes")) +
+    geom_vline(xintercept = 0, color = "red") +
+    scale_y_discrete(expand = c(0, 0), name = "Gene Set",
+                     labels = function(x) ifelse(nchar(x) > 45L,
+                                                 paste0(substr(x, 1L, 42L), "..."), x)) +
+    scale_x_continuous(expand = c(0, 0), name = "log2FC") +
+    scale_fill_gradient("adj. pval",
+                        low = high.col, high = low.col) + 
+    coord_cartesian(clip = "off") +
+    theme_ridges(center = TRUE) +
+    theme(legend.position = "right",
+          text = element_text(size=12, color = "black"),
+          axis.title = element_text(size=12, face = "bold"),
+          axis.text.x = element_text(color = "black"),
+          axis.text.y = element_text(size=12,color = "black"))
+  
+  Cairo::Cairo(file=imageName, width=10, height=8, type=format, bg="white", dpi=dpi, unit="in");
+  suppressMessages(print(rp));
+  dev.off();
+  invisible(rp)
 }
