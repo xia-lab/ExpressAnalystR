@@ -834,16 +834,22 @@ CheckMetaIntegrity <- function(){
   # are sample names identical to data$orig
   # order samples in same way as in abundance table
   sel.nms <- names(mdata.all);
-  smpl_nms <- rownames(metadata);
+  # the rows of each dataset in the merged table
+  row.end <- cumsum(vapply(meta.dfs, nrow, 1L));
+  row.start <- row.end - vapply(meta.dfs, nrow, 1L) + 1L;
     
   for(i in 1:length(sel.nms)){
     dataSet <- readDataset(sel.nms[i]);
     data.smpl.nms <- colnames(dataSet$data.norm)
     
-    # now remove extra meta if present, and order them
-    nm.hits2 <- which(smpl_nms %in% data.smpl.nms);
+    # each dataset keeps its own rows, so a sample name used in two datasets keeps its own group in each
+    nm.hits2 <- row.start[i]:row.end[i];
     metadata$Dataset[nm.hits2] <- sel.nms[i];
     metadata1 <- metadata[nm.hits2,,drop=F];
+    rownames(metadata1) <- rownames(meta.dfs[[i]]);
+    # now remove extra meta if present, and put the rows in the same order as the data's samples
+    metadata1 <- metadata1[rownames(metadata1) %in% data.smpl.nms,,drop=F];
+    metadata1 <- metadata1[order(match(rownames(metadata1), data.smpl.nms)),,drop=F];
     metadata1[] <- lapply( metadata1, factor)
     
     dataSet$meta.info <- dataSet$metaOrig <- metadata1
