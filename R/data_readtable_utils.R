@@ -477,7 +477,8 @@ ReadMetaData <- function(metafilename){
     # now remove extra meta if present, and order them
     nm.hits2 <- which(smpl_nms %in% data.smpl.nms);
     metadata$Dataset[nm.hits2] <- sel.nms[i];
-    metadata1 <- metadata[nm.hits2,,drop=F];
+    # Put the rows in the same order as the data's samples, so each sample keeps its own group.
+    metadata1 <- metadata[match(data.smpl.nms, smpl_nms),,drop=F];
     metadata1[] <- lapply( metadata1, factor)
     dataSet$meta.info <- dataSet$metaOrig <- metadata1
     dataSet$disc.inx <-dataSet$disc.inx.orig <- disc.inx[colnames(metadata1)]
@@ -727,7 +728,8 @@ ReadMetaData <- function(metafilename){
     mydata$`#NAME` <- trimws(as.character(mydata$`#NAME`))
     colnames(datOrig) <- trimws(colnames(datOrig))
     idx = which( !mydata$`#NAME` %in%colnames(datOrig) )
-    if(length(idx)>1){
+    # Remove every sample that is in the sheet but not in the data, even if there is only one.
+    if(length(idx)>0){
       if(length(idx)==1){
         match.msg <- paste0(match.msg,"One sample ", mydata$`#NAME`[idx], " was not detected in data file and was removed from metadata table!   ")
       }else if(length(idx)>3){
