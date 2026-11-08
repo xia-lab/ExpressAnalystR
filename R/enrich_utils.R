@@ -696,7 +696,7 @@ PlotEnrichNetworkPNG <- function(dataName, imgName, format="png", dpi=150, width
     w[lower.tri(w)] <- t(w)[lower.tri(w)]
     wd <- reshape::melt(w); wd <- wd[wd[,1]!=wd[,2] & !is.na(wd[,3]),]
     g <- graph_from_data_frame(wd[,-3], directed=FALSE)
-    g <- delete_edges(g, E(g)[wd[,3] < 0.3])
+    g <- enrich_net_keep_edges(g, hits.query)   # >= 2 shared genes and Jaccard >= 0.25 (utils_enrichnet.R)
     if (vcount(g) == 0) return(0)
     cnt2 <- hits[V(g)$name]
     V(g)$size <- if (all(cnt2==cnt2[1])) rep(12, length(cnt2)) else scales::rescale(log(cnt2+1,10), to=c(8,24))
