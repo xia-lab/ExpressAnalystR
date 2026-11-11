@@ -672,6 +672,8 @@ gsoa.fun <- function(file, universe, hits, bmd.res, pval = 1.0, FDR = FALSE){
   
   gs.names <- data.frame(name = gs.rds$term, id = names(gs.rds$sets))
   gs.lib <- gs.rds[["sets"]]
+  # the KEGG sets of fly and worm name their members by locus tag; the universe and the hits are Entrez ids (see .entrezFromLocusTags)
+  gs.lib <- .entrezFromLocusTags(gs.lib, file.path(dirname(file), "locustag.rds"));
   
   # hypergeometic test
   results.test <- multiHyperGeoTest(gs.lib, universe, hits)

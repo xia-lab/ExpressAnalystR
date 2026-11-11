@@ -347,6 +347,10 @@
   }
   
   current.geneset <- my.lib$sets;
+  # A library whose members are locus tags (the KEGG sets of fly and worm: "Dmel_CG10160", "CELE_C01B4.6") cannot meet a query in Entrez
+  # ids, which every query here is: no set overlapped the query and the enrichment returned nothing. The members are translated to
+  # Entrez ids through the organism's locus-tag table, the one the id mapping of an uploaded table already uses.
+  current.geneset <- .entrezFromLocusTags(current.geneset, .get.ea.org.lib.path(lib.path, folderNm, "locustag.rds"));
   #remove empty pathways
   keep.inx <- lapply(current.geneset,length)>0
   current.geneset <- current.geneset[keep.inx]
@@ -366,6 +370,22 @@
   res$current.setids <- set.ids;
   res$current.geneset <- current.geneset;
   return(res);
+}
+
+# The members of a gene-set library as Entrez ids. A library already in Entrez ids (any member is a plain number) is returned as it
+# is, and so is one for an organism with no locus-tag table (lt.file, <org>/locustag.rds: names are locus tags, values Entrez ids) or
+# whose members the table does not hold. A tag the table does not hold is left out of its set; the set names are kept.
+.entrezFromLocusTags <- function(sets, lt.file){
+  ids <- unique(unlist(sets, use.names = FALSE));
+  if (length(ids) == 0 || any(grepl("^[0-9]+$", ids))) return(sets);
+  if (length(lt.file) != 1 || !file.exists(lt.file)) return(sets);
+  lt <- tryCatch(readRDS(lt.file), error = function(e) NULL);
+  if (is.null(lt) || length(lt) == 0 || !any(ids %in% names(lt))) return(sets);
+  message("[EnrichLib] ", sum(ids %in% names(lt)), " of ", length(ids), " locus tags of the library translated to Entrez ids");
+  lapply(sets, function(s){
+    e <- unname(lt[as.character(s)]);
+    unique(as.character(e[!is.na(e)]));
+  });
 }
 
 GetRidgePlot <- function(dataName, imgNm = "abc", dpi=default.dpi, format="png", fun.type = "kegg", ridgeType = "ora", ridgeColor = "teal", gseaRankOpt="", sigLevel = 0.05, pwNum=20, inx = 1){
