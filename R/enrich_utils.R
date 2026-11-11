@@ -165,10 +165,11 @@
   # the exported enr.mat/csv/json (the earlier save held the unfiltered list).
   ov_qs_save(hits.query, "hits_query.qs");
 
-  if(nrow(res.mat)> 1){
+  # one set left is a result too: it was reported as "No overlap between queried genes and pathway library!" and no table was written
+  if(nrow(res.mat)> 0){
     # order by p value
     ord.inx<-order(res.mat[,4]);
-    res.mat <- signif(res.mat[ord.inx,],3);
+    res.mat <- signif(res.mat[ord.inx,,drop=FALSE],3);
     hits.query <- hits.query[ord.inx];
     
     res.mat.all <- as.data.frame(res.mat);
@@ -183,7 +184,7 @@
     
     res.mat.all <- res.mat.all[which(res.mat.all$Genes != "NA"), ];
     res.mat.all$Pathway <- NULL;
-    pws <- rownames(res.mat[which(res.mat.all$Genes != "NA"), ]) 
+    pws <- rownames(res.mat[which(res.mat.all$Genes != "NA"), , drop=FALSE]) 
     fun.ids2 <- as.vector(setres$current.setids[pws]) 
     resTable.all <- data.frame(Pathway = pws, ID = fun.ids2, res.mat.all)
 
