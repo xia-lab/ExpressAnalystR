@@ -46,7 +46,11 @@ GetSigGenes <-function(dataName="", res.nm="nm", p.lvl=0.05, fc.lvl=1, inx=1, FD
   filename <- paste(filename, "_", res.nm, "_fc_" , dataSet$fc.lvl, ".csv", sep="");
   current.msg <- "";
   
-  if (is.null(resTable) || nrow(resTable) == 0){
+  if (is.null(resTable)) {
+    # nothing was compared: the function went on and stopped further down on the missing table with "argument is of length zero"
+    stop("No differential expression result: run the differential analysis first.");
+  }
+  if (nrow(resTable) == 0){
     msgSet$current.msg <- paste(msgSet$current.msg, "No significant genes were identified using the given design and cutoff."); 
   }
   # now rank by logFC, note, the logFC for each comparisons 
