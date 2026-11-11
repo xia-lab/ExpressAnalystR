@@ -209,6 +209,7 @@
     }
   }else{
     msgSet$current.msg <- "No overlap between queried genes and pathway library!"
+    saveSet(msgSet, "msgSet");
     # Same as the pre-pipeline guard: persist an empty enr.mat.qs so downstream
     # readers (ridgeline, enrichnet) don't fail with "file not found".
     empty.mat <- matrix(numeric(0), nrow=0, ncol=5);
