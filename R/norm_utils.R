@@ -303,8 +303,9 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
     msg <- paste(msg, "Filtered ", sum(rm.inx), " features below", count.thresh,
                  "CPM in at least the smallest group.", collapse = " ")
   } else {
-    rm.inx <- signal < count.thresh
-    msg <- paste(msg, "Filtered ", sum(rm.inx), " features with low abundance using", countOpt, "method.", collapse = " ")
+    # a cutoff of 0 is no abundance filter: on a centred or z-scored table about half of the features have a negative mean (or sum), and "< 0" removed them all
+    rm.inx <- if (count.thresh > 0) signal < count.thresh else is.na(signal)   # a feature with no signal at all is still removed, as before
+    msg <- paste(msg, "Filtered ", sum(rm.inx, na.rm = TRUE), " features with low abundance using", countOpt, "method.", collapse = " ")
   }
   rm.inx[is.na(rm.inx)] <- TRUE
 
