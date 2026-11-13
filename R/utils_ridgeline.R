@@ -13,6 +13,7 @@ compute.ridgeline <- function(dataSet, imgNm = "abc", dpi=default.dpi, format="p
   msgSet <- readSet(msgSet, "msgSet");
   analSet <- readSet(analSet, "analSet");
   imageName <- paste0(imgNm, "dpi" , dpi, ".", format);
+  jsonNm <- paste0(imgNm, ".json");
   anal.type <- paramSet$anal.type;
   require("dplyr");
   suppressPackageStartupMessages({
@@ -258,7 +259,6 @@ names(rankedVec) <- doEntrez2SymbolMapping(names(rankedVec), paramSet$data.org, 
   
   ##interative ridge json data
   ridge_bw <- rp$layers[[1]]$computed_stat_params$bandwidth;
-  jsonNm <- paste0(imgNm, ".json");
   
   symb <- doEntrez2SymbolMapping(df$entrez, paramSet$data.org, paramSet$data.idType);
   df$symbol <- symb;
