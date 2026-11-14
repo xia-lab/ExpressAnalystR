@@ -174,18 +174,9 @@ PerformDataAnnot <- function(dataName="", org="hsa", dataType="array", idType="e
   avgCount <- totalCount / ncol(dataSet$data.norm);
   minCount <- min(col.sum);
   maxCount <- max(col.sum);
-  lvls = "";
-  if(any(dataSet$disc.inx.orig)){
-    disc = paste(names(dataSet$disc.inx.orig)[which(dataSet$disc.inx.orig)],collapse = ", ")
-    lvls = paste0(lvls,length(which(dataSet$disc.inx.orig))," discrete factors: ",disc,"; ")
-  }
-  if(any(dataSet$cont.inx.orig)){
-    cont = paste(names(dataSet$cont.inx.orig)[which(dataSet$cont.inx.orig)],collapse = ", ")
-    lvls = paste0(lvls,length(which(dataSet$cont.inx.orig))," continuous factors: ",cont,".")
-  }
   missNum = which(is.na(dataSet$data.norm)|dataSet$data.norm=="NA"|dataSet$data.norm=="")
   msgSet$current.msg <- current.msg;
-  msgSet$summaryVec <- c(matched.len, perct, length(anot.id), sum(!hit.inx), ncol(dataSet$data.norm), ncol(dataSet$meta.info), sprintf("%4.2e", signif(totalCount ,3)), sprintf("%4.2e",signif(avgCount, 3)), sprintf("%4.2e",signif(minCount, 3)), sprintf("%4.2e",signif(maxCount,3)), lvls,length(missNum))  
+  msgSet$summaryVec <- c(matched.len, perct, length(anot.id), sum(!hit.inx), ncol(dataSet$data.norm), ncol(dataSet$meta.info), sprintf("%4.2e", signif(totalCount ,3)), sprintf("%4.2e",signif(avgCount, 3)), sprintf("%4.2e",signif(minCount, 3)), sprintf("%4.2e",signif(maxCount,3)), .eaPrimaryGroupNames(dataSet$meta.info, dataSet$disc.inx.orig),length(missNum))  
   if(length(missNum)>0){
     RemoveMissingPercent(dataSet$name, 0.5)
     ImputeMissingVar(dataSet$name, method="min")
@@ -755,3 +746,22 @@ firstup <- function(x) {
         
         }
         
+
+# The groups of the comparison column, by name: the primary factor is the FIRST column of the sample sheet (the proposal and UpdatePrimaryMeta move it
+# there). The data integrity page shows this as "Group names"; it was a sentence about the sheet's FACTORS ("2 discrete factors: Treatment, Donor;"),
+# which the "Number of experimental factors" line above it already counts. A continuous first column has no groups, and says so.
+.eaPrimaryGroupNames <- function(meta.info, disc.inx = NULL){
+  if(is.null(meta.info) || ncol(meta.info) == 0){
+    return("");
+  }
+  prim.nm <- names(meta.info)[1];
+  prim.disc <- if(!is.null(disc.inx) && prim.nm %in% names(disc.inx)){
+    isTRUE(disc.inx[[prim.nm]]);
+  }else{
+    !is.numeric(meta.info[, 1]);
+  }
+  if(prim.disc){
+    return(paste(levels(droplevels(factor(meta.info[, 1]))), collapse = "; "));
+  }
+  return(paste0("none (", prim.nm, " is continuous)"));
+}
