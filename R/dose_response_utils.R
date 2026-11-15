@@ -1006,9 +1006,8 @@ GetDRRes <- function(){
   
   res <- c(curv.num, bmd.num)
   
-  #update sig genes
-  dataSet$sig.mat <- dataSet$comp.res[which(rownames(dataSet$comp.res) %in% bmdcalc.res$id),];
-  RegisterData(dataSet);
+  # dataSet$sig.mat stays what the differential test found: every reader of "the significant genes" reads it. The genes with a
+  # benchmark dose are bmdcalc.res (FilterBMDResults), where the benchmark-dose steps read them.
   return(res)  
   
 }
