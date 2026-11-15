@@ -335,7 +335,7 @@ PerformFiltering <- function(dataSet, var.thresh, count.thresh, filterUnmapped, 
   filter.val <- apply(data, 1, IQR, na.rm=T);
   nm <- "Interquartile Range";
   filter.val <- -filter.val
-  rk <- rank(filter.val, ties.method='random');
+  rk <- rank(filter.val, ties.method = "first");
   good.inx <- -filter.val > 0;
   kp.pct <- (100 - var.thresh)/100;
   remain <- rk < nrow(data)*kp.pct;

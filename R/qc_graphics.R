@@ -512,7 +512,7 @@ DrawDataMeanStd <- function(pd, imgNm, dpi=150, format="png"){
   
   px   = rowMeans(x, na.rm = TRUE)
   py   = sqrt(rowV(x, mean = px, na.rm = TRUE))
-  rpx  = rank(px, na.last = FALSE, ties.method = "random")
+  rpx  = rank(px, na.last = FALSE, ties.method = "first")
   
   ## run median with centers at dm, 2*dm, 3*dm,... and width 2*dm
   dm        = 0.025
