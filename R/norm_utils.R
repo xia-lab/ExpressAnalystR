@@ -700,7 +700,7 @@ morlog_micro_run <- function(expr_field = "expr", norm_field = "norm") {
   } else if (requireNamespace("qs2", quietly = TRUE)) {
     function(o, f) qs2::qs_save(o, file = f)
   } else {
-    function(o, f) qs::qsave(o, file = f, preset = "fast")
+    stop("The qs2 package is needed to save the data (install.packages(\"qs2\")).", call. = FALSE)
   }
 
   di <- .rd("dat.in.qs")

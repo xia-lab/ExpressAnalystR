@@ -13,7 +13,7 @@ License: MIT + file LICENSE
 Depends: R (>= 4.0.3), igraph, RColorBrewer, qs2, rjson, RSQLite, ggplot2, Cairo
 Imports: Rcpp, BiocManager, data.table, metap, RJSONIO, ks, fgsea,
     dplyr, ggforce, graphlayouts, httr, knitr, rgl, edgeR, limma, sva,
-    pryr, readr, metagenomeSeq
+    readr, metagenomeSeq
 VignetteBuilder: knitr
 BugReports: https://github.com/xia-lab/ExpressAnalystR/issues/new
 URL: https://github.com/xia-lab/ExpressAnalystR
