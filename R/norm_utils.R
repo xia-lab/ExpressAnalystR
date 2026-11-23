@@ -129,6 +129,26 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     }
   }
 
+  # Array intensities on a LINEAR scale (MAS5 values, a series matrix as GEO serves it) reached the differential test unlogged when no log
+  # transformation was asked ("none", "quantile"): limma fitted the intensities and called their differences log fold changes (the estrogen
+  # example unlogged: "logFC" 3,214 for a 2.8-fold change, and 220 significant probes where its log2 values give 390). They are log2-transformed
+  # first, by GEO2R's rule for "not yet logged" (99th percentile above 100, or a range above 50 with a positive lower quartile), and it is said.
+  if (identical(dataSet$type, "array") && norm.opt %in% c("none", "quantile")) {
+    m.chk <- suppressWarnings(as.matrix(data)); mode(m.chk) <- "numeric"
+    qx <- stats::quantile(m.chk, c(0, 0.25, 0.5, 0.75, 0.99, 1), na.rm = TRUE, names = FALSE)
+    if (all(is.finite(qx)) && (qx[5] > 100 || (qx[6] - qx[1] > 50 && qx[2] > 0))) {
+      data <- NormalizeData(data, "log", "NA", "NA")
+      if (length(data) == 1) return(0)
+      msg <- paste(msg, "Input intensities are on a linear scale; they were log2-transformed.", collapse = " ")
+      assign(".OmicsVerse.norm.autoswitch",
+             paste0("The intensities are on a linear scale (99th percentile ", format(signif(qx[5], 3), big.mark = ","),
+                    "), so they were log2-transformed before ",
+                    if (identical(norm.opt, "quantile")) "quantile normalization" else "the analysis",
+                    ": a differential test of array data reads log2 intensities, and its fold changes are log2 fold changes."),
+             envir = globalenv())
+    }
+  }
+
   # "median" is applied here (no downstream branch handles it): centre each sample on its
   # own median. This is a SAMPLE-wise shift, not per-feature Z-scaling — Z-scaling would
   # standardize each FEATURE across samples, after which a "logFC" is in SD units, which
