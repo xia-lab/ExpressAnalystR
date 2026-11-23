@@ -142,10 +142,9 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     if (any(is.finite(anchor) & is.finite(col.min) & (anchor <= col.min + 1e-8)))
       anchor <- apply(m.num, 2, stats::quantile, probs = 0.75, na.rm = TRUE)
     anchor[!is.finite(anchor)] <- 0
-    data <- as.data.frame(sweep(m.num, 2, anchor - stats::median(anchor, na.rm = TRUE), "-"),
-                          check.names = FALSE)
+    data <- sweep(m.num, 2, anchor - stats::median(anchor, na.rm = TRUE), "-")
     islog <- "true"
-    msg <- paste(msg, "Per-sample median scaling.", collapse = " ")
+    msg <- paste(msg, "Per-sample median centring.", collapse = " ")
   }
 
   # Publish the method that will ACTUALLY be applied. A sweep that offers several
@@ -197,6 +196,9 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
     data <- response
 
     msg <- paste("[MORlog] Applied DESeq2 median-of-ratios size-factor normalization and log2(x+1).", msg)
+  } else if (identical(norm.opt, "median")) {
+    # Applied above: the per-sample shift of log values. NormalizeData's "median" divides each sample by its median,
+    # which, on the centred values, divided every value by one common number and shrank every log fold change by it.
   } else {
     # ---- existing generic normalization ----
     data <- NormalizeData(data, norm.opt, "NA", "NA")
