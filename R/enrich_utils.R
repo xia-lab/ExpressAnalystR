@@ -76,6 +76,17 @@
    if(file.exists("data.anot.qs")){
     current.geneset <- lapply(current.geneset, function(x){x[x %in% current.universe]})
   }
+  # The draws are the query genes inside the universe. With the library as background a query gene that is in no
+  # set of the library can never be a hit, and counting it as a draw inflated every Expected count and deflated
+  # every p-value; the universe is the library's genes, so the query is its genes among them (as MetaboAnalyst and
+  # OmicsNet count). With the measured genes as background the query is already among them. What was counted is
+  # recorded beside the universe, so a page can say how many of the list the test saw.
+  q.input <- length(ora.vec);
+  in.univ <- !is.na(ora.vec) & ora.vec %in% current.universe;
+  ora.vec <- ora.vec[in.univ];
+  ora.nms <- ora.nms[in.univ];
+  .ov_ora_universe$query <<- length(ora.vec);
+  .ov_ora_universe$query.input <<- q.input;
   # A pathway of fewer than two (measured) members is not tested: one gene cannot be "enriched". Filtered by size
   # alone, before any test, so the family the p-values are adjusted over never depends on the hits (the same family
   # as the KEGG pathway-maps table).
