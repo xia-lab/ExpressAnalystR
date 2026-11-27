@@ -34,6 +34,39 @@ ov_bridge_file <- function(suffix) {
   )
 }
 
+# The mean at which the running median of the gene standard deviations peaks (the numbers meanSdPlot draws, .meanSdStats), or NA when the line is highest at its left
+# end (no low-expression hook), peaks beyond its middle, or rises by less than its own wobble.
+.trendCutoff <- function(x) {
+  st <- .meanSdStats(as.matrix(x), ranks = FALSE)
+  if (is.null(st)) return(NA_real_)
+  q <- as.numeric(st$quantile); sdv <- as.numeric(st$sd); ok <- is.finite(q) & is.finite(sdv); q <- q[ok]; sdv <- sdv[ok]
+  if (length(sdv) < 8L) return(NA_real_)
+  i <- which.max(sdv)
+  if (i <= 2L || i > length(sdv) / 2) return(NA_real_)
+  if (sdv[i] - min(sdv[seq_len(i)]) < 0.05 * sdv[i]) return(NA_real_)
+  q[i]
+}
+# Filters a table of read counts by that cutoff, BEFORE normalization: the genes whose mean log2 counts-per-million is below the peak of the trend are removed (the
+# upward hook at the low end of the mean-sd plot: genes too weakly expressed to measure well), once more if a slight hook remains, and no further. Nothing is removed
+# from a table that is not read counts, that has no hook, or that would lose more than half of its genes. Returns list(data, cutoff, before, after, steps, note).
+.trendCutFilter <- function(data) {
+  m <- suppressWarnings(as.matrix(data)); mode(m) <- "numeric"; fin <- m[is.finite(m)]
+  n0 <- nrow(m); none <- list(data = data, cutoff = NA_real_, before = n0, after = n0, steps = 0L, note = "none")
+  if (!length(fin) || any(fin < 0) || max(fin) < 50 || n0 < 200L || ncol(m) < 3L) { none$note <- "not counts"; return(none) }
+  lib <- colSums(m, na.rm = TRUE); lib[lib <= 0] <- 1
+  lc <- log2(t(t(m) / lib) * 1e6 + 1)                      # the view the trend is read on; the run's own normalization follows on the genes kept
+  keep <- rep(TRUE, n0); cut <- NA_real_; steps <- 0L
+  for (k in 1:2) {
+    c1 <- .trendCutoff(lc[keep, , drop = FALSE])
+    if (!is.finite(c1) || (is.finite(cut) && c1 <= cut)) break
+    k2 <- keep & rowMeans(lc, na.rm = TRUE) >= c1
+    if (sum(k2) < 0.5 * n0) { if (k == 1L) { none$cutoff <- c1; none$note <- "half"; return(none) }; break }
+    keep <- k2; cut <- c1; steps <- k
+  }
+  if (steps == 0L) return(none)
+  list(data = data[keep, , drop = FALSE], cutoff = cut, before = n0, after = sum(keep), steps = steps, note = "cut")
+}
+
 PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, filterUnmapped,
                                  islog = "false", countOpt = "sum") {
   #save.image("norm.RData");
@@ -60,6 +93,12 @@ PerformNormalization <- function(dataName, norm.opt, var.thresh, count.thresh, f
   }
   ov_qs_save(raw.annot, file = "data.anot.qs")
   data <- PerformFiltering(dataSet, var.thresh, count.thresh, filterUnmapped, countOpt)
+  # The low-expression cut read from the mean-sd trend (off unless the option is set): part of the filtering, so the normalization below is computed on the genes that remain.
+  suppressWarnings(try(rm("trend.cut", envir = globalenv()), silent = TRUE))
+  if (isTRUE(getOption("ExpressAnalystR.trend.cut", FALSE)) && identical(as.character(dataSet$type)[1], "count")) {
+    tc <- tryCatch(.trendCutFilter(data), error = function(e) NULL)
+    if (!is.null(tc)) { data <- tc$data; tc$data <- NULL; assign("trend.cut", tc, envir = globalenv()) }
+  }
   .save.annotated.data(data)
   msg <- paste(filt.msg, msg)
 
