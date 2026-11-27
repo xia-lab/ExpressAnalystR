@@ -308,6 +308,23 @@
   return(1);
 }
 
+# The gene sets of one library, kept under the library's own name beside current_geneset.qs. current_geneset.qs holds the LAST library loaded, so a view of an
+# earlier library's result (the enrichment-score plot of a KEGG set after a GO run) found no such set in it and drew a flat line. .genesetNamed finds a set by
+# its name in the current file first, then in the libraries kept here.
+.saveGenesetOfLibrary <- function(current.geneset, fun.type){
+  f <- paste0("geneset_", gsub("[^A-Za-z0-9]+", "_", as.character(fun.type)[1]), ".qs");
+  tryCatch(ov_qs_save(current.geneset, f), error = function(e) NULL);
+  invisible(f);
+}
+.genesetNamed <- function(set.nm){
+  files <- c("current_geneset.qs", sort(list.files(pattern = "^geneset_.*[.]qs$")));
+  for(f in files[file.exists(files)]){
+    gs <- tryCatch(ov_qs_read(f), error = function(e) NULL);
+    if(!is.null(gs) && !is.null(gs[[set.nm]])) return(gs[[set.nm]]);
+  }
+  NULL
+}
+
 .loadEnrichLib <- function(fun.type, paramSet){
   #if custom return here.
   if(fun.type == "custom"){
@@ -380,6 +397,7 @@
   set.nms <- .uniqueSetNames(names(current.geneset), set.ids);
   names(current.geneset) <- names(set.ids) <- set.nms;
   ov_qs_save(current.geneset, "current_geneset.qs");
+  .saveGenesetOfLibrary(current.geneset, fun.type);
   res <- list();
   res$current.setlink <- my.lib$link;
   res$current.setids <- set.ids;
@@ -492,6 +510,7 @@ PlotGSViewNew <-function(cmpdNm, format="png", dpi=default.dpi, imgName){
 
   # Save the processed gene set to a new file
   ov_qs_save(current.geneset, "current_geneset.qs")
+  .saveGenesetOfLibrary(current.geneset, fun.type)
   
   # Create the result object to return
   res <- list()

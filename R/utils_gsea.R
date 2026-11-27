@@ -765,7 +765,10 @@ plot.gs.view <-function(fileName, format="png", dpi=default.dpi, width=NA, imgNa
 
   bridge_in_gs <- ov_bridge_file("in")
   bridge_out_gs <- sub("_in.qs2", "_out.qs2", bridge_in_gs)
-  ov_qs_save(list(geneset = current.geneset[[cmpdNm]], ranked = analSet$rankedVec,
+  # the set by its name, from the library it belongs to: current_geneset.qs is the last library loaded, and a set of an earlier one was not in it (a flat line)
+  gs.genes <- current.geneset[[cmpdNm]];
+  if(is.null(gs.genes)) gs.genes <- .genesetNamed(cmpdNm);
+  ov_qs_save(list(geneset = gs.genes, ranked = analSet$rankedVec,
                  imgName = imgName, dpi = dpi, format = format),
             bridge_in_gs, preset = "fast")
   on.exit(unlink(c(bridge_in_gs, bridge_out_gs)), add = TRUE)
